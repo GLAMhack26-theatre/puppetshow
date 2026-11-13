@@ -17,7 +17,7 @@ The repo is empty apart from the README; this doc defines the setup and architec
 | Targets | Phone and desktop with a webcam first, the phone running everything itself. WebRTC remote and VR later |
 | Audio | three.js audio (Web Audio, positional) + **ZzFX** (~1 KB) for generated effects; music as `.m4a` |
 | Tooling | TypeScript + Vite + HTTPS + Docker Compose; the app is served directly by Vite (no Traefik or nginx for now) |
-| Assets | Sources outside git, synced into `/assets`; the `convert` service turns them automatically into `/public` |
+| Assets | Sources committed in `/assets`, grouped by source; large files on external storage, downloaded by hand into `assets/external/` (git-ignored); the `convert` service turns both automatically into `/public` |
 | Fonts | Geist Serif (titles, 3D letters) + Geist Sans (UI), bundled from the `geist` npm package (OFL) |
 | Exit | Back to the title screen |
 | Later | WebRTC remote (display + phone via QR), WebXR 3DoF/6DoF, LiteRT-LM |
@@ -131,7 +131,7 @@ MediaPipe runs with `detectForVideo` on `requestVideoFrameCallback`, separate fr
 
 ## 4. Asset pipeline (`convert` service)
 
-`scripts/sync-assets.sh` copies the sources from `ASSETS_REMOTE` into `/assets` with rsync. `/assets` is git-ignored; only `assets/README.md`, which documents the layout and the Blender convention, is in git.
+The sources are committed in `/assets`, grouped by where they come from (e.g. `assets/digital.skkg.ch/Stuhl_25210.6.{blend,glb,jpg}`: the original photo, the Blender file and a `.glb`). Large files (over about 20 MB) are not committed: they live on external storage and everyone downloads them by hand into `assets/external/<source>/`, which is git-ignored except for its README (`assets/external/README.md`, with the storage location). No git LFS. The converter reads both `assets/` and `assets/external/`.
 
 The converter writes to `/public` (git-ignored) plus `public/manifest.json`. It works incrementally, comparing source hashes, and runs with `--watch` in dev.
 
@@ -148,8 +148,9 @@ The converter writes to `/public` (git-ignored) plus `public/manifest.json`. It 
 ## 5. Project layout
 
 ```
-assets/                 # git-ignored sources (models, sheets, audio, fonts) + README.md
-scripts/sync-assets.sh  scripts/fetch-mediapipe-models.sh
+assets/<source>/        # committed sources (models, sheets, audio, fonts), e.g. assets/digital.skkg.ch/
+assets/external/        # large files from external storage, downloaded by hand (git-ignored)
+scripts/fetch-mediapipe-models.sh
 converter/              # Dockerfile (Blender LTS + node + ffmpeg), export.py, convert.mjs
 certs/                  # git-ignored TLS cert/key for Vite (server.https / preview.https)
 src/
@@ -213,5 +214,7 @@ Add one line per change to a decision in this doc: date, what changed, why.
 
 | Date | Change | Reason |
 |---|---|---|
+| 2026-11-13 | Large assets: external storage, downloaded by hand into `assets/external/` (git-ignored); no git LFS | Keep the repo small without LFS quotas |
+| 2026-11-13 | Assets: committed in `/assets` (grouped by source) instead of synced from outside git | The team already committed the first objects |
 | 2026-11-13 | Physics: Havok → Rapier as our own system, IWSDK physics off | IWSDK's physics has no joints, sensors or collision events, and its Havok instance is private |
 | 2026-11-13 | Initial architecture: IWSDK + Havok, MediaPipe, three.js audio + ZzFX, phone-only first, Vite served directly (no proxy), assets outside git | Planning session |
