@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>SKKG Marionetten Theater</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #120d0b; color: #f3e9dc; font: 13px/1.4 system-ui, sans-serif; }
+      #app { position: fixed; inset: 0; touch-action: none; }
+      #hud { position: fixed; top: 8px; left: 8px; padding: 6px 8px; background: #0009; border-radius: 6px; white-space: pre; font-family: ui-monospace, monospace; pointer-events: none; }
+      #tests { position: fixed; top: 8px; right: 8px; display: flex; gap: 6px; }
+      #tests a, #panel button { color: inherit; background: #0009; padding: 6px 8px; border-radius: 6px; text-decoration: none; border: 0; font: inherit; }
+      #panel { position: fixed; bottom: 8px; left: 8px; right: 8px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+      #panel label { display: flex; gap: 4px; align-items: center; background: #0009; padding: 4px 8px; border-radius: 6px; }
+      #preview { position: fixed; bottom: 60px; right: 8px; width: 160px; height: 120px; border-radius: 6px; background: #0009; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="hud"></div>
+    <nav id="tests">
+      <a href="?test=world">world</a>
+      <a href="?test=puppet">puppet</a>
+      <a href="?test=mediapipe">mediapipe</a>
+      <a href="?test=interop">interop</a>
+    </nav>
+    <div id="panel"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

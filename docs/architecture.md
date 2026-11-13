@@ -12,7 +12,7 @@ The repo is empty apart from the README; this doc defines the setup and architec
 |---|---|
 | Rendering | three.js (the version bundled by IWSDK), `GLTFLoader`; no R3F |
 | Game engine | **Meta IWSDK** (`@iwsdk/core`, MIT) in browser mode: `World.create(container, { xr: false })`. WebXR later via `xr: { offer: … }` |
-| Physics | **Havok** (ships with IWSDK) |
+| Physics | **Rapier** (`@dimforge/rapier3d-compat`) as our own system; IWSDK physics stays off (`features.physics: false`) |
 | Gestures | MediaPipe (`@mediapipe/tasks-vision`: HandLandmarker + GestureRecognizer) |
 | Targets | Phone and desktop with a webcam first, the phone running everything itself. WebRTC remote and VR later |
 | Audio | three.js audio (Web Audio, positional) + **ZzFX** (~1 KB) for generated effects; music as `.m4a` |
@@ -24,7 +24,7 @@ The repo is empty apart from the README; this doc defines the setup and architec
 
 Background: other engines and physics libraries were also evaluated.
 - **Engines:** Needle Engine (not MIT), Houseki (GPL), elixr, Meep (archived), LittleJS (2D only), and our own thin engine.
-- **Physics:** Rapier, Jolt and cannon-es. Rapier stays the fallback if Havok constraints turn out not to be usable.
+- **Physics:** Rapier, Jolt, cannon-es and Havok. IWSDK ships Havok, but its physics API only covers rigid bodies: no joints, no sensors, no collision events, and the Havok instance is private (probably in a worker). The marionette needs all three, so Rapier runs as our own system.
 
 ---
 
@@ -33,7 +33,6 @@ Background: other engines and physics libraries were also evaluated.
 **From IWSDK:**
 - the ECS
 - the render loop and scene
-- Havok physics
 - spatial audio
 - `PanelUI` / `ScreenSpace` UI
 - canvas pointer, keyboard and gamepad input
@@ -43,6 +42,7 @@ Background: other engines and physics libraries were also evaluated.
 **Our own:**
 - the stage camera (fixed or orbit; IWSDK leaves the camera to the app)
 - all control input
+- physics: `RapierSystem` (fixed 60 Hz step, poses synced to entities through `PhysicsLink`)
 - the puppet rig, strings and grab: we write our own `GrabSystem`, because IWSDK's near-field grab is XR-only and grabbing here is done by the puppet's hands, not the user's
 
 **Systems:**
@@ -54,7 +54,7 @@ Background: other engines and physics libraries were also evaluated.
 
 ### Phase 0 spike (½ day)
 1. `xr: false` on a real phone (iOS Safari, Android Chrome): frame rate, bundle size, touch input, and the camera running together with MediaPipe.
-2. **Havok constraints:** does IWSDK expose ball-socket joints with angle limits (limbs) and distance constraints with a maximum length (strings)? If not, call the Havok wasm constraint API directly. Rapier as a separate system is the last resort, since it means two physics libraries.
+2. **Rapier in the IWSDK loop:** fixed timestep, pose sync, rope joints for strings, spherical joints for limbs, grab with a sensor and a fixed joint. (IWSDK's own physics was ruled out before the spike.)
 3. Plain three.js next to the ECS: raw `SkinnedMesh` bones, `TextGeometry`, `PositionalAudio`.
 4. Does a custom system (MediaPipe) fit cleanly into the IWSDK loop?
 
@@ -66,7 +66,7 @@ If items 1 or 2 fail, the fallback is our own thin engine with the same split in
 
 **Title screen**
 - "SKKG Marionetten Theater": each letter is a `TextGeometry` mesh in Geist Serif. The font is converted to typeface JSON by the converter.
-- Each letter hangs on strings (Havok distance constraints) and sways. Pointer or hand movement pushes the letters.
+- Each letter hangs on strings (Rapier rope joints) and sways. Pointer or hand movement pushes the letters.
 - The **Play** button opens the main scene. It also unlocks audio and asks for the camera and motion-sensor permissions, because iOS only grants these after a user gesture.
 
 **Main scene**
@@ -113,18 +113,18 @@ MediaPipe runs with `detectForVideo` on `requestVideoFrameCallback`, separate fr
 
 1. **Blender convention (decided):** agreed bone names (`head`, `spine`, `upperarm.L`, …), plus empties named `string.<id>` parented to bones. An optional custom property `collider` per bone gives the collider shape. The converter checks that these are present.
 2. **At runtime:**
-   - one Havok body per relevant bone (a capsule from the bone length)
-   - ball-socket or hinge constraints with limits between neighbouring bones
+   - one Rapier body per relevant bone (a capsule from the bone length)
+   - spherical or revolute joints between neighbouring bones (Rapier's JS API has no cone limits for spherical joints, so angular damping or revolute joints keep the limbs plausible)
    - the physics pose drives the `SkinnedMesh` bones
 3. **Strings:**
    - the control bar is a kinematic body positioned from `ControlInput.bar`
-   - each string is a distance constraint with a maximum length, from a point on the bar to `string.<id>`
-   - a pull shortens that maximum length
+   - each string is a rope joint (maximum distance), from a point on the bar to `string.<id>`
+   - a pull shortens the rope; the JS API has no length setter, so the joint is recreated when the length changes
    - the string is drawn as a sagging verlet/catenary line (rendering only)
 4. **Grab, throw, drop:**
    - each puppet hand has a sensor collider
-   - grip while a prop is in reach creates a fixed (lock) constraint
-   - release removes the constraint; the prop keeps the hand's velocity, which gives a throw
+   - grip while a prop is in reach creates a fixed joint
+   - release removes the joint; the prop keeps the hand's velocity, which gives a throw
    - release at low speed is a drop
 
 ---
@@ -189,7 +189,7 @@ Dockerfile  docker-compose.yml  dev.sh  CLAUDE.md
 
 ## 7. Risks
 
-- **Havok constraints through IWSDK** are not documented. Phase 0 settles this, with direct Havok and then Rapier as fallbacks.
+- **Rapier next to IWSDK:** IWSDK's own physics stays off. If we later want IWSDK features that assume its physics (e.g. its grabbing in XR), they will need an adapter to our Rapier bodies.
 - **MediaPipe and rendering together on a mid-range phone:** performance needs to be measured in phase 0. Possible measures: lower camera resolution, inference at 15–30 Hz.
 - **Blender in Docker on Apple Silicon** runs under x86 emulation and is slow. A local `BLENDER_BIN` is the fallback.
 - **iOS permissions:** camera, DeviceOrientation and audio all need a user gesture, which the Play button provides.
@@ -213,4 +213,5 @@ Add one line per change to a decision in this doc: date, what changed, why.
 
 | Date | Change | Reason |
 |---|---|---|
+| 2026-11-13 | Physics: Havok → Rapier as our own system, IWSDK physics off | IWSDK's physics has no joints, sensors or collision events, and its Havok instance is private |
 | 2026-11-13 | Initial architecture: IWSDK + Havok, MediaPipe, three.js audio + ZzFX, phone-only first, Vite served directly (no proxy), assets outside git | Planning session |

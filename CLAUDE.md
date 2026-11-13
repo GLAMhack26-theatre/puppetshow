@@ -1,6 +1,6 @@
 # Puppetshow – SKKG Marionetten Theater
 
-GLAM hackathon 2026: the marionette paper theatre in 3D. A rigged marionette on a central stage, controlled by gestures (MediaPipe on webcam or phone camera, phone sensors; WebRTC remote and WebXR later). Built on Meta IWSDK (three.js, ECS, Havok physics) with TypeScript and Vite.
+GLAM hackathon 2026: the marionette paper theatre in 3D. A rigged marionette on a central stage, controlled by gestures (MediaPipe on webcam or phone camera, phone sensors; WebRTC remote and WebXR later). Built on Meta IWSDK (three.js, ECS) with Rapier physics, TypeScript and Vite.
 
 ## Architecture doc
 
