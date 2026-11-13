@@ -4,7 +4,7 @@
 
 GLAM hackathon 2026: bring the marionette paper theatre back into 3D. On a central, room-filling stage, the visitor plays a scene interactively with a rigged marionette controlled by gestures. The marionette can hold, throw and drop objects.
 
-The repo is empty apart from the README. Atlas (`skkg/digital-skkg-atlas`) is only a reference for the setup (HTTPS dev, Docker, dev.sh). None of its libraries are carried over.
+The repo is empty apart from the README; this doc defines the setup and architecture to build on.
 
 ## Decisions
 
