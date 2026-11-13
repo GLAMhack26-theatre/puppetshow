@@ -1,7 +1,9 @@
 import { World } from "@iwsdk/core";
 import { PhysicsLink } from "./components/physics-link";
+import { addLighting } from "./stage/lighting";
+import { StageSystem, isCurtainOpen, loadStage, setCurtain } from "./stage/stage";
 import { RapierSystem, initPhysics } from "./systems/rapier-system";
-import { FpsSystem, buildStage } from "./spike/world";
+import { FpsSystem } from "./spike/world";
 
 // Phase 0 spike: one page, the test picked with ?test=world|puppet|mediapipe|interop
 // (docs/spikes/iwsdk.md). src/spike/ is removed once the spike is done.
@@ -16,14 +18,18 @@ const world = await World.create(document.getElementById("app")!, {
   render: { fov: 45 },
 });
 world.renderer.shadowMap.enabled = true;
-world.camera.position.set(0, 1.35, 3.2);
-world.camera.lookAt(0, 1.15, 0);
+world.camera.position.set(0, 1.5, 4.6);
+world.camera.lookAt(0, 1.3, -0.4);
 
 world.registerComponent(PhysicsLink);
 world.registerSystem(RapierSystem);
+world.registerSystem(StageSystem);
 world.registerSystem(FpsSystem);
 
-buildStage(world);
+await loadStage(world);
+addLighting(world);
+// Spike: C toggles the curtain (later: closed on the title, opens on Play)
+addEventListener("keydown", (e) => e.key === "c" && setCurtain(!isCurtainOpen()));
 
 switch (test) {
   case "puppet":
