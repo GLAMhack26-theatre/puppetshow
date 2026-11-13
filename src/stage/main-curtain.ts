@@ -3,8 +3,6 @@ import {
   type Material,
   Mesh,
   Quaternion,
-  Raycaster,
-  Vector2,
   Vector3,
   createSystem,
   type World,
@@ -14,7 +12,8 @@ import curtainUrl from "../../assets/stage_parts/Main_Curtain.glb?url";
 
 // The main curtain from assets/stage_parts/Main_Curtain.glb: a 1×1 quad
 // with a painted curtain. At start it hangs right in front of the camera
-// and covers the whole screen; a click on it raises it out of view.
+// and covers the whole screen; a click on one of the signs in front of it
+// (signs.ts) raises it out of view.
 //
 // It follows the camera every frame (instead of being placed in the stage),
 // so it covers the screen at every aspect ratio, also on phones in portrait
@@ -32,13 +31,12 @@ const CLOTH_BOTTOM = 985 / 1024;
 /** A bit larger than the screen, so no edge shows through rounding. */
 const OVERSCAN = 1.03;
 const RAISE_SECONDS = 1.6;
-/** A pointer that moved further than this between down and up was a drag (orbit), not a click. */
-const CLICK_SLOP_PX = 6;
 
 const curtain = {
   mesh: null as Mesh | null,
   raise: 0, // 0 down … 1 out of view
   raising: false,
+  lift: 0, // see curtainLift()
 };
 
 const FACE_CAMERA = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.PI); // the quad faces −z
@@ -66,22 +64,6 @@ export async function loadMainCurtain(world: World) {
   world.scene.add(mesh);
   curtain.mesh = mesh;
   place(world);
-
-  // Click (not drag) on the curtain raises it
-  const canvas = world.renderer.domElement;
-  const down = new Vector2();
-  canvas.addEventListener("pointerdown", (e) => down.set(e.clientX, e.clientY));
-  canvas.addEventListener("pointerup", (e) => {
-    if (curtain.raising || down.distanceTo(new Vector2(e.clientX, e.clientY)) > CLICK_SLOP_PX) return;
-    const rect = canvas.getBoundingClientRect();
-    const ndc = new Vector2(
-      ((e.clientX - rect.left) / rect.width) * 2 - 1,
-      -((e.clientY - rect.top) / rect.height) * 2 + 1,
-    );
-    const ray = new Raycaster();
-    ray.setFromCamera(ndc, world.camera);
-    if (ray.intersectObject(mesh!).length > 0) raiseMainCurtain();
-  });
 }
 
 const wobbleTime = { value: 0 };
@@ -117,6 +99,14 @@ export function isMainCurtainDown() {
   return !curtain.raising;
 }
 
+/**
+ * How far the curtain has moved up, in screen heights (0 down); 1 once it
+ * is out of view. Things in front of it (signs.ts) rise with it.
+ */
+export function curtainLift() {
+  return curtain.raise >= 1 ? 1 : curtain.lift;
+}
+
 // Size and position in camera space: the cloth band covers the view
 // ("cover", cropping the sides on narrow screens); raising moves it up
 // until its hem is above the top edge of the screen.
@@ -134,6 +124,7 @@ function place(world: World) {
   const t = curtain.raise;
   const eased = t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2; // ease in-out cubic
   const y = MathUtils.lerp(downY, upY, eased);
+  curtain.lift = (y - downY) / viewH;
 
   camera.getWorldQuaternion(tmpQuat);
   camera.getWorldPosition(tmpPos);

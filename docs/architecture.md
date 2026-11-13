@@ -70,7 +70,7 @@ If items 1 or 2 fail, the fallback is our own thin engine with the same split in
 - The **Play** button opens the main scene. It also unlocks audio and asks for the camera and motion-sensor permissions, because iOS only grants these after a user gesture.
 
 **Main scene**
-- At start the main curtain (`assets/stage_parts/Main_Curtain.glb`, `src/stage/main-curtain.ts`) hangs right in front of the camera and covers the whole screen at any aspect ratio. A click on it raises it out of view.
+- At start the main curtain (`assets/stage_parts/Main_Curtain.glb`, `src/stage/main-curtain.ts`) hangs right in front of the camera and covers the whole screen at any aspect ratio, with a light cloth wobble (shader). Two seconds after start three signs (`src/stage/signs.ts`, the plays to choose from: `Sign_Haensel`, `Sign_Froschkoenig`, `Sign_Impro` in `assets/stage_parts/`) drop in one after another in a loose, slightly tilted row in front of it, overshoot and settle, and cast soft fake shadows on it (blurred silhouette quads, no shadow map). Hover enlarges a sign; a click on a sign raises the curtain, and the signs go up with it.
 - A central stage that fills the room: proscenium, curtains, and layered paper-theatre backdrops (scans as alpha planes).
 - **3-point lighting:** key, fill and back light.
 - **One controllable spotlight:**
@@ -220,7 +220,7 @@ Add one line per change to a decision in this doc: date, what changed, why.
 
 | Date | Change | Reason |
 |---|---|---|
-| 2026-11-13 | Main curtain follows the camera (camera space, drawn over everything) instead of being placed in the stage; a click raises it | It must cover the screen on every aspect ratio (phone portrait, desktop) and while the orbit camera moves |
+| 2026-11-13 | Main curtain follows the camera (camera space, drawn over everything) instead of being placed in the stage; a click on one of the signs in front of it raises it | It must cover the screen on every aspect ratio (phone portrait, desktop) and while the orbit camera moves |
 | 2026-11-13 | HTTPS switched on by `vite --mode https` (`HTTPS=1` still works); `.sh` files always checked out with LF (`.gitattributes`) | `HTTPS=1 vite` fails in cmd/PowerShell, and CRLF scripts fail in WSL2 |
 | 2026-11-13 | Marionette: rig from `export/marionette_rig.json` (9 strings), real scale 0.35 m with the stage scaled to 1.4 m, real masses with a 5 % floor, file size reduced later by the converter | The rigged SKKG model arrived with full engine metadata |
 | 2026-11-13 | Large assets: external storage, downloaded by hand into `assets/external/` (git-ignored); no git LFS | Keep the repo small without LFS quotas |

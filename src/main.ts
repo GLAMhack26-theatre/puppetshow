@@ -2,6 +2,7 @@ import { World } from "@iwsdk/core";
 import { PhysicsLink } from "./components/physics-link";
 import { addLighting } from "./stage/lighting";
 import { MainCurtainSystem, loadMainCurtain } from "./stage/main-curtain";
+import { SignSystem, loadSigns } from "./stage/signs";
 import { StageSystem, isCurtainOpen, loadStage, setCurtain } from "./stage/stage";
 import { RapierSystem, initPhysics } from "./systems/rapier-system";
 import { FpsSystem } from "./spike/world";
@@ -28,9 +29,11 @@ world.registerSystem(RapierSystem);
 world.registerSystem(StageSystem);
 world.registerSystem(FpsSystem);
 world.registerSystem(MainCurtainSystem);
+world.registerSystem(SignSystem);
 
 // First, so the curtain already covers the screen while the stage loads
 await loadMainCurtain(world);
+await loadSigns(world);
 await loadStage(world);
 addLighting(world);
 // Spike: V (Vorhang) toggles the curtain (later: closed on the title, opens on Play)
