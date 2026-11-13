@@ -204,4 +204,13 @@ Dockerfile  docker-compose.yml  dev.sh  CLAUDE.md
   - a prop can be grabbed, thrown and dropped
 - `docker compose run --rm convert`: all source types produce output, and a second run skips unchanged files.
 - `docker compose up`: `https://<LAN-IP>:5173` (or 4173 for preview) opens on a phone, and the camera and sensors work.
-- You run all git commands yourself.
+
+---
+
+## 9. Decision log
+
+Add one line per change to a decision in this doc: date, what changed, why.
+
+| Date | Change | Reason |
+|---|---|---|
+| 2026-11-13 | Initial architecture: IWSDK + Havok, MediaPipe, three.js audio + ZzFX, phone-only first, Vite served directly (no proxy), assets outside git | Planning session |
