@@ -16,8 +16,8 @@ import {
 } from "@iwsdk/core";
 import { FontLoader } from "three/examples/jsm/loaders/FontLoader.js";
 import { TextGeometry } from "three/examples/jsm/geometries/TextGeometry.js";
-import { GROUP, physics, renderPose } from "../systems/rapier-system";
-import { addLinked, hudLines } from "./world";
+import { GROUP, addLinked, physics, renderPose } from "../systems/rapier-system";
+import { hudLines } from "./world";
 
 // T4: plain three.js next to the ECS.
 // - a SkinnedMesh whose bones follow a chain of Rapier bodies

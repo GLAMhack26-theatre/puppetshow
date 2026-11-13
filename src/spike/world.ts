@@ -1,11 +1,9 @@
-import RAPIER from "@dimforge/rapier3d-compat";
-import { createSystem, type Object3D, type World } from "@iwsdk/core";
+import { createSystem, type World } from "@iwsdk/core";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { PhysicsLink } from "../components/physics-link";
 import { physics } from "../systems/rapier-system";
 
 // T1: FPS overlay and orbit camera around the stage (src/stage/).
-// The HUD and addLinked are shared by the other tests.
+// The HUD is shared by the other tests.
 
 const hud = document.getElementById("hud")!;
 export const hudLines: Record<string, string> = {};
@@ -30,22 +28,8 @@ export class FpsSystem extends createSystem({}) {
   }
 }
 
-/** A mesh driven by a rigid body, through the ECS (PhysicsLink + RapierSystem). */
-export function addLinked(
-  world: World,
-  object: Object3D,
-  bodyDesc: RAPIER.RigidBodyDesc,
-  colliderDesc?: RAPIER.ColliderDesc,
-) {
-  const body = physics.world.createRigidBody(bodyDesc);
-  const collider = colliderDesc ? physics.world.createCollider(colliderDesc, body) : undefined;
-  object.traverse((o) => (o.castShadow = true));
-  world.createTransformEntity(object).addComponent(PhysicsLink, { body: body.handle });
-  return { body, collider };
-}
-
 export function setupOrbit(world: World) {
   const controls = new OrbitControls(world.camera, world.renderer.domElement);
-  controls.target.set(0, 1.3, -0.4);
+  controls.target.set(0, 0.4, -0.1);
   controls.update();
 }

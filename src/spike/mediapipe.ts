@@ -1,5 +1,5 @@
 import { FilesetResolver, HandLandmarker, type NormalizedLandmark } from "@mediapipe/tasks-vision";
-import type { World } from "@iwsdk/core";
+import { Euler, type World } from "@iwsdk/core";
 import { controlInput } from "../input/control-input";
 import { setupPuppet } from "./puppet";
 import { hudLines } from "./world";
@@ -12,11 +12,13 @@ import { hudLines } from "./world";
 const WRIST = 0;
 const THUMB_TIP = 4;
 const INDEX_TIP = 8;
+const MIDDLE_KNUCKLE = 9;
+const MAX_ROLL = 0.8; // rad
 const PINCH = 0.06; // normalized image units
 const SMOOTHING = 0.5; // 0: frozen, 1: raw landmarks (jitter)
 
-export function setupMediaPipe(world: World) {
-  setupPuppet(world);
+export async function setupMediaPipe(world: World) {
+  await setupPuppet(world);
   const start = Object.assign(document.createElement("button"), { textContent: "Kamera starten" });
   start.addEventListener("click", () => {
     start.remove();
@@ -81,13 +83,20 @@ async function run() {
   schedule();
 }
 
+const tilt = new Euler();
+
 function apply(hand: NormalizedLandmark[]) {
   const wrist = hand[WRIST];
-  // Mirrored (selfie view); the image maps onto x −1.2…1.2, y 1.0…2.6
-  const x = (0.5 - wrist.x) * 2.4;
-  const y = 1.0 + (1 - wrist.y) * 1.6;
+  // Mirrored (selfie view); the image maps onto x −0.5…0.5, y 0.35…1.0 (real scale)
+  const x = (0.5 - wrist.x) * 1.0;
+  const y = 0.35 + (1 - wrist.y) * 0.65;
   const bar = controlInput.bar.position;
   bar.set(bar.x + (x - bar.x) * SMOOTHING, bar.y + (y - bar.y) * SMOOTHING, 0);
+  // Tilting the hand (wrist → middle knuckle) rolls the bar; mirrored like x
+  const knuckle = hand[MIDDLE_KNUCKLE];
+  const roll = Math.max(-MAX_ROLL, Math.min(MAX_ROLL, Math.atan2(-(knuckle.x - wrist.x), wrist.y - knuckle.y)));
+  tilt.z += (roll - tilt.z) * SMOOTHING;
+  controlInput.bar.rotation.setFromEuler(tilt);
   const pinch = Math.hypot(hand[THUMB_TIP].x - hand[INDEX_TIP].x, hand[THUMB_TIP].y - hand[INDEX_TIP].y);
   controlInput.grip.right = pinch < PINCH;
 }

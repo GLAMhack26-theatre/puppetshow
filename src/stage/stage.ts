@@ -18,8 +18,11 @@ import { GROUP, physics } from "../systems/rapier-system";
 // and Ground_Box (the floor the puppet plays on). Loaded straight from
 // assets/ until the converter exists.
 
-/** Width of the stage front in metres; the file is about 1 unit wide. */
-const STAGE_WIDTH = 3.6;
+/**
+ * Width of the stage front in metres; the file is about 1 unit wide. Real
+ * scale: sized to the 0.35 m marionette (export/marionette_rig.json).
+ */
+const STAGE_WIDTH = 1.4;
 const CURTAIN_SPEED = 1.2; // open fraction per second
 
 const curtain = {

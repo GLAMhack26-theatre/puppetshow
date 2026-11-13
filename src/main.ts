@@ -15,11 +15,12 @@ await initPhysics();
 const world = await World.create(document.getElementById("app")!, {
   xr: false,
   features: { physics: false }, // Rapier instead, see systems/rapier-system.ts
-  render: { fov: 45 },
+  render: { fov: 45, near: 0.02, far: 50 },
 });
 world.renderer.shadowMap.enabled = true;
-world.camera.position.set(0, 1.5, 4.6);
-world.camera.lookAt(0, 1.3, -0.4);
+// Real scale: 1.4 m stage, 0.35 m puppet
+world.camera.position.set(0, 0.5, 1.9);
+world.camera.lookAt(0, 0.4, -0.1);
 
 world.registerComponent(PhysicsLink);
 world.registerSystem(RapierSystem);

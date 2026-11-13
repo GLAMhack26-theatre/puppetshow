@@ -92,7 +92,7 @@ If items 1 or 2 fail, the fallback is our own thin engine with the same split in
 ```ts
 interface ControlInput {                              // mutable, written once per frame
   bar: { position: Vector3; rotation: Quaternion };   // the control bar (Spielkreuz)
-  pulls: Record<StringId, number>;                    // 0..1 shortening per string (head, handL, handR, legL, legR, back)
+  pulls: Record<StringId, number>;                    // 0..1 per string: head.L/R, shoulder.L/R, back, hand.L/R, knee.L/R
   grip: { left: boolean; right: boolean };            // puppet hands grab / release
   spotlight?: { target: Vector3 };
   source: "mediapipe" | "phone" | "mouse" | "remote-phone" | "xr-3dof" | "xr-6dof";
@@ -111,14 +111,18 @@ MediaPipe runs with `detectForVideo` on `requestVideoFrameCallback`, separate fr
 
 ### 3.2 Puppet rig
 
-1. **Blender convention (decided):** agreed bone names (`head`, `spine`, `upperarm.L`, …), plus empties named `string.<id>` parented to bones. An optional custom property `collider` per bone gives the collider shape. The converter checks that these are present.
+1. **The model defines the rig (decided):** the SKKG marionette (README, "Marionette model") comes as `export/marionette.glb` plus `export/marionette_rig.json`. The JSON holds per bone the capsule collider, `mass_kg` and the joint (cone, or hinge with a bone-local axis and limits in degrees), and the 9 strings (socket, carrying bone, position, controller point, rest length). `src/puppet/marionette.ts` turns it into a rig description; nothing about the puppet is hard-coded.
+   - **Bones:** `root`, `pelvis`, `chest`, `neck`, `head`, `upper_arm/forearm/hand.L/R`, `thigh/shin/foot.L/R`.
+   - **Strings:** `head.L/R`, `shoulder.L/R`, `back`, `hand.L/R`, `knee.L/R`. The model's three controller bars are merged into one bar.
+   - **Real scale:** the puppet is 0.35 m tall; the stage is scaled to match (1.4 m wide), and so are camera, lights and props.
+   - **Masses:** the real masses from the JSON, with a floor of 5 % of the heaviest part, so the tiny hands don't destabilise the joint chains.
 2. **At runtime:**
-   - one Rapier body per relevant bone (a capsule from the bone length)
+   - one Rapier body per bone with a collider (capsule from the JSON); all bodies start unrotated, so a hinge's world axis is the same in both bodies
    - spherical or revolute joints between neighbouring bones (Rapier's JS API has no cone limits for spherical joints, so angular damping or revolute joints keep the limbs plausible)
    - the physics pose drives the `SkinnedMesh` bones
 3. **Strings:**
    - the control bar is a kinematic body positioned from `ControlInput.bar`
-   - each string is a rope joint (maximum distance), from a point on the bar to `string.<id>`
+   - each string is a rope joint (maximum distance, rest length from the JSON), from a point on the bar to the socket `string_<id>`
    - a pull shortens the rope; the JS API has no length setter, so the joint is recreated when the length changes
    - the string is drawn as a sagging verlet/catenary line (rendering only)
 4. **Grab, throw, drop:**
@@ -150,6 +154,7 @@ The converter writes to `/public` (git-ignored) plus `public/manifest.json`. It 
 ```
 assets/<source>/        # committed sources (models, sheets, audio, fonts), e.g. assets/digital.skkg.ch/
 assets/external/        # large files from external storage, downloaded by hand (git-ignored)
+blender/  export/  tools/   # marionette: Blender build scripts, exported .glb/.fbx + rig JSON, texture tools
 scripts/fetch-mediapipe-models.sh
 converter/              # Dockerfile (Blender LTS + node + ffmpeg), export.py, convert.mjs
 certs/                  # git-ignored TLS cert/key for Vite (server.https / preview.https)
@@ -214,6 +219,7 @@ Add one line per change to a decision in this doc: date, what changed, why.
 
 | Date | Change | Reason |
 |---|---|---|
+| 2026-11-13 | Marionette: rig from `export/marionette_rig.json` (9 strings), real scale 0.35 m with the stage scaled to 1.4 m, real masses with a 5 % floor, file size reduced later by the converter | The rigged SKKG model arrived with full engine metadata |
 | 2026-11-13 | Large assets: external storage, downloaded by hand into `assets/external/` (git-ignored); no git LFS | Keep the repo small without LFS quotas |
 | 2026-11-13 | Assets: committed in `/assets` (grouped by source) instead of synced from outside git | The team already committed the first objects |
 | 2026-11-13 | Physics: Havok → Rapier as our own system, IWSDK physics off | IWSDK's physics has no joints, sensors or collision events, and its Havok instance is private |

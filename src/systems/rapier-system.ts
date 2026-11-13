@@ -1,5 +1,5 @@
 import RAPIER from "@dimforge/rapier3d-compat";
-import { Quaternion, Vector3, createSystem } from "@iwsdk/core";
+import { Quaternion, Vector3, createSystem, type Object3D, type World } from "@iwsdk/core";
 import { PhysicsLink } from "../components/physics-link";
 
 // Rapier as our own system: IWSDK's physics (Havok in a worker) has no
@@ -65,6 +65,36 @@ export function renderPose(body: RAPIER.RigidBody, p: Vector3, q: Quaternion) {
   p.lerpVectors(before.p, p, physics.alpha);
   tmpQ.copy(q);
   q.copy(before.q).slerp(tmpQ, physics.alpha);
+}
+
+export const toVec = (p: RAPIER.Vector, out = new Vector3()) => out.set(p.x, p.y, p.z);
+export const toQuat = (r: RAPIER.Rotation, out = new Quaternion()) => out.set(r.x, r.y, r.z, r.w);
+
+/** World position of a body-local point (physics pose). */
+export function worldPoint(body: RAPIER.RigidBody, local: RAPIER.Vector, out = new Vector3()) {
+  return out.set(local.x, local.y, local.z).applyQuaternion(toQuat(body.rotation(), tmpQ)).add(toVec(body.translation()));
+}
+
+const renderP = new Vector3();
+const renderQ = new Quaternion();
+/** The same for rendering: the interpolated pose, like the meshes. */
+export function renderPoint(body: RAPIER.RigidBody, local: RAPIER.Vector, out = new Vector3()) {
+  renderPose(body, renderP, renderQ);
+  return out.set(local.x, local.y, local.z).applyQuaternion(renderQ).add(renderP);
+}
+
+/** A mesh driven by a rigid body, through the ECS (PhysicsLink + RapierSystem). */
+export function addLinked(
+  world: World,
+  object: Object3D,
+  bodyDesc: RAPIER.RigidBodyDesc,
+  colliderDesc?: RAPIER.ColliderDesc,
+) {
+  const body = physics.world.createRigidBody(bodyDesc);
+  const collider = colliderDesc ? physics.world.createCollider(colliderDesc, body) : undefined;
+  object.traverse((o) => (o.castShadow = true));
+  world.createTransformEntity(object).addComponent(PhysicsLink, { body: body.handle });
+  return { body, collider };
 }
 
 /** Rapier's wasm must be ready before any body is created. */
