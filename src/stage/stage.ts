@@ -34,6 +34,40 @@ const curtain = {
   target: 1,
 };
 
+/**
+ * Where things stand on the stage, in world units; set by loadStage(). The
+ * floor top is at y = 0, the camera looks from +z.
+ */
+export const stageBounds = {
+  /** Scale from the Unity file units (stage front ≈ 1 wide) to metres. */
+  scale: 1,
+  /** z of the back edge of the floor. */
+  backZ: 0,
+  /** Width (x) of the floor, Ground_Box. */
+  width: 0,
+  centerX: 0,
+};
+
+/**
+ * Unity exports the paper parts unlit (KHR_materials_unlit): they would
+ * ignore the 3-point lighting and the spotlight. Swaps such a material for
+ * a matte lit one with the same texture.
+ */
+export function makeLit(object: Object3D) {
+  if (!(object instanceof Mesh) || !(object.material instanceof MeshBasicMaterial)) return;
+  const unlit = object.material;
+  object.material = new MeshStandardMaterial({
+    map: unlit.map,
+    color: unlit.color,
+    alphaTest: unlit.alphaTest,
+    transparent: unlit.transparent,
+    side: unlit.side,
+    roughness: 1,
+    metalness: 0,
+  });
+  unlit.dispose();
+}
+
 export async function loadStage(world: World) {
   const gltf = await new GLTFLoader().loadAsync(stageUrl);
   const root = gltf.scene;
@@ -42,20 +76,9 @@ export async function loadStage(world: World) {
     if (!(object instanceof Mesh)) return;
     object.receiveShadow = true;
     // Unity exported the paper parts unlit (KHR_materials_unlit): they would
-    // ignore the 3-point lighting and the spotlight
-    if (object.material instanceof MeshBasicMaterial) {
-      const unlit = object.material;
-      object.material = new MeshStandardMaterial({
-        map: unlit.map,
-        color: unlit.color,
-        alphaTest: unlit.alphaTest,
-        transparent: unlit.transparent,
-        side: unlit.side,
-        roughness: 1,
-        metalness: 0,
-      });
-      unlit.dispose();
-    }
+    // ignore the 3-point lighting and the spotlight. Stage_Front stays unlit,
+    // so the painted proscenium keeps its original colours.
+    if (object.name !== "Stage_Front") makeLit(object);
   });
 
   // The front and the curtain face −z in the file: turn the stage to face
@@ -78,6 +101,10 @@ export async function loadStage(world: World) {
   groundBox.setFromObject(ground);
   const size = groundBox.getSize(new Vector3());
   const center = groundBox.getCenter(new Vector3());
+  stageBounds.scale = root.scale.x;
+  stageBounds.backZ = groundBox.min.z;
+  stageBounds.centerX = center.x;
+  stageBounds.width = size.x;
   physics.world.createCollider(
     RAPIER.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2)
       .setTranslation(center.x, center.y, center.z)

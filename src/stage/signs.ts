@@ -29,6 +29,9 @@ import { curtainLift, isMainCurtainDown, raiseMainCurtain } from "./main-curtain
 
 /** One file per sign, left to right; chosenSign() is the index into this list. */
 const SIGN_URLS = [haenselUrl, froschkoenigUrl, improUrl];
+/** The play behind each sign, same order as SIGN_URLS. */
+export const PLAYS = ["haensel", "froschkoenig", "impro"] as const;
+export type Play = (typeof PLAYS)[number];
 
 /**
  * Hand-hung, not lined up: per sign an offset (x, y in sign widths), a rest
@@ -77,6 +80,7 @@ const signs: Sign[] = [];
 let clock = 0;
 let hovered: Sign | null = null;
 let chosen = -1;
+const chooseListeners: ((play: Play) => void)[] = [];
 
 const FACE_CAMERA = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.PI); // the quads face −z
 const Z_AXIS = new Vector3(0, 0, 1);
@@ -142,16 +146,22 @@ export async function loadSigns(world: World) {
     if (!isMainCurtainDown() || down.distanceTo(new Vector2(e.clientX, e.clientY)) > CLICK_SLOP_PX) return;
     const sign = pick(e);
     if (!sign) return;
-    chosen = signs.indexOf(sign); // later: picks the play
+    chosen = signs.indexOf(sign);
     hovered = null;
     canvas.style.cursor = "";
     raiseMainCurtain();
+    for (const listener of chooseListeners) listener(PLAYS[chosen]);
   });
 }
 
 /** Index of the clicked sign, or −1 before a choice. */
 export function chosenSign() {
   return chosen;
+}
+
+/** Called once a sign is clicked, as the curtain starts to go up. */
+export function onPlayChosen(listener: (play: Play) => void) {
+  chooseListeners.push(listener);
 }
 
 // The sign's silhouette (texture alpha, string included) in black with a

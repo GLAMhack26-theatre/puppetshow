@@ -1,0 +1,111 @@
+/* Impro mode UI: functional placeholder, the theatre look comes later. */
+
+.impro-menu {
+  position: fixed;
+  left: 50%;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  transform: translate(-50%, 12px);
+  display: flex;
+  gap: 8px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s, transform 0.4s;
+  z-index: 10;
+}
+.impro-menu.visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  pointer-events: auto;
+}
+.impro-menu-item {
+  color: #f3e9dc;
+  background: #2a1a14e6;
+  border: 1px solid #f3e9dc55;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font: 600 14px/1 Georgia, serif;
+  cursor: pointer;
+}
+.impro-menu-item[aria-expanded="true"] {
+  background: #6b2a1ee6;
+}
+
+/* Slides in from the right; never wider than a quarter of the screen */
+.impro-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 25vw;
+  display: flex;
+  flex-direction: column;
+  background: #1a110de8;
+  box-shadow: -4px 0 16px #0008;
+  transform: translateX(100%);
+  transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+  z-index: 20;
+}
+.impro-panel.open {
+  transform: translateX(0);
+}
+.impro-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid #f3e9dc33;
+}
+.impro-panel-header h2 {
+  margin: 0;
+  font: 600 16px/1.2 Georgia, serif;
+}
+.impro-panel-close {
+  color: inherit;
+  background: none;
+  border: 0;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.impro-backdrops {
+  flex: 1;
+  margin: 0;
+  padding: 10px;
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.impro-loading {
+  opacity: 0.7;
+}
+.impro-backdrop {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  color: inherit;
+  background: #0006;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  font: 12px/1.2 system-ui, sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+.impro-backdrop:hover {
+  border-color: #f3e9dc66;
+}
+.impro-backdrop[aria-pressed="true"] {
+  border-color: #e8b04a;
+}
+.impro-backdrop img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+  border-radius: 3px;
+  background: #f3e9dc14;
+}
