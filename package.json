@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:https": "HTTPS=1 vite --host",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },

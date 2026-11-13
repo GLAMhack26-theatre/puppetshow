@@ -11,7 +11,8 @@ Does Meta IWSDK work as the engine for the marionette theatre? The test code is 
 
 ```sh
 ./scripts/fetch-mediapipe-models.sh      # once
-HTTPS=1 npx vite --host                  # then https://<LAN-IP>:5173/?test=…
+npm run dev                              # Mac only: http://localhost:5173/?test=…
+npm run dev:https                        # phones: https://<LAN-IP>:5173/?test=…
 npm run build                            # bundle size
 ```
 
