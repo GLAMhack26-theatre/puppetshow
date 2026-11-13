@@ -37,16 +37,18 @@ function mediapipeWasm(): Plugin {
   };
 }
 
-// HTTPS (HTTPS=1) for phones on the LAN: camera, motion sensors and WebXR
-// exist only on secure pages. Self-signed, so the browser warns once.
-async function httpsPlugins(): Promise<Plugin[]> {
-  if (process.env.HTTPS !== "1") return [];
+// HTTPS for phones on the LAN: camera, motion sensors and WebXR exist only
+// on secure pages. Self-signed, so the browser warns once. Switched on by
+// `--mode https` (works in every shell, used by `npm run dev:https`) or by
+// HTTPS=1 (Unix shells, Docker, dev.sh).
+async function httpsPlugins(mode: string): Promise<Plugin[]> {
+  if (mode !== "https" && process.env.HTTPS !== "1") return [];
   const { default: basicSsl } = await import("@vitejs/plugin-basic-ssl");
   return [basicSsl()];
 }
 
-export default defineConfig({
-  plugins: [mediapipeWasm(), ...(await httpsPlugins())],
+export default defineConfig(async ({ mode }) => ({
+  plugins: [mediapipeWasm(), ...(await httpsPlugins(mode))],
   resolve: {
     // One three.js: IWSDK's, also for three/examples/jsm add-ons
     dedupe: ["three"],
@@ -55,4 +57,4 @@ export default defineConfig({
     target: "es2022", // top-level await in main.ts
     sourcemap: true,
   },
-});
+}));
