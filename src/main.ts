@@ -29,8 +29,8 @@ world.registerSystem(FpsSystem);
 
 await loadStage(world);
 addLighting(world);
-// Spike: C toggles the curtain (later: closed on the title, opens on Play)
-addEventListener("keydown", (e) => e.key === "c" && setCurtain(!isCurtainOpen()));
+// Spike: V (Vorhang) toggles the curtain (later: closed on the title, opens on Play)
+addEventListener("keydown", (e) => e.key === "v" && setCurtain(!isCurtainOpen()));
 
 switch (test) {
   case "puppet":

@@ -19,11 +19,15 @@ const SMOOTHING = 0.5; // 0: frozen, 1: raw landmarks (jitter)
 
 export async function setupMediaPipe(world: World) {
   await setupPuppet(world);
-  const start = Object.assign(document.createElement("button"), { textContent: "Kamera starten" });
-  start.addEventListener("click", () => {
+  // Button or C: both are user gestures, which camera access needs (iOS)
+  const start = Object.assign(document.createElement("button"), { textContent: "Kamera starten (C)" });
+  const begin = () => {
+    if (!start.isConnected) return; // already started
     start.remove();
     run().catch((e) => (hudLines.camera = `error: ${e instanceof Error ? e.message : e}`));
-  });
+  };
+  start.addEventListener("click", begin);
+  addEventListener("keydown", (e) => e.key === "c" && begin());
   document.getElementById("panel")!.prepend(start);
 }
 
