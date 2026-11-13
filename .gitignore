@@ -28,3 +28,5 @@ certs/
 .vscode/
 .idea/
 *.swp
+*.blend1
+.DS_Store

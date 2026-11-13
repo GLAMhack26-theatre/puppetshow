@@ -1,0 +1,867 @@
+{
+  "units": "metres",
+  "up": "+Z",
+  "forward": "-Y",
+  "height_m": 0.35,
+  "joint_limit_convention": "degrees about bone-local axes (Blender bone space, +Y along the bone); values are estimates, hinge signs verified in the rig",
+  "assumptions": [
+    "classic 9-string layout (photo 3 only shows head and hand attachments)",
+    "lead-weighted shoes (metal plates visible on the soles)",
+    "silk satin ~80 g/m2",
+    "joint ranges"
+  ],
+  "source": "SKKG Marionettenpuppe 46154 (CC0), 35 x 14 x 7.5 cm",
+  "bones": {
+    "root": {
+      "parent": null,
+      "head": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "tail": [
+        0.0,
+        0.0525,
+        0.0
+      ],
+      "deform": true
+    },
+    "pelvis": {
+      "parent": "root",
+      "head": [
+        0.0,
+        0.0,
+        0.1645
+      ],
+      "tail": [
+        0.0,
+        0.0,
+        0.1855
+      ],
+      "deform": true,
+      "mass_kg": 0.02585,
+      "collider": {
+        "type": "capsule",
+        "radius": 0.03128,
+        "a": [
+          0.0,
+          0.0,
+          0.16449999809265137
+        ],
+        "b": [
+          0.0,
+          0.0,
+          0.18549999594688416
+        ]
+      }
+    },
+    "chest": {
+      "parent": "pelvis",
+      "head": [
+        0.0,
+        0.0,
+        0.1855
+      ],
+      "tail": [
+        0.0,
+        0.0,
+        0.26075
+      ],
+      "deform": true,
+      "mass_kg": 0.04132,
+      "collider": {
+        "type": "capsule",
+        "radius": 0.02965,
+        "a": [
+          0.0,
+          0.0,
+          0.18549999594688416
+        ],
+        "b": [
+          0.0,
+          0.0,
+          0.2607499957084656
+        ]
+      },
+      "joint": {
+        "type": "cone",
+        "swing": 20,
+        "twist": 15
+      }
+    },
+    "neck": {
+      "parent": "chest",
+      "head": [
+        0.0,
+        -0.00105,
+        0.26775
+      ],
+      "tail": [
+        0.0,
+        -0.00105,
+        0.2835
+      ],
+      "deform": true,
+      "mass_kg": 0.00114,
+      "collider": {
+        "type": "capsule",
+        "radius": 0.01251,
+        "a": [
+          0.0,
+          -0.0010499999625608325,
+          0.26774999499320984
+        ],
+        "b": [
+          0.0,
+          -0.0010499999625608325,
+          0.28349998593330383
+        ]
+      },
+      "joint": {
+        "type": "cone",
+        "swing": 25,
+        "twist": 30
+      }
+    },
+    "head": {
+      "parent": "neck",
+      "head": [
+        0.0,
+        -0.00105,
+        0.2835
+      ],
+      "tail": [
+        0.0,
+        -0.00105,
+        0.3465
+      ],
+      "deform": true,
+      "mass_kg": 0.06082,
+      "collider": {
+        "type": "capsule",
+        "radius": 0.02644,
+        "a": [
+          0.0,
+          -0.0010499999625608325,
+          0.28349998593330383
+        ],
+        "b": [
+          0.0,
+          -0.0010499999625608325,
+          0.3465000092983246
+        ]
+      },
+      "joint": {
+        "type": "cone",
+        "swing": 30,
+        "twist": 50
+      }
+    },
+    "string_head.L": {
+      "parent": "head",
+      "head": [
+        0.02625,
+        0.0014,
+        0.30975
+      ],
+      "tail": [
+        0.02625,
+        0.0014,
+        0.32025
+      ],
+      "deform": true
+    },
+    "string_head.R": {
+      "parent": "head",
+      "head": [
+        -0.02625,
+        0.0014,
+        0.30975
+      ],
+      "tail": [
+        -0.02625,
+        0.0014,
+        0.32025
+      ],
+      "deform": true
+    },
+    "upper_arm.L": {
+      "parent": "chest",
+      "head": [
+        0.0385,
+        -0.00175,
+        0.24675
+      ],
+      "tail": [
+        0.08575,
+        -0.00175,
+        0.24675
+      ],
+      "deform": true,
+      "mass_kg": 0.00212,
+      "collider": {
+        "type": "capsule",
+        "radius": 0.00875,
+        "a": [
+          0.03849999979138374,
+          -0.0017500000540167093,
+          0.24674999713897705
+        ],
+        "b": [
+          0.08574999868869781,
+          -0.0017500000540167093,
+          0.24674999713897705
+        ]
+      },
+      "joint": {
+        "type": "cone",
+        "swing": 110,
+        "twist": 60
+      }
+    },
+    "forearm.L": {
+      "parent": "upper_arm.L",
+      "head": [
+        0.08575,
+        -0.00175,
+        0.24675
+      ],
+      "tail": [
+        0.12075,
+        -0.00175,
+        0.24675
+      ],
+      "deform": true,
+      "mass_kg": 0.00071,
+      "collider": {
+        "type": "capsule",
+        "radius": 0.0056,
+        "a": [
+          0.08574999868869781,
+          -0.0017500000540167093,
+          0.24674999713897705
+        ],
+        "b": [
+          0.12075000256299973,
+          -0.0017500000540167093,
+          0.24674999713897705
+        ]
+      },
+      "joint": {
+        "type": "hinge",
+        "axis": "Z",
+        "min": -150,
+        "max": 0
+      }
+    },
+    "hand.L": {
+      "parent": "forearm.L",
+      "head": [
+        0.12075,
+        -0.00175,
+        0.24675
+      ],
+      "tail": [
+        0.1512,
+        -0.00175,
+        0.24675
+      ],
+      "deform": true,
+      "mass_kg": 0.00076,
+      "collider": {
+        "type": "capsule",
+        "radius": 0.00717,
+        "a": [
+          0.12075000256299973,
+          -0.0017500000540167093,
+          0.24674999713897705
+        ],
+        "b": [
+          0.15119999647140503,
+          -0.0017500000540167093,
+          0.24674999713897705
+        ]
+      },
+      "joint": {
+        "type": "cone",
+        "swing": 60,
+        "twist": 30
+      }
+    },
+    "string_hand.L": {
+      "parent": "hand.L",
+      "head": [
+        0.13825,
+        -0.0014,
+        0.2499
+      ],
+      "tail": [
+        0.13825,
+        -0.0014,
+        0.2604
+      ],
+      "deform": true
+    },
+    "upper_arm.R": {
+      "parent": "chest",
+      "head": [
+        -0.0385,
+        -0.00175,
+        0.24675
+      ],
+      "tail": [
+        -0.08575,
+        -0.00175,
+        0.24675
+      ],
+      "deform": true,
+      "mass_kg": 0.00212,
+      "collider": {
+        "type": "capsule",
+        "radius": 0.00875,
+        "a": [
+          -0.03849999979138374,
+          -0.0017500000540167093,
+          0.24674999713897705
+        ],
+        "b": [
+          -0.08574999868869781,
+          -0.0017500000540167093,
+          0.24674999713897705
+        ]
+      },
+      "joint": {
+        "type": "cone",
+        "swing": 110,
+        "twist": 60
+      }
+    },
+    "forearm.R": {
+      "parent": "upper_arm.R",
+      "head": [
+        -0.08575,
+        -0.00175,
+        0.24675
+      ],
+      "tail": [
+        -0.12075,
+        -0.00175,
+        0.24675
+      ],
+      "deform": true,
+      "mass_kg": 0.00071,
+      "collider": {
+        "type": "capsule",
+        "radius": 0.0056,
+        "a": [
+          -0.08574999868869781,
+          -0.0017500000540167093,
+          0.24674999713897705
+        ],
+        "b": [
+          -0.12075000256299973,
+          -0.0017500000540167093,
+          0.24674999713897705
+        ]
+      },
+      "joint": {
+        "type": "hinge",
+        "axis": "Z",
+        "min": 0,
+        "max": 150
+      }
+    },
+    "hand.R": {
+      "parent": "forearm.R",
+      "head": [
+        -0.12075,
+        -0.00175,
+        0.24675
+      ],
+      "tail": [
+        -0.1512,
+        -0.00175,
+        0.24675
+      ],
+      "deform": true,
+      "mass_kg": 0.00076,
+      "collider": {
+        "type": "capsule",
+        "radius": 0.00717,
+        "a": [
+          -0.12075000256299973,
+          -0.0017500000540167093,
+          0.24674999713897705
+        ],
+        "b": [
+          -0.15119999647140503,
+          -0.0017500000540167093,
+          0.24674999713897705
+        ]
+      },
+      "joint": {
+        "type": "cone",
+        "swing": 60,
+        "twist": 30
+      }
+    },
+    "string_hand.R": {
+      "parent": "hand.R",
+      "head": [
+        -0.13825,
+        -0.0014,
+        0.2499
+      ],
+      "tail": [
+        -0.13825,
+        -0.0014,
+        0.2604
+      ],
+      "deform": true
+    },
+    "string_shoulder.L": {
+      "parent": "chest",
+      "head": [
+        0.0245,
+        0.0,
+        0.2646
+      ],
+      "tail": [
+        0.0245,
+        0.0,
+        0.2751
+      ],
+      "deform": true
+    },
+    "string_shoulder.R": {
+      "parent": "chest",
+      "head": [
+        -0.0245,
+        0.0,
+        0.2646
+      ],
+      "tail": [
+        -0.0245,
+        0.0,
+        0.2751
+      ],
+      "deform": true
+    },
+    "thigh.L": {
+      "parent": "pelvis",
+      "head": [
+        0.01645,
+        0.0,
+        0.1645
+      ],
+      "tail": [
+        0.01645,
+        0.0,
+        0.09625
+      ],
+      "deform": true,
+      "mass_kg": 0.00617,
+      "collider": {
+        "type": "capsule",
+        "radius": 0.0112,
+        "a": [
+          0.016450000926852226,
+          0.0,
+          0.16449999809265137
+        ],
+        "b": [
+          0.016450000926852226,
+          0.0,
+          0.09624999761581421
+        ]
+      },
+      "joint": {
+        "type": "cone",
+        "swing": 95,
+        "twist": 20
+      }
+    },
+    "shin.L": {
+      "parent": "thigh.L",
+      "head": [
+        0.01645,
+        0.0,
+        0.09625
+      ],
+      "tail": [
+        0.01645,
+        0.0,
+        0.021
+      ],
+      "deform": true,
+      "mass_kg": 0.01054,
+      "collider": {
+        "type": "capsule",
+        "radius": 0.01057,
+        "a": [
+          0.016450000926852226,
+          0.0,
+          0.09624999761581421
+        ],
+        "b": [
+          0.016450000926852226,
+          0.0,
+          0.020999999716877937
+        ]
+      },
+      "joint": {
+        "type": "hinge",
+        "axis": "X",
+        "min": 0,
+        "max": 140
+      }
+    },
+    "foot.L": {
+      "parent": "shin.L",
+      "head": [
+        0.01645,
+        0.0,
+        0.021
+      ],
+      "tail": [
+        0.01645,
+        -0.02275,
+        0.007
+      ],
+      "deform": true,
+      "mass_kg": 0.01375,
+      "collider": {
+        "type": "capsule",
+        "radius": 0.01911,
+        "a": [
+          0.016450000926852226,
+          0.0,
+          0.020999999716877937
+        ],
+        "b": [
+          0.016450000926852226,
+          -0.022749999538064003,
+          0.007000000216066837
+        ]
+      },
+      "joint": {
+        "type": "cone",
+        "swing": 35,
+        "twist": 10
+      }
+    },
+    "string_knee.L": {
+      "parent": "thigh.L",
+      "head": [
+        0.01645,
+        -0.0112,
+        0.1015
+      ],
+      "tail": [
+        0.01645,
+        -0.0112,
+        0.112
+      ],
+      "deform": true
+    },
+    "thigh.R": {
+      "parent": "pelvis",
+      "head": [
+        -0.01645,
+        0.0,
+        0.1645
+      ],
+      "tail": [
+        -0.01645,
+        0.0,
+        0.09625
+      ],
+      "deform": true,
+      "mass_kg": 0.00617,
+      "collider": {
+        "type": "capsule",
+        "radius": 0.0112,
+        "a": [
+          -0.016450000926852226,
+          0.0,
+          0.16449999809265137
+        ],
+        "b": [
+          -0.016450000926852226,
+          0.0,
+          0.09624999761581421
+        ]
+      },
+      "joint": {
+        "type": "cone",
+        "swing": 95,
+        "twist": 20
+      }
+    },
+    "shin.R": {
+      "parent": "thigh.R",
+      "head": [
+        -0.01645,
+        0.0,
+        0.09625
+      ],
+      "tail": [
+        -0.01645,
+        0.0,
+        0.021
+      ],
+      "deform": true,
+      "mass_kg": 0.01054,
+      "collider": {
+        "type": "capsule",
+        "radius": 0.01057,
+        "a": [
+          -0.016450000926852226,
+          0.0,
+          0.09624999761581421
+        ],
+        "b": [
+          -0.016450000926852226,
+          0.0,
+          0.020999999716877937
+        ]
+      },
+      "joint": {
+        "type": "hinge",
+        "axis": "X",
+        "min": 0,
+        "max": 140
+      }
+    },
+    "foot.R": {
+      "parent": "shin.R",
+      "head": [
+        -0.01645,
+        0.0,
+        0.021
+      ],
+      "tail": [
+        -0.01645,
+        -0.02275,
+        0.007
+      ],
+      "deform": true,
+      "mass_kg": 0.01375,
+      "collider": {
+        "type": "capsule",
+        "radius": 0.01911,
+        "a": [
+          -0.016450000926852226,
+          0.0,
+          0.020999999716877937
+        ],
+        "b": [
+          -0.016450000926852226,
+          -0.022749999538064003,
+          0.007000000216066837
+        ]
+      },
+      "joint": {
+        "type": "cone",
+        "swing": 35,
+        "twist": 10
+      }
+    },
+    "string_knee.R": {
+      "parent": "thigh.R",
+      "head": [
+        -0.01645,
+        -0.0112,
+        0.1015
+      ],
+      "tail": [
+        -0.01645,
+        -0.0112,
+        0.112
+      ],
+      "deform": true
+    },
+    "string_back": {
+      "parent": "pelvis",
+      "head": [
+        0.0,
+        0.0238,
+        0.175
+      ],
+      "tail": [
+        0.0,
+        0.0238,
+        0.1855
+      ],
+      "deform": true
+    }
+  },
+  "strings": [
+    {
+      "socket": "string_head.L",
+      "bone": "head",
+      "position": [
+        0.02625,
+        0.0014,
+        0.30975
+      ],
+      "controller": "CTRL_bar",
+      "controller_point": [
+        0.02625,
+        0.0014,
+        0.6125
+      ],
+      "rest_length": 0.30275
+    },
+    {
+      "socket": "string_head.R",
+      "bone": "head",
+      "position": [
+        -0.02625,
+        0.0014,
+        0.30975
+      ],
+      "controller": "CTRL_bar",
+      "controller_point": [
+        -0.02625,
+        0.0014,
+        0.6125
+      ],
+      "rest_length": 0.30275
+    },
+    {
+      "socket": "string_shoulder.L",
+      "bone": "chest",
+      "position": [
+        0.0245,
+        0.0,
+        0.2646
+      ],
+      "controller": "CTRL_bar",
+      "controller_point": [
+        0.0245,
+        0.0,
+        0.6125
+      ],
+      "rest_length": 0.3479
+    },
+    {
+      "socket": "string_shoulder.R",
+      "bone": "chest",
+      "position": [
+        -0.0245,
+        0.0,
+        0.2646
+      ],
+      "controller": "CTRL_bar",
+      "controller_point": [
+        -0.0245,
+        0.0,
+        0.6125
+      ],
+      "rest_length": 0.3479
+    },
+    {
+      "socket": "string_back",
+      "bone": "pelvis",
+      "position": [
+        0.0,
+        0.0238,
+        0.175
+      ],
+      "controller": "CTRL_bar",
+      "controller_point": [
+        0.0,
+        0.0238,
+        0.6125
+      ],
+      "rest_length": 0.4375
+    },
+    {
+      "socket": "string_hand.L",
+      "bone": "hand.L",
+      "position": [
+        0.13825,
+        -0.0014,
+        0.2499
+      ],
+      "controller": "CTRL_handbar",
+      "controller_point": [
+        0.13825,
+        -0.0014,
+        0.6265
+      ],
+      "rest_length": 0.3766
+    },
+    {
+      "socket": "string_hand.R",
+      "bone": "hand.R",
+      "position": [
+        -0.13825,
+        -0.0014,
+        0.2499
+      ],
+      "controller": "CTRL_handbar",
+      "controller_point": [
+        -0.13825,
+        -0.0014,
+        0.6265
+      ],
+      "rest_length": 0.3766
+    },
+    {
+      "socket": "string_knee.L",
+      "bone": "thigh.L",
+      "position": [
+        0.01645,
+        -0.0112,
+        0.1015
+      ],
+      "controller": "CTRL_legbar",
+      "controller_point": [
+        0.01645,
+        -0.0112,
+        0.61775
+      ],
+      "rest_length": 0.51625
+    },
+    {
+      "socket": "string_knee.R",
+      "bone": "thigh.R",
+      "position": [
+        -0.01645,
+        -0.0112,
+        0.1015
+      ],
+      "controller": "CTRL_legbar",
+      "controller_point": [
+        -0.01645,
+        -0.0112,
+        0.61775
+      ],
+      "rest_length": 0.51625
+    }
+  ],
+  "cloth": {
+    "mesh": "Dress",
+    "vertices": 6520,
+    "faces": 6420,
+    "area_m2": 0.06262,
+    "fabric": "silk satin ~80 g/m2",
+    "mass_kg": 0.00501,
+    "edge_length_m": {
+      "min": 0.00083,
+      "median": 0.00309,
+      "max": 0.00888
+    },
+    "pin_attribute": "vertex colour 'cloth_pin' R = pin (1 skinned / 0 simulated), G = 1 - pin (max-distance style)",
+    "pin_vertex_group": "pin",
+    "suggested": {
+      "stretch_stiffness": 0.9,
+      "bend_stiffness": 0.02,
+      "damping": 0.05,
+      "collision_thickness_m": 0.0008,
+      "colliders": "bones[*].collider capsules (pelvis, chest, thighs, arms)"
+    }
+  }
+}
