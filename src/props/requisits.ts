@@ -21,12 +21,14 @@ import {
   type Entity,
   type World,
 } from "@iwsdk/core";
+import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { catalogueEntry } from "../catalogue";
 import { PhysicsLink } from "../components/physics-link";
 import { grabbables } from "../puppet/grab";
 import { stageBounds } from "../stage/stage";
 import { GROUP, physics } from "../systems/rapier-system";
+import type { IiifObject } from "./iiif";
 
 // Props ("Requisiten") for the impro mode: every .glb in
 // assets/digital.skkg.ch/requisits/ is offered in the left-hand slider. A
@@ -41,6 +43,10 @@ import { GROUP, physics } from "../systems/rapier-system";
 // file.
 //
 // Label, scale and SKKG source come from assets/catalogue.json.
+//
+// IIIF: objects from IIIF 3D manifests (props/iiif.ts) are added at runtime
+// with addIiifRequisit and then behave like the props from the folder; their
+// .glb is loaded from wherever the manifest points (it must allow CORS).
 //
 // Placement: "best candidate" sampling. Of a few random spots on the floor,
 // the one furthest from every prop already standing there wins (distance
@@ -81,6 +87,10 @@ const THUMB_SIZE = 256;
 
 export interface Requisit {
   id: string;
+  /** The .glb to load. */
+  url: string;
+  /** Applied to the model before it is measured (IIIF annotation transforms). */
+  transform?: Matrix4;
   label: string;
   /** Picture for the slider; empty until rendered. */
   thumbnail: string;
@@ -119,7 +129,6 @@ interface Model {
 }
 
 const models = new Map<string, Promise<Model>>();
-const urls = new Map<string, string>();
 const placed = new Map<Requisit, Placed>();
 let catalogue: Requisit[] | null = null;
 
@@ -131,11 +140,11 @@ export function loadRequisits(): Requisit[] {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([path, url]) => {
       const id = baseName(path);
-      urls.set(id, url);
       const picture = pictures.get(id) ?? "";
       const entry = catalogueEntry("requisits", id);
       return {
         id,
+        url,
         // "Stuhl_25210.6" → "Stuhl": the SKKG inventory number is left off the card
         label: entry.label ?? id.replace(/_[\d.]+$/, "").replaceAll("_", " "),
         thumbnail: picture,
@@ -162,6 +171,44 @@ export function loadRequisits(): Requisit[] {
   return catalogue;
 }
 
+/** Adds an object from a IIIF manifest to the props on offer (once per manifest). */
+export function addIiifRequisit(object: IiifObject): Requisit {
+  const all = loadRequisits();
+  const id = `iiif:${object.id}`;
+  const known = all.find((r) => r.id === id);
+  if (known) return known;
+  const requisit: Requisit = {
+    id,
+    url: object.model,
+    transform: object.transform,
+    label: object.label,
+    thumbnail: object.thumbnail,
+    source: object.homepage,
+    scale: 1, // IIIF models are in metres: real size next to the 0.35 m puppet
+  };
+  all.push(requisit);
+  if (!requisit.thumbnail) {
+    void loadModel(requisit).then((model) => {
+      const thumbs = new ThumbnailRenderer();
+      requisit.thumbnail = thumbs.render(model.object);
+      thumbs.dispose();
+      requisit.onThumbnail?.(requisit.thumbnail);
+    });
+  }
+  return requisit;
+}
+
+let loader: GLTFLoader | null = null;
+function gltfLoader() {
+  if (!loader) {
+    // Draco only for IIIF models (DaSCH previews are Draco-compressed); the
+    // decoder is served from three's own copy by vite.config.ts
+    const draco = new DRACOLoader().setDecoderPath(`${import.meta.env.BASE_URL}draco/`);
+    loader = new GLTFLoader().setDRACOLoader(draco);
+  }
+  return loader;
+}
+
 function baseName(path: string) {
   return path.split("/").pop()!.replace(/\.[^.]+$/, "");
 }
@@ -171,8 +218,11 @@ function loadModel(requisit: Requisit): Promise<Model> {
   const id = requisit.id;
   let model = models.get(id);
   if (!model) {
-    model = new GLTFLoader().loadAsync(urls.get(id)!).then((gltf) => {
-      const object = gltf.scene;
+    model = gltfLoader().loadAsync(requisit.url).then((gltf) => {
+      // Wrapped, so the transform stays apart from the scale and centring below
+      const object = new Group();
+      if (requisit.transform) gltf.scene.applyMatrix4(requisit.transform);
+      object.add(gltf.scene);
       object.scale.setScalar(requisit.scale);
       object.updateMatrixWorld(true);
       let box = new Box3().setFromObject(object);

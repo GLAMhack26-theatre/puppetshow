@@ -283,6 +283,41 @@
   left: -8px;
   right: auto;
 }
+/* The IIIF drop field at the end of the props: an empty paper card with a
+   dashed frame, lighting up gold while a manifest hovers over the slider */
+.slider-drop {
+  background: #e3d2b0b3;
+}
+.slider-drop-zone {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px;
+  text-align: center;
+  overflow: hidden;
+  border: 2px dashed #7a6446;
+  border-radius: 3px;
+  transition: background 0.2s, border-color 0.2s;
+}
+.slider-drop .slider-drop-mark {
+  font: 700 22px/1 Georgia, serif;
+  letter-spacing: 0.08em;
+  color: #2873b8; /* IIIF blue */
+}
+.slider-drop.dragover .slider-drop-zone {
+  background: #f2d58c80;
+  border-color: #a97c2c;
+}
+.slider-drop.dragover {
+  box-shadow: 0 8px 16px #0006, 0 0 0 3px #d8aa4a;
+}
+.slider-drop .slider-caption {
+  white-space: normal;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .slider-d1,

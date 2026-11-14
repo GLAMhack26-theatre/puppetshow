@@ -8,6 +8,10 @@
 // The same slider serves the props on the left side: `mirror` flips the
 // whole slider with CSS and flips every card back, so the layout code only
 // ever thinks in the right-hand version.
+//
+// An item with `drop` is a drop field instead of a picture card (the IIIF
+// card at the end of the props): it takes things dragged onto it, or
+// anywhere onto the open slider, and lights up while something hovers.
 
 /** Tune the look here; there is deliberately no settings UI. */
 const SLIDER = {
@@ -38,6 +42,8 @@ export interface SliderItem {
   caption?: string;
   /** Shows a round "i" on the card's outer side; called on a click. */
   onInfo?: () => void;
+  /** Makes the card a drop field; called with what was dropped. */
+  drop?: (data: DataTransfer) => void;
 }
 
 export interface Slider {
@@ -88,6 +94,7 @@ export function createSlider({ mirror = false } = {}): Slider {
   root.append(clip, edge);
 
   let cards: HTMLElement[] = [];
+  let dropCard: { card: HTMLElement; index: number; drop: (data: DataTransfer) => void } | null = null;
   let W = 0;
   let H = 0;
   let cardW = 0;
@@ -233,6 +240,36 @@ export function createSlider({ mirror = false } = {}): Slider {
   );
   window.addEventListener("resize", layout);
 
+  // Dragging over the slider brings the drop field to the middle and lights it up
+  let dragDepth = 0;
+  const setHover = (on: boolean) => dropCard?.card.classList.toggle("dragover", on);
+  root.addEventListener("dragenter", (e) => {
+    if (!dropCard) return;
+    e.preventDefault();
+    if (dragDepth++ === 0) {
+      centre(dropCard.index);
+      setHover(true);
+    }
+  });
+  root.addEventListener("dragover", (e) => {
+    if (!dropCard) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+  });
+  root.addEventListener("dragleave", () => {
+    if (dropCard && --dragDepth <= 0) {
+      dragDepth = 0;
+      setHover(false);
+    }
+  });
+  root.addEventListener("drop", (e) => {
+    if (!dropCard || !e.dataTransfer) return;
+    e.preventDefault();
+    dragDepth = 0;
+    setHover(false);
+    dropCard.drop(e.dataTransfer);
+  });
+
   const centre = (i: number) => scroller.scrollTo({ top: i * step, behavior: "smooth" });
 
   return {
@@ -240,6 +277,7 @@ export function createSlider({ mirror = false } = {}): Slider {
     layout,
     setItems(items, onPick) {
       for (const card of cards) card.remove();
+      dropCard = null;
       cards = items.map((item, i) => {
         // A card is a positioned frame holding a transparent pick button over
         // the picture and an optional "i" button: buttons cannot be nested
@@ -263,7 +301,14 @@ export function createSlider({ mirror = false } = {}): Slider {
         });
         // Keyboard users tab through the cards; bring the focused one to the middle
         pick.addEventListener("focus", () => centre(i));
-        card.append(image, label, caption, pick);
+        if (item.drop) {
+          card.classList.add("slider-drop");
+          image.remove();
+          const zone = div("slider-drop-zone");
+          zone.innerHTML = `<span class="slider-drop-mark">IIIF</span>`;
+          card.append(zone, label, caption, pick);
+          dropCard = { card, index: i, drop: item.drop };
+        } else card.append(image, label, caption, pick);
         if (item.onInfo) {
           const info = document.createElement("button");
           info.type = "button";

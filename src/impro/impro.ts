@@ -1,5 +1,13 @@
 import type { World } from "@iwsdk/core";
-import { enableRequisitDrag, isPlaced, loadRequisits, type Requisit, toggleRequisit } from "../props/requisits";
+import { manifestFromDrop, manifestFromFile, parseManifest } from "../props/iiif";
+import {
+  addIiifRequisit,
+  enableRequisitDrag,
+  isPlaced,
+  loadRequisits,
+  type Requisit,
+  toggleRequisit,
+} from "../props/requisits";
 import { type Backdrop, currentBackdrop, loadBackdrops, setBackdrop } from "../stage/backdrops";
 import { scaleCaption } from "../catalogue";
 import { curtainLift } from "../stage/main-curtain";
@@ -13,6 +21,8 @@ import "./impro.css";
 // "Requisiten", the same slider mirrored on the left listing the props
 // (props/requisits.ts). A click puts the backdrop at the back of the stage
 // or lowers the prop onto it; placed props are dragged around on the floor.
+// The last props card is a drop field for IIIF 3D manifests (props/iiif.ts):
+// the object becomes a new card and lands on the stage at once.
 
 export function startImpro(world: World) {
   const backdrops = loadBackdrops(); // starts loading while the curtain goes up
@@ -28,10 +38,8 @@ export function startImpro(world: World) {
     set.loaded();
     fillBackdrops(world, set.slider, all);
   });
-  if (requisits.length) {
-    props.loaded();
-    fillRequisits(world, props.slider, requisits);
-  } else props.loaded("Noch keine Requisiten");
+  props.loaded();
+  fillRequisits(world, props.slider, requisits);
 
   // The menu appears once the main curtain is out of view
   const waitForCurtain = () => {
@@ -93,19 +101,51 @@ function fillBackdrops(world: World, slider: Slider, backdrops: Backdrop[]) {
 }
 
 function fillRequisits(world: World, slider: Slider, requisits: Requisit[]) {
-  const markSelected = () => slider.setSelected((i) => isPlaced(requisits[i]));
-  const items = requisits.map((r) => ({
-    label: r.label,
-    thumbnail: r.thumbnail,
-    caption: scaleCaption(r.scale),
-    onInfo: infoHandler(r.source),
-  }));
-  slider.setItems(items, async (index) => {
+  const markSelected = () => slider.setSelected((i) => i < requisits.length && isPlaced(requisits[i]));
+  const place = async (requisit: Requisit) => {
     // A second click lifts it off the stage again
-    const placing = toggleRequisit(world, requisits[index]);
+    const placing = toggleRequisit(world, requisit);
     markSelected(); // at once when lifting off
     await placing;
     markSelected(); // after loading when placing
+  };
+  const dropIndex = requisits.length;
+  const hint = "Manifest hierher ziehen oder klicken";
+
+  // The IIIF drop field: a manifest turns into a new card before it, and its object lands on the stage
+  const addManifest = async (read: Promise<{ json: unknown; base: string }>) => {
+    slider.setCaption(dropIndex, "Lädt …");
+    try {
+      const { json, base } = await read;
+      const requisit = addIiifRequisit(parseManifest(json, base));
+      fillRequisits(world, slider, requisits); // requisits now holds the new one
+      if (!isPlaced(requisit)) await place(requisit);
+    } catch (error) {
+      console.warn("IIIF manifest", error);
+      slider.setCaption(dropIndex, error instanceof Error ? error.message : "Fehler beim Laden");
+    }
+  };
+  const picker = document.createElement("input");
+  picker.type = "file";
+  picker.accept = ".json,application/json,application/ld+json";
+  picker.addEventListener("change", () => {
+    const file = picker.files?.[0];
+    if (file) void addManifest(manifestFromFile(file));
+    picker.value = "";
+  });
+
+  const items = [
+    ...requisits.map((r) => ({
+      label: r.label,
+      thumbnail: r.thumbnail,
+      caption: scaleCaption(r.scale),
+      onInfo: infoHandler(r.source),
+    })),
+    { label: "IIIF-Objekt", thumbnail: "", caption: hint, drop: (data: DataTransfer) => void addManifest(manifestFromDrop(data)) },
+  ];
+  slider.setItems(items, (index) => {
+    if (index === dropIndex) picker.click();
+    else void place(requisits[index]);
   });
   // Thumbnails without a picture of their own are rendered one after another
   requisits.forEach((requisit, i) => {

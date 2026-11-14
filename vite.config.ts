@@ -5,33 +5,37 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 
-// MediaPipe's wasm runtime, served from node_modules (dev) and emitted into
-// dist/mediapipe/wasm/ (build), so it always matches the installed version
-// and the app needs no CDN at runtime.
-const MEDIAPIPE_WASM = path.join(ROOT, "node_modules/@mediapipe/tasks-vision/wasm");
+// Wasm runtimes served from node_modules (dev) and emitted into dist/
+// (build), so they always match the installed version and the app needs no
+// CDN at runtime: MediaPipe's under /mediapipe/wasm/, three.js' Draco
+// decoder (for Draco-compressed .glb from IIIF manifests) under /draco/.
+const WASM_DIRS: Record<string, string> = {
+  "mediapipe/wasm": path.join(ROOT, "node_modules/@mediapipe/tasks-vision/wasm"),
+  draco: path.join(ROOT, "node_modules/three/examples/jsm/libs/draco/gltf"),
+};
 
-function mediapipeWasm(): Plugin {
+function wasmRuntimes(): Plugin {
   return {
-    name: "mediapipe-wasm",
+    name: "wasm-runtimes",
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        const file = req.url?.match(/^\/mediapipe\/wasm\/([^?]+)/)?.[1];
-        const source = file && path.join(MEDIAPIPE_WASM, path.basename(file));
-        if (source && fs.existsSync(source)) {
-          res.setHeader("Content-Type", source.endsWith(".wasm") ? "application/wasm" : "text/javascript");
-          fs.createReadStream(source).pipe(res);
-          return;
+        for (const [prefix, dir] of Object.entries(WASM_DIRS)) {
+          const file = req.url?.match(new RegExp(`^/${prefix}/([^?]+)`))?.[1];
+          const source = file && path.join(dir, path.basename(file));
+          if (source && fs.existsSync(source)) {
+            res.setHeader("Content-Type", source.endsWith(".wasm") ? "application/wasm" : "text/javascript");
+            fs.createReadStream(source).pipe(res);
+            return;
+          }
         }
         next();
       });
     },
     generateBundle() {
-      for (const file of fs.readdirSync(MEDIAPIPE_WASM)) {
-        this.emitFile({
-          type: "asset",
-          fileName: `mediapipe/wasm/${file}`,
-          source: fs.readFileSync(path.join(MEDIAPIPE_WASM, file)),
-        });
+      for (const [prefix, dir] of Object.entries(WASM_DIRS)) {
+        for (const file of fs.readdirSync(dir)) {
+          this.emitFile({ type: "asset", fileName: `${prefix}/${file}`, source: fs.readFileSync(path.join(dir, file)) });
+        }
       }
     },
   };
@@ -48,7 +52,7 @@ async function httpsPlugins(mode: string): Promise<Plugin[]> {
 }
 
 export default defineConfig(async ({ mode }) => ({
-  plugins: [mediapipeWasm(), ...(await httpsPlugins(mode))],
+  plugins: [wasmRuntimes(), ...(await httpsPlugins(mode))],
   resolve: {
     // One three.js: IWSDK's, also for three/examples/jsm add-ons
     dedupe: ["three"],
