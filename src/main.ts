@@ -12,6 +12,7 @@ import { SpotlightSystem } from "./stage/spotlights";
 import { StageSystem, isCurtainOpen, loadStage, setCurtain } from "./stage/stage";
 import { RapierSystem, initPhysics } from "./systems/rapier-system";
 import { FpsSystem } from "./spike/world";
+import { setupDebugMode } from "./ui/debug-mode";
 
 // Without ?test: the play itself. Curtain and signs, then the marionette,
 // led by the hand in front of the camera (the mouse until the camera runs).
@@ -25,7 +26,9 @@ const test = new URLSearchParams(location.search).get("test") ?? "play";
 /** These tests have no camera control; everything else is the play */
 const handControl = !["world", "puppet", "interop"].includes(test);
 
-// Independent of the test: Shift+P / the "presentation" button
+// Independent of the test: Shift+D shows the debug UI, Shift+P / the
+// "presentation" button opens the presentation
+setupDebugMode();
 setupPresentation();
 
 await initPhysics();

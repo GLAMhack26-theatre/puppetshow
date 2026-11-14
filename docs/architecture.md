@@ -88,9 +88,9 @@ If items 1 or 2 fail, the fallback is our own thin engine with the same split in
 
 **UI/UX, "game theatre" character**
 - Curtain transitions, ticket- or programme-style buttons, Geist Sans for the UI, Geist Serif for titles.
-- Debug HUD with landmarks, FPS and physics wireframe, toggled with `?debug`.
+- **Debug mode** (`src/ui/debug-mode.ts`): the test links top right, the debug panel at the bottom, and the HUD (landmarks, FPS, physics wireframe) are hidden by default; the camera preview with the hand landmarks always stays visible, as the player's feedback. Shift+D toggles them, `?debug` switches them on; the state is kept in `sessionStorage`, so it survives the test links' reloads within the tab.
 - An old-film vignette (darkened, softly burnt-in edges) lies over the 3D view in 2D, under the UI (buttons, HUD, impro menu and slider): a CSS overlay in `index.html` that lets all input through.
-- Without `?test` the page is the play itself: curtain, signs, then the marionette with hand control. Debug buttons top right pick `?test=…`; **impro** (`?test=nocurtain`) skips the main curtain and the signs and goes straight into impro mode; **puppet** is the marionette with the mouse only, **world** the stage alone with an orbit camera.
+- Without `?test` the page is the play itself: curtain, signs, then the marionette with hand control. Debug buttons top right (debug mode, Shift+D) pick `?test=…`; **impro** (`?test=nocurtain`) skips the main curtain and the signs and goes straight into impro mode; **puppet** is the marionette with the mouse only, **world** the stage alone with an orbit camera.
 
 ---
 
@@ -237,6 +237,7 @@ Add one line per change to a decision in this doc: date, what changed, why.
 
 | Date | Change | Reason |
 |---|---|---|
+| 2026-11-14 | Debug mode: test links, debug panel and HUD hidden unless Shift+D (or `?debug`) is on, kept per tab in `sessionStorage` | The play should show no developer controls; the test links reload the page, so the state must survive them; the hand preview stays, players need it |
 | 2026-11-14 | Presentation mode (`src/presentation/`, Shift+P / button, ESC closes): 3 fullscreen slides (collection objects with turning models, marionette controls, outlook with QR code); one shared renderer for all slide views | Pitch inside the app, with the real models instead of screenshots |
 | 2026-11-14 | Impro menu: round icon buttons at the panels' edges (two per side, with empty Sound and Licht pages) and a golden X replace the text buttons at the bottom | Stage set-up tools sit where their panels open; room for sound and light later |
 | 2026-11-14 | IIIF drop field as the last props card: a 3D manifest becomes a prop on the stage; Draco decoder served locally next to the MediaPipe wasm | Objects from other collections join the play without a converter step |
