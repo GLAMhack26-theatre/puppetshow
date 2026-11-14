@@ -16,9 +16,9 @@ The repo is empty apart from the README; this doc defines the setup and architec
 | Gestures | MediaPipe (`@mediapipe/tasks-vision`: HandLandmarker + GestureRecognizer) |
 | Targets | Phone and desktop with a webcam first, the phone running everything itself. WebRTC remote and VR later |
 | Audio | Web Audio; background music and excerpts **streamed from archive.org** (netlabel releases, `assets/sounds/archive.json`); effects as CC0 samples + **ZzFX**; physics sounds from collision starts, stereo-panned. Music and effects each have a button, both off at every load |
-| Tooling | TypeScript + Vite + HTTPS + Docker Compose; the app is served directly by Vite (no Traefik or nginx for now) |
-| Assets | Sources committed in `/assets`, grouped by source; large files on external storage, downloaded by hand into `assets/external/` (git-ignored); the `convert` service turns both automatically into `/public` |
-| Fonts | Geist Serif (titles, 3D letters) + Geist Sans (UI), bundled from the `geist` npm package (OFL) |
+| Tooling | TypeScript + Vite + HTTPS, run with npm (`npm run dev`, `npm run dev:https` for phones on the LAN); the app is served directly by Vite (no proxy). Docker Compose is set aside for now (later) |
+| Assets | Sources committed in `/assets`, grouped by source, imported directly by Vite (`?url`, `import.meta.glob`); large files on external storage, downloaded by hand into `assets/external/` (git-ignored). A `convert` service that optimizes them into `/public` is planned for later |
+| Fonts | Geist Sans + Geist Serif (OFL), self-hosted in `assets/fonts/`; used by the presentation so far |
 | Exit | Back to the title screen |
 | Later | WebRTC remote (display + phone via QR), WebXR 3DoF/6DoF, LiteRT-LM |
 
@@ -65,7 +65,7 @@ If items 1 or 2 fail, the fallback is our own thin engine with the same split in
 ## 2. Scenes & gameplay
 
 **Title screen**
-- "SKKG Marionetten Theater": each letter is a `TextGeometry` mesh in Geist Serif. The font is converted to typeface JSON by the converter.
+- "SKKG Marionetten Theater": each letter is a `TextGeometry` mesh in Geist Serif. The font is converted to typeface JSON (by the converter, once it exists).
 - Each letter hangs on strings (Rapier rope joints) and sways. Pointer or hand movement pushes the letters.
 - The **Play** button opens the main scene. It also unlocks audio and asks for the camera and motion-sensor permissions, because iOS only grants these after a user gesture.
 
@@ -232,13 +232,15 @@ Rockers are differences of two finger angles, so moving or turning the hand does
 
 ---
 
-## 4. Asset pipeline (`convert` service)
+## 4. Asset pipeline
 
-The sources are committed in `/assets`, grouped by where they come from (e.g. `assets/digital.skkg.ch/Stuhl_25210.6.{blend,glb,jpg}`: the original photo, the Blender file and a `.glb`). Large files (over about 20 MB) are not committed: they live on external storage and everyone downloads them by hand into `assets/external/<source>/`, which is git-ignored except for its README (`assets/external/README.md`, with the storage location). No git LFS. The converter reads both `assets/` and `assets/external/`.
+The sources are committed in `/assets`, grouped by where they come from (e.g. `assets/digital.skkg.ch/Stuhl_25210.6.{blend,glb,jpg}`: the original photo, the Blender file and a `.glb`). Large files (over about 20 MB) are not committed: they live on external storage and everyone downloads them by hand into `assets/external/<source>/`, which is git-ignored except for its README (`assets/external/README.md`, with the storage location). No git LFS.
 
-The converter writes to `/public` (git-ignored) plus `public/manifest.json`. It works incrementally, comparing source hashes, and runs with `--watch` in dev.
+**Now:** there is no build step for assets. The code imports them from `assets/` directly (`?url` imports, `import.meta.glob`), and Vite serves and bundles them as they are. Scripts fill in the rest: `scripts/fetch-mediapipe-models.sh` (MediaPipe models into `public/mediapipe/`), `scripts/unpack-sounds.sh` (sound effects, runs before `dev` and `build`), `scripts/index-archive.mjs` (archive.org metadata).
 
-| Source | Tool (in the container) | Output |
+**Later, the `convert` service** (Docker): it would read `assets/` and `assets/external/` and write optimized files to `/public` (git-ignored) plus `public/manifest.json`, incrementally (source hashes), with `--watch` in dev.
+
+| Source | Tool (in the container, later) | Output |
 |---|---|---|
 | `.blend`, `.fbx`, `.obj` | Blender headless (`blender -b … --python export.py`) | `.glb` with skeleton and `string.*` empties |
 | `.glb/.gltf` + Blender output | `gltf-transform` (meshopt, KTX2/WebP) | optimized `.glb` |
@@ -257,8 +259,6 @@ blender/  export/  tools/   # marionette: Blender build scripts, exported .glb/.
 scripts/fetch-mediapipe-models.sh  scripts/index-archive.mjs  scripts/unpack-sounds.sh
 scripts/test-hand-tracking.ts   # hand-tracking checks on synthetic hands (node, no browser)
 scripts/replay-recording.mjs    # a recorded hand session through the tracker → CSV (node, no browser)
-converter/              # Dockerfile (Blender LTS + node + ffmpeg), export.py, convert.mjs
-certs/                  # git-ignored TLS cert/key for Vite (server.https / preview.https)
 src/
   main.ts               # IWSDK World (xr:false), register systems
   components/  systems/  scenes/{title,main}.ts
@@ -267,26 +267,26 @@ src/
   input/{control-input,mediapipe,hand-tracking,hand-overlay,hand-synthetic,hand-release,phone,mouse}.ts
   audio/{audio,ambient,excerpts,sfx,cues,impacts}.ts   # graph + on/off, archive.org playlists and excerpts, effects
   ui/                   # overlay, release timer, light desk, sound button, debug mode, styles, Geist fonts
-index.html  vite.config.ts  tsconfig.json  package.json
-Dockerfile  docker-compose.yml  dev.sh  CLAUDE.md
+index.html  vite.config.ts  tsconfig.json  package.json  CLAUDE.md
 ```
+
+Later, with Docker: `converter/` (Dockerfile with Blender LTS, node and ffmpeg; `export.py`, `convert.mjs`), `Dockerfile`, `docker-compose.yml`, `dev.sh`, and `certs/` for a real TLS certificate.
 
 **Setup:**
 - **Vite:** `@vitejs/plugin-basic-ssl` behind `--mode https` (`npm run dev:https`, works in every shell) or `HTTPS=1`, because the camera, DeviceOrientation and WebXR need HTTPS on phones. A Vite plugin serves the wasm files (MediaPipe, basis transcoder) from `node_modules`.
-- **Served directly for now:** no reverse proxy, no Traefik and no nginx.
-  - The `web` container runs Vite with HTTPS: `vite` (HMR) in dev, or `vite build && vite preview` for the demo.
-  - The port (5173 / 4173) is published directly. TLS comes from `@vitejs/plugin-basic-ssl`, or from a certificate in `./certs` passed through `server.https` / `preview.https`.
-  - An nginx image can be added later without changes to the app.
-- **`docker-compose.yml`:** `web` (Vite, port published) and `convert` (`--watch` in dev).
-- **`dev.sh`:** `./dev.sh --https -- --host` for testing phones on the LAN.
+- **Served directly by Vite:** no reverse proxy, no Traefik and no nginx.
+  - Dev: `npm run dev` (HMR); for phones on the LAN `npm run dev:https` (HTTPS, listens on all interfaces, port 5173).
+  - Demo: `npm run build && npm run preview` (port 4173).
+  - TLS comes from `@vitejs/plugin-basic-ssl` (self-signed: browsers warn once).
+- **Later:** Docker Compose with a `web` service (Vite, port published) and the `convert` service; a real certificate in `./certs` through `server.https` / `preview.https`; an nginx image if needed, without changes to the app.
 
 ---
 
 ## 6. Phases
 
 0. IWSDK spike (section 1): go or fallback.
-1. Scaffold: IWSDK browser-mode project, Vite/TS/HTTPS, scene flow, Docker Compose (Vite served directly), dev.sh, CLAUDE.md.
-2. Converter + asset sync.
+1. Scaffold: IWSDK browser-mode project, Vite/TS/HTTPS, scene flow, CLAUDE.md.
+2. Converter + asset sync (later, with Docker Compose).
 3. Title scene: hanging letters, Play → main, Exit → title.
 4. Main stage: 3-point lights, spotlight, backdrops, audio (music + ZzFX).
 5. Puppet: placeholder rigged `.glb` until the real `.blend` arrives; strings; mouse control.
@@ -299,7 +299,7 @@ Dockerfile  docker-compose.yml  dev.sh  CLAUDE.md
 
 - **Rapier next to IWSDK:** IWSDK's own physics stays off. If we later want IWSDK features that assume its physics (e.g. its grabbing in XR), they will need an adapter to our Rapier bodies.
 - **MediaPipe and rendering together on a mid-range phone:** performance needs to be measured in phase 0. Possible measures: lower camera resolution, inference at 15–30 Hz.
-- **Blender in Docker on Apple Silicon** runs under x86 emulation and is slow. A local `BLENDER_BIN` is the fallback.
+- **Blender in Docker on Apple Silicon** (once the converter exists) runs under x86 emulation and is slow. A local `BLENDER_BIN` is the fallback.
 - **iOS permissions:** camera, DeviceOrientation and audio all need a user gesture, which the Play button provides.
 - **Self-signed certificates:** phones warn once. For the demo, use a real certificate on the server.
 
@@ -308,12 +308,12 @@ Dockerfile  docker-compose.yml  dev.sh  CLAUDE.md
 - `npm run build` passes (tsc + vite).
 - `node scripts/test-hand-tracking.ts` passes: smoothing, depth against tilt, rest pose, hand roles, dropouts, mirror, finger mapping, the second hand (hand bar, head bar, back string), finger angles at different leans, relative height.
 - `?test=mediapipe&replay=synthetic` plays a scripted session through the page without a camera.
-- `./dev.sh --https -- --host <LAN-IP>`:
+- `npm run dev:https`, opened at `https://<LAN-IP>:5173`:
   - the title letters sway and Play/Exit work
   - the puppet follows the mouse, then MediaPipe on desktop and phone
   - a prop can be grabbed, thrown and dropped
-- `docker compose run --rm convert`: all source types produce output, and a second run skips unchanged files.
-- `docker compose up`: `https://<LAN-IP>:5173` (or 4173 for preview) opens on a phone, and the camera and sensors work.
+  - on a phone the camera and sensors work
+- Later, with Docker: `docker compose run --rm convert` produces output for all source types and skips unchanged files on a second run.
 
 ---
 
@@ -323,6 +323,7 @@ Add one line per change to a decision in this doc: date, what changed, why.
 
 | Date | Change | Reason |
 |---|---|---|
+| 2026-11-14 | Docker Compose, the `convert` service and `dev.sh` set aside (later): the app runs with npm and Vite alone, assets are imported directly from `assets/`; fonts row corrected (self-hosted in `assets/fonts/`) | Not needed for the hackathon; the doc described files the repo does not have |
 | 2026-11-14 | Engine followers: bar pose, rock angles, free hand bar and hook follow their input through a critically damped spring with an acceleration cap instead of a speed cap alone; the hand bar returns in about 1 s instead of 0.4 s | An input step became a full-speed sweep (90 m/s² at the bar); now 12 m/s², and a spike of two steps moves the bar 12 mm instead of 50 mm |
 | 2026-11-14 | String length is a runtime setting (`ControlInput.stringExtra`, default +0.15 m); leg bar limit 34.4° → 50°; lead in hands and feet (masses are no longer the real ones); a string can be hooked by the other hand, as a moved rope anchor rather than a simulated chain | The cross was too close to the puppet; a full leg rock raised the foot only 2 cm (now 3.3 cm); more weight in hands and feet and pulling the back string by moving against it were asked for after the first play test |
 | 2026-11-14 | MediaPipe, after the first play test: fingers are read as bend angles at the knuckle (a stick fitted to the finger as seen) instead of fingertip positions mapped through the palm's outline; the cross's height is relative to where the hand rests; outputs ease over when a hand attaches or comes back; a second hand can also turn the head bar and push the back string (`ControlInput.hook`); the overlay draws the cross in the cross hand; a pitch slider and a string-length slider (`stringExtra`) | The leg bar answered as a switch in one hand pose and not at all in another, the puppet hung in the air for a hand held high, and the cross jumped 0.4 rad whenever a hand attached (all three measured on the recorded session) |
