@@ -5,7 +5,8 @@
   "height_m": 0.35,
   "joint_limit_convention": "degrees about bone-local axes (Blender bone space, +Y along the bone); values are estimates, hinge signs verified in the rig",
   "assumptions": [
-    "classic 9-string layout (photo 3 only shows head and hand attachments)",
+    "9-string layout and cross from the SKKG control cross (photos + sketches); head bar size/drop and hand bar pivot estimated",
+    "rest pose: arms hanging",
     "lead-weighted shoes (metal plates visible on the soles)",
     "silk satin ~80 g/m2",
     "joint ranges"
@@ -136,10 +137,10 @@
         0.3465
       ],
       "deform": true,
-      "mass_kg": 0.06082,
+      "mass_kg": 0.05144,
       "collider": {
         "type": "capsule",
-        "radius": 0.02644,
+        "radius": 0.02661,
         "a": [
           0.0,
           -0.0010499999625608325,
@@ -160,28 +161,28 @@
     "string_head.L": {
       "parent": "head",
       "head": [
-        0.02625,
-        0.0014,
-        0.30975
+        0.0203,
+        0.0,
+        0.31675
       ],
       "tail": [
-        0.02625,
-        0.0014,
-        0.32025
+        0.0203,
+        0.0,
+        0.32725
       ],
       "deform": true
     },
     "string_head.R": {
       "parent": "head",
       "head": [
-        -0.02625,
-        0.0014,
-        0.30975
+        -0.0203,
+        0.0,
+        0.31675
       ],
       "tail": [
-        -0.02625,
-        0.0014,
-        0.32025
+        -0.0203,
+        0.0,
+        0.32725
       ],
       "deform": true
     },
@@ -193,9 +194,9 @@
         0.24675
       ],
       "tail": [
-        0.08575,
+        0.04097,
         -0.00175,
-        0.24675
+        0.19956
       ],
       "deform": true,
       "mass_kg": 0.00212,
@@ -208,9 +209,9 @@
           0.24674999713897705
         ],
         "b": [
-          0.08574999868869781,
+          0.04097000136971474,
           -0.0017500000540167093,
-          0.24674999713897705
+          0.1995600014925003
         ]
       },
       "joint": {
@@ -222,14 +223,14 @@
     "forearm.L": {
       "parent": "upper_arm.L",
       "head": [
-        0.08575,
+        0.04097,
         -0.00175,
-        0.24675
+        0.19956
       ],
       "tail": [
-        0.12075,
+        0.0428,
         -0.00175,
-        0.24675
+        0.16461
       ],
       "deform": true,
       "mass_kg": 0.00071,
@@ -237,14 +238,14 @@
         "type": "capsule",
         "radius": 0.0056,
         "a": [
-          0.08574999868869781,
+          0.04097000136971474,
           -0.0017500000540167093,
-          0.24674999713897705
+          0.1995600014925003
         ],
         "b": [
-          0.12075000256299973,
+          0.04280000180006027,
           -0.0017500000540167093,
-          0.24674999713897705
+          0.16460999846458435
         ]
       },
       "joint": {
@@ -257,14 +258,14 @@
     "hand.L": {
       "parent": "forearm.L",
       "head": [
-        0.12075,
+        0.0428,
         -0.00175,
-        0.24675
+        0.16461
       ],
       "tail": [
-        0.1512,
+        0.0444,
         -0.00175,
-        0.24675
+        0.1342
       ],
       "deform": true,
       "mass_kg": 0.00076,
@@ -272,14 +273,14 @@
         "type": "capsule",
         "radius": 0.00717,
         "a": [
-          0.12075000256299973,
+          0.04280000180006027,
           -0.0017500000540167093,
-          0.24674999713897705
+          0.16460999846458435
         ],
         "b": [
-          0.15119999647140503,
+          0.04439999908208847,
           -0.0017500000540167093,
-          0.24674999713897705
+          0.13420000672340393
         ]
       },
       "joint": {
@@ -291,14 +292,14 @@
     "string_hand.L": {
       "parent": "hand.L",
       "head": [
-        0.13825,
+        0.04687,
         -0.0014,
-        0.2499
+        0.1473
       ],
       "tail": [
-        0.13825,
+        0.05735,
         -0.0014,
-        0.2604
+        0.14785
       ],
       "deform": true
     },
@@ -310,9 +311,9 @@
         0.24675
       ],
       "tail": [
-        -0.08575,
+        -0.04097,
         -0.00175,
-        0.24675
+        0.19956
       ],
       "deform": true,
       "mass_kg": 0.00212,
@@ -325,9 +326,9 @@
           0.24674999713897705
         ],
         "b": [
-          -0.08574999868869781,
+          -0.04097000136971474,
           -0.0017500000540167093,
-          0.24674999713897705
+          0.1995600014925003
         ]
       },
       "joint": {
@@ -339,14 +340,14 @@
     "forearm.R": {
       "parent": "upper_arm.R",
       "head": [
-        -0.08575,
+        -0.04097,
         -0.00175,
-        0.24675
+        0.19956
       ],
       "tail": [
-        -0.12075,
+        -0.0428,
         -0.00175,
-        0.24675
+        0.16461
       ],
       "deform": true,
       "mass_kg": 0.00071,
@@ -354,14 +355,14 @@
         "type": "capsule",
         "radius": 0.0056,
         "a": [
-          -0.08574999868869781,
+          -0.04097000136971474,
           -0.0017500000540167093,
-          0.24674999713897705
+          0.1995600014925003
         ],
         "b": [
-          -0.12075000256299973,
+          -0.04280000180006027,
           -0.0017500000540167093,
-          0.24674999713897705
+          0.16460999846458435
         ]
       },
       "joint": {
@@ -374,14 +375,14 @@
     "hand.R": {
       "parent": "forearm.R",
       "head": [
-        -0.12075,
+        -0.0428,
         -0.00175,
-        0.24675
+        0.16461
       ],
       "tail": [
-        -0.1512,
+        -0.0444,
         -0.00175,
-        0.24675
+        0.1342
       ],
       "deform": true,
       "mass_kg": 0.00076,
@@ -389,14 +390,14 @@
         "type": "capsule",
         "radius": 0.00717,
         "a": [
-          -0.12075000256299973,
+          -0.04280000180006027,
           -0.0017500000540167093,
-          0.24674999713897705
+          0.16460999846458435
         ],
         "b": [
-          -0.15119999647140503,
+          -0.04439999908208847,
           -0.0017500000540167093,
-          0.24674999713897705
+          0.13420000672340393
         ]
       },
       "joint": {
@@ -408,14 +409,14 @@
     "string_hand.R": {
       "parent": "hand.R",
       "head": [
-        -0.13825,
+        -0.04687,
         -0.0014,
-        0.2499
+        0.1473
       ],
       "tail": [
-        -0.13825,
+        -0.05735,
         -0.0014,
-        0.2604
+        0.14785
       ],
       "deform": true
     },
@@ -476,9 +477,10 @@
         ]
       },
       "joint": {
-        "type": "cone",
-        "swing": 95,
-        "twist": 20
+        "type": "hinge",
+        "axis": "X",
+        "min": -95,
+        "max": 30
       }
     },
     "shin.L": {
@@ -593,9 +595,10 @@
         ]
       },
       "joint": {
-        "type": "cone",
-        "swing": 95,
-        "twist": 20
+        "type": "hinge",
+        "axis": "X",
+        "min": -95,
+        "max": 30
       }
     },
     "shin.R": {
@@ -701,33 +704,33 @@
       "socket": "string_head.L",
       "bone": "head",
       "position": [
-        0.02625,
-        0.0014,
-        0.30975
+        0.0203,
+        0.0,
+        0.31675
       ],
       "controller": "CTRL_bar",
       "controller_point": [
-        0.02625,
-        0.0014,
-        0.6125
+        0.045,
+        0.0,
+        0.568
       ],
-      "rest_length": 0.30275
+      "rest_length": 0.25246
     },
     {
       "socket": "string_head.R",
       "bone": "head",
       "position": [
-        -0.02625,
-        0.0014,
-        0.30975
+        -0.0203,
+        0.0,
+        0.31675
       ],
       "controller": "CTRL_bar",
       "controller_point": [
-        -0.02625,
-        0.0014,
-        0.6125
+        -0.045,
+        0.0,
+        0.568
       ],
-      "rest_length": 0.30275
+      "rest_length": 0.25246
     },
     {
       "socket": "string_shoulder.L",
@@ -739,11 +742,11 @@
       ],
       "controller": "CTRL_bar",
       "controller_point": [
-        0.0245,
+        0.055,
         0.0,
-        0.6125
+        0.608
       ],
-      "rest_length": 0.3479
+      "rest_length": 0.34475
     },
     {
       "socket": "string_shoulder.R",
@@ -755,11 +758,11 @@
       ],
       "controller": "CTRL_bar",
       "controller_point": [
-        -0.0245,
+        -0.055,
         0.0,
-        0.6125
+        0.608
       ],
-      "rest_length": 0.3479
+      "rest_length": 0.34475
     },
     {
       "socket": "string_back",
@@ -772,42 +775,42 @@
       "controller": "CTRL_bar",
       "controller_point": [
         0.0,
-        0.0238,
-        0.6125
+        0.025,
+        0.608
       ],
-      "rest_length": 0.4375
+      "rest_length": 0.433
     },
     {
       "socket": "string_hand.L",
       "bone": "hand.L",
       "position": [
-        0.13825,
+        0.04687,
         -0.0014,
-        0.2499
+        0.1473
       ],
       "controller": "CTRL_handbar",
       "controller_point": [
-        0.13825,
-        -0.0014,
-        0.6265
+        0.075,
+        -0.1395,
+        0.608
       ],
-      "rest_length": 0.3766
+      "rest_length": 0.48177
     },
     {
       "socket": "string_hand.R",
       "bone": "hand.R",
       "position": [
-        -0.13825,
+        -0.04687,
         -0.0014,
-        0.2499
+        0.1473
       ],
       "controller": "CTRL_handbar",
       "controller_point": [
-        -0.13825,
-        -0.0014,
-        0.6265
+        -0.075,
+        -0.1395,
+        0.608
       ],
-      "rest_length": 0.3766
+      "rest_length": 0.48177
     },
     {
       "socket": "string_knee.L",
@@ -819,11 +822,11 @@
       ],
       "controller": "CTRL_legbar",
       "controller_point": [
-        0.01645,
-        -0.0112,
-        0.61775
+        0.06,
+        -0.109,
+        0.573
       ],
-      "rest_length": 0.51625
+      "rest_length": 0.4835
     },
     {
       "socket": "string_knee.R",
@@ -835,24 +838,161 @@
       ],
       "controller": "CTRL_legbar",
       "controller_point": [
-        -0.01645,
-        -0.0112,
-        0.61775
+        -0.06,
+        -0.109,
+        0.573
       ],
-      "rest_length": 0.51625
+      "rest_length": 0.4835
     }
   ],
+  "controller": {
+    "description": "SKKG 9-string cross: main bar with shoulder crossbar and head bar (fixed), leg bar and hand bar rock about 'axis' (right-hand rule; + lifts the .L end)",
+    "stick_size_m": 0.009,
+    "bars": [
+      {
+        "name": "CTRL_bar",
+        "parent": null,
+        "pivot": [
+          0.0,
+          0.0,
+          0.6125
+        ],
+        "axis": null,
+        "input": null,
+        "sticks": [
+          {
+            "a": [
+              0,
+              0.025,
+              0.6125
+            ],
+            "b": [
+              0,
+              -0.135,
+              0.6125
+            ]
+          },
+          {
+            "a": [
+              -0.055,
+              0.0,
+              0.6125
+            ],
+            "b": [
+              0.055,
+              0.0,
+              0.6125
+            ]
+          },
+          {
+            "a": [
+              0,
+              0.0,
+              0.6125
+            ],
+            "b": [
+              0,
+              0.0,
+              0.5725
+            ]
+          },
+          {
+            "a": [
+              -0.045,
+              0.0,
+              0.5725
+            ],
+            "b": [
+              0.045,
+              0.0,
+              0.5725
+            ]
+          },
+          {
+            "a": [
+              0,
+              -0.1,
+              0.6125
+            ],
+            "b": [
+              0,
+              -0.1,
+              0.5625
+            ]
+          }
+        ]
+      },
+      {
+        "name": "CTRL_legbar",
+        "parent": "CTRL_bar",
+        "pivot": [
+          0.0,
+          -0.109,
+          0.5775
+        ],
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "input": "legs",
+        "sticks": [
+          {
+            "a": [
+              -0.06,
+              -0.109,
+              0.5775
+            ],
+            "b": [
+              0.06,
+              -0.109,
+              0.5775
+            ]
+          }
+        ]
+      },
+      {
+        "name": "CTRL_handbar",
+        "parent": "CTRL_bar",
+        "pivot": [
+          0.0,
+          -0.1395,
+          0.6125
+        ],
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "input": "hands",
+        "sticks": [
+          {
+            "a": [
+              -0.075,
+              -0.1395,
+              0.6125
+            ],
+            "b": [
+              0.075,
+              -0.1395,
+              0.6125
+            ]
+          }
+        ]
+      }
+    ]
+  },
   "cloth": {
     "mesh": "Dress",
     "vertices": 6520,
     "faces": 6420,
-    "area_m2": 0.06262,
+    "area_m2": 0.063,
     "fabric": "silk satin ~80 g/m2",
-    "mass_kg": 0.00501,
+    "mass_kg": 0.00504,
     "edge_length_m": {
-      "min": 0.00083,
-      "median": 0.00309,
-      "max": 0.00888
+      "min": 0.00044,
+      "median": 0.00307,
+      "max": 0.01324
     },
     "pin_attribute": "vertex colour 'cloth_pin' R = pin (1 skinned / 0 simulated), G = 1 - pin (max-distance style)",
     "pin_vertex_group": "pin",

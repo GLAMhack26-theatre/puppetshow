@@ -1,6 +1,6 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import { Matrix4, PropertyBinding, Quaternion, Vector3, type Object3D } from "@iwsdk/core";
-import type { StringId } from "../input/control-input";
+import type { RockId, StringId } from "../input/control-input";
 import { GROUP, physics, renderPose } from "../systems/rapier-system";
 
 // Ragdoll from a rig description (marionette.ts): one capsule body per bone,
@@ -39,14 +39,36 @@ export interface RigString {
   /** Bone whose body carries the string */
   bone: string;
   position: Vector3;
-  /** Upper end on the control bar, at rest */
+  /** Bar of the control cross that carries the upper end */
+  bar: string;
+  /** Upper end (the eye on the bar), at rest */
   barPoint: Vector3;
   restLength: number;
+}
+
+/** One bar of the control cross (Spielkreuz). Points are in the puppet root's local space, at rest. */
+export interface RigBar {
+  name: string;
+  /** Rocking bars hang on the main bar (no parent) */
+  parent?: string;
+  /** Origin of the bar: the grip for the main bar, the pin for a rocking bar */
+  pivot: Vector3;
+  /** Rocking axis (unit); + lifts the puppet's left end */
+  axis?: Vector3;
+  input?: RockId;
+  /** For drawing: square sticks from a to b */
+  sticks: { a: Vector3; b: Vector3 }[];
+}
+
+export interface RigController {
+  stickSize: number;
+  bars: RigBar[];
 }
 
 export interface RigDescription {
   bones: RigBone[];
   strings: RigString[];
+  controller: RigController;
 }
 
 export interface RigPart {

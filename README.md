@@ -12,7 +12,7 @@ Decisions, setup and phases: [docs/architecture.md](docs/architecture.md)
 
 Procedural, rigged, cloth-ready Blender model of the SKKG marionette (CC0 photos in
 `assets/`). Real size 35 x 14 x 7.5 cm, so the model is built at **H = 0.35 m**
-(Z up, facing -Y, character left = +X / `.L`).
+(Z up, facing -Y, character left = +X / `.L`). Rest pose: arms hanging down.
 
 | File | What |
 |---|---|
@@ -22,41 +22,54 @@ Procedural, rigged, cloth-ready Blender model of the SKKG marionette (CC0 photos
 | `blender/render_reference_check.py` + `tools/overlay_check.py` | Ortho renders framed like the reference photos, overlaid for proportion checks |
 | `blender/export_game.py` | Writes `export/marionette.glb` and `export/marionette.fbx` |
 | `export/marionette_rig.json` | Engine metadata: bones, masses, capsule colliders, joint limits, strings, cloth info |
-| `tools/extract_textures.py` | Builds `assets/textures/*` from photo 3 (exposure from the colour chart, strings inpainted, face TPS-warped onto the head UVs) |
+| `tools/extract_textures.py` | Builds `assets/textures/*` from photo 3 (exposure from the colour chart, strings inpainted; face projected onto the head's 3D front surface from `head_front_depth.json`, TPS-corrected, hidden far cheek filled from the mirrored near side) |
 
 Rebuild: in Blender run `blender/build_marionette.py` (it only touches the `Marionette*` collections),
-then `blender/export_game.py`.
+then `blender/export_game.py`. The build also writes `assets/textures/head_front_depth.json`; after
+changing the head shape run `tools/extract_textures.py` again and rebuild.
 
 ### Construction
-Carved wooden head, hands, lower legs, and lead-weighted shoes. Stuffed linen torso, upper arms
-and thighs (the thigh is visible through the skirt tear in photo 3). Lacquered bonnet with a
-ribbon rosette, ribbed turtleneck with a velvet ribbon. Every rigid part is skinned 100 % to one bone.
+Carved wooden head, hands, ivory-painted lower legs, and lead-weighted shoes (lead plate under the
+right sole, green paint under the left). Stuffed linen torso, upper arms and thighs (the thigh is
+visible through the skirt tear in photo 3). Soft black fabric hat with a ribbon rosette, ribbed
+turtleneck with a velvet ribbon. Every rigid part is skinned 100 % to one bone.
+The arms are generated along X, then rotated down (`ARM_HANG_DEG`, 87°) and applied as the rest pose;
+`settle_dress` relaxes the armpits and dents the skirt where the arms rest against it.
 
 ### Rig
 * `MarionetteRig` is the game skeleton. It has `root`, `pelvis`, `chest`, `neck`, `head`,
   `upper_arm/forearm/hand.L/R` and `thigh/shin/foot.L/R`.
 * It also has 9 string sockets (`string_head.L/R`, `string_shoulder.L/R`, `string_back`,
   `string_hand.L/R`, `string_knee.L/R`). A socket's head is the attach point; its tail points up.
-* `MarionetteControls` is the wooden "airplane" controller used for animating in Blender:
-  * `CTRL_bar` carries the puppet.
-  * `CTRL_handbar` pulls the hands (IK).
-  * `CTRL_legbar` pulls the knees (IK).
-  * The `ATT_*` bones are the upper string ends.
+* Head strings sit on the sides of the head above the ears (under the hat flaps), in line with
+  the head's centre of mass.
+* `MarionetteControls` is the real SKKG 9-string control cross (`CROSS_*` in the build script,
+  sticks 9 mm square):
+  * `CTRL_bar`: the 16 cm main bar (front-back) carries the puppet. Back string at its rear end,
+    shoulder strings on the fixed 11 cm crossbar, head strings on a head bar hanging below it.
+  * `CTRL_legbar`: 12 cm bar on a post under the middle; rocking it (bone-local Y) lifts one knee
+    and lowers the other (walking). Knee IK targets follow by drivers.
+  * `CTRL_handbar`: 15 cm bar on a pivot at the front tip; rocking it lifts one hand (IK).
+  * The `ATT_*` bones are the eyes (upper string ends). Head bar size/drop and the hand bar pivot
+    are estimates; the rest from the photos and hand sketches.
 * The visual strings use Stretch-To constraints. This armature is not exported.
-* `MAR_DemoPull` action (frames 1-120): arms drop, left hand string pulled, knee string pulled,
-  controller bob.
+* `MAR_DemoPull` action (frames 1-120): hand bar rocks (left hand, then right), leg bar rocks
+  (steps), the cross bobs.
 
 ### Cloth (`Dress`)
 * One welded single-layer quad mesh: bodice + gathered skirt + puffed sleeves sewn into the armholes.
   6520 verts, 0 non-manifold edges, 4 boundary loops (hem, neckline, 2 cuffs).
-* Edges in the simulated region are about 1.4–4.9 mm (5th–95th percentile). The rest pose doesn't
-  intersect the body.
+* Edges in the simulated region are about 1.4–5.0 mm (5th–95th percentile). Lowering the arms
+  into the rest pose leaves some flaws at the armpits and shoulders (`validate_cloth.py`, last
+  run): max edge 13 mm on the sleeve caps, 34 folded face pairs in the armpits, 2 pinned waist
+  vertices about 1 mm inside the chest collider. The skirt dent under the arms is baked into the
+  rest mesh.
 * Velvet trims (V-neck, belt, sleeve bands) are a second material on the same mesh, not extra geometry.
 * Pin weights:
   * vertex group `pin`, and vertex colour `cloth_pin` (exported as `COLOR_0`): R = pin (1 = skinned,
     0 = simulated), G = 1 − R (max-distance style);
   * bodice, waist, armhole seams, elastic bands and cuffs are pinned; the skirt and sleeve puffs are free;
-  * no pinned vertex penetrates a collider in the demo poses.
+  * pinned vertices stay out of the colliders, except the 2 waist vertices above.
 * The dress is also skinned, so it works without simulation. Collider capsules and masses are in
   `export/marionette_rig.json`.
 * The Blender cloth modifier is a preview only. Bake it from the Physics tab (about 30 s for 120 frames).
@@ -74,9 +87,11 @@ ribbon rosette, ribbed turtleneck with a velvet ribbon. Every rigid part is skin
 * Joint limits are degrees about **bone-local** axes (+Y along the bone). The hinge signs were verified
   in the rig:
   * knee (`shin.*`): local X, 0…140°;
+  * hip (`thigh.*`): local X, −95…30° (− lifts the knee forwards); a hinge so the angled knee
+    strings don't twist the legs;
   * elbow: local Z, −150…0° on `forearm.L` and 0…150° on `forearm.R` (mirrored rolls).
 * Assumptions (not visible in the photos):
-  * the 9-string layout (photo 3 only shows head and hand threads);
+  * the string-to-bar layout of the cross (from the photos and hand sketches);
   * lead-weighted shoes (metal plates on the soles);
   * satin of about 80 g/m²;
   * the joint ranges.
