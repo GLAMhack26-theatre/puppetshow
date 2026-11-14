@@ -25,8 +25,8 @@ interface View {
   camera: PerspectiveCamera;
   pivot: Group;
   spin: number; // rad/s
-  /** Per frame while the view is visible (e.g. a demo animation) */
-  update?: (dt: number) => void;
+  /** Per frame while the view is visible (e.g. a demo animation, or a camera flight that moves `camera`) */
+  update?: (dt: number, camera: PerspectiveCamera) => void;
 }
 
 const views: View[] = [];
@@ -59,7 +59,7 @@ export function addView(
     /** Camera distance: 2.4 shows the unit box with a margin; smaller zooms in */
     distance?: number;
     overlay?: Object3D[];
-    update?: (dt: number) => void;
+    update?: (dt: number, camera: PerspectiveCamera) => void;
   } = {},
 ) {
   const scene = new Scene();
@@ -120,7 +120,7 @@ function frame(now: number) {
     // Views on hidden slides have no size; skip those off screen too
     if (rect.width === 0 || rect.bottom < 0 || rect.top > canvas.clientHeight) continue;
     view.pivot.rotation.y += view.spin * dt;
-    view.update?.(dt);
+    view.update?.(dt, view.camera);
     const bottom = canvas.clientHeight - rect.bottom;
     renderer.setViewport(rect.left, bottom, rect.width, rect.height);
     renderer.setScissor(rect.left, bottom, rect.width, rect.height);
