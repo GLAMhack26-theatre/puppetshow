@@ -949,7 +949,7 @@
           0.0
         ],
         "input": "legs",
-        "limit_deg": 34.4,
+        "limit_deg": 50.0,
         "sticks": [
           {
             "a": [

@@ -105,7 +105,7 @@ remaining intersection. `build(stage="spread")` stops at the spread pose for che
   * `CTRL_handbar`: 15 cm bar on a pivot at the front tip; rocking it lifts one hand (IK). It only
     clings to the tip (like a magnet): the second hand can take it off and move the puppet's hands
     freely (`"detachable": true` in the rig JSON; the Blender rig only rocks it).
-  * In `marionette_rig.json` each rocking bar has `limit_deg` (head 45°, legs and hands 34.4°).
+  * In `marionette_rig.json` each rocking bar has `limit_deg` (head 45°, legs 50°, hands 34.4°).
   * The `ATT_*` bones are the eyes (upper string ends). Head bar size/drop and the hand bar pivot
     are estimates, the head bar hinge and the detachable hand bar are as specified for the project
     (not measured on the object); the rest from the photos and hand sketches.

@@ -1084,7 +1084,8 @@ LEG_PIN_DROP, LEG_POST = 0.035, 0.05
 LEG_PIVOT = (0.0, Y_LEG - STICK, CZ - LEG_PIN_DROP)     # the bar sits in front of its post
 HAND_PIVOT = (0.0, Y_FRONT - STICK / 2, CZ)             # the bar sits in front of the tip
 HEADBAR_PIVOT = (0.0, Y_SHOULDER, CZ - HEAD_DROP)       # hinge at the bar's centre, on its post
-ROCK_LIMIT_DEG = 34.4                                    # leg / hand bar: further would flip strings over the bar
+ROCK_LIMIT_DEG = 34.4                                    # hand bar: further would flip strings over the bar
+LEG_LIMIT_DEG = 50.0                                     # leg bar: a real one is rocked 45-60 deg; at 34.4 a full rock raised the foot 2 cm (now 3.3 cm)
 HEADBAR_LIMIT_DEG = 45.0
 EYE = STICK / 2                                          # eyes on the underside of the sticks
 
@@ -1092,7 +1093,7 @@ CROSS_BARS = [  # name, parent, pivot (metres), rocking axis or None, ControlInp
     #               rocking limit (+- degrees) or None, detachable
     ("CTRL_bar", None, (0.0, Y_SHOULDER, CZ), None, None, None, False),
     ("CTRL_headbar", "CTRL_bar", HEADBAR_PIVOT, (0.0, -1.0, 0.0), "head", HEADBAR_LIMIT_DEG, False),
-    ("CTRL_legbar", "CTRL_bar", LEG_PIVOT, (0.0, -1.0, 0.0), "legs", ROCK_LIMIT_DEG, False),
+    ("CTRL_legbar", "CTRL_bar", LEG_PIVOT, (0.0, -1.0, 0.0), "legs", LEG_LIMIT_DEG, False),
     ("CTRL_handbar", "CTRL_bar", HAND_PIVOT, (0.0, -1.0, 0.0), "hands", ROCK_LIMIT_DEG, True),
 ]
 ROCKING_BARS = [b[0] for b in CROSS_BARS if b[3]]

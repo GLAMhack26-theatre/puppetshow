@@ -20,7 +20,16 @@ export const MAX_ROCK = 0.6;
 
 export const controlInput = {
   // The main bar of the cross; set to its rest position when the puppet is created (strings.ts)
+  // Rig coordinates: the cross at the height it was modelled at. The engine lifts
+  // it by stringExtra on top, so no source has to know how long the strings are
   bar: { position: new Vector3(0, 0.62, 0), rotation: new Quaternion() },
+  /**
+   * m: every string is this much longer than in the rig, and the whole cross
+   * hangs that much higher above the puppet. The puppet stands the same at any
+   * value (cross and strings change together): it sets how far above the
+   * puppet the cross is, not whether the feet reach the floor.
+   */
+  stringExtra: 0.15,
   /**
    * Rocking angle of the hand bar, the leg bar and the head bar, rad (clamped
    * to each bar's limit), about the main bar's long axis; + lifts the puppet's
@@ -37,6 +46,15 @@ export const controlInput = {
    * is let go, the engine eases it back onto the magnet.
    */
   handBar: { detached: false, position: new Vector3(), rotation: new Quaternion() },
+  /**
+   * A string caught by the other hand or arm moving against it: the string then
+   * runs eye → hook → socket, which shortens what is left below the hook and
+   * drags the socket towards it. `id` null: nothing caught. `along` (0…1) is
+   * where on the straight string the hook sits, from the eye (0) to the socket
+   * (1); `offset` is how far it has been pushed off that line, world metres.
+   * The engine eases the hook in and out, so a source may just drop `id`.
+   */
+  hook: { id: null as StringId | null, along: 0.5, offset: new Vector3() },
   /** 0…1 per string: how far it is pulled up, on top of the cross (plucking a single string) */
   pulls: Object.fromEntries(STRING_IDS.map((id) => [id, 0])) as Record<StringId, number>,
   grip: { left: false, right: false },
