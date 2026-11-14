@@ -1,6 +1,6 @@
 # Phase 0 spike – IWSDK
 
-Does Meta IWSDK work as the engine for the marionette theatre? The test code is in `src/spike/`, and the test is picked with `?test=world|puppet|mediapipe|interop`.
+Does Meta IWSDK work as the engine for the marionette theatre? The test code is in `src/spike/`, and the test is picked with `?test=world|puppet|interop`. The MediaPipe test (T3) has since become the page without `?test` (`src/input/mediapipe.ts`; `?test=mediapipe` still opens it): the camera starts with the click on a sign.
 
 ## Result before the spike (research)
 

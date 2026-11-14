@@ -6,7 +6,7 @@ import { createPuppet } from "../puppet/puppet";
 import { physics } from "../systems/rapier-system";
 import { hudLines } from "./world";
 
-// T2: the SKKG marionette (src/puppet/) on its control cross with 9 strings,
+// The SKKG marionette (src/puppet/) on its control cross with 9 strings,
 // and the SKKG props. Pointer moves the cross, wheel rolls it, Shift+wheel
 // pitches it (bow); Q / E rock the leg bar (walk), A / D rock the hand bar
 // (or the rocker sliders); string sliders pluck single strings; F / G (or the
