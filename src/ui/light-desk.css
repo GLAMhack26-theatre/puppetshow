@@ -1,0 +1,86 @@
+/* The light desk (light-desk.ts): a plain panel on the left, between the HUD
+   and the button panel; scrolls when the window is low */
+.light-desk {
+  position: fixed;
+  top: 136px;
+  left: 8px;
+  bottom: 120px;
+  width: min(270px, calc(100vw - 16px));
+  box-sizing: border-box;
+  overflow-y: auto;
+  padding: 8px;
+  border-radius: 6px;
+  background: #000c;
+  color: #f3e9dc;
+  font: 12px/1.3 system-ui, sans-serif;
+  z-index: 15;
+}
+.light-desk[hidden] {
+  display: none;
+}
+.light-desk header,
+.light-desk footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.light-desk header select {
+  flex: 1;
+  min-width: 0;
+}
+.light-desk fieldset {
+  margin: 8px 0 0;
+  padding: 4px 8px 6px;
+  border: 1px solid #f3e9dc33;
+  border-radius: 6px;
+}
+.light-desk legend {
+  padding: 0 4px;
+  color: #e8c478;
+}
+.light-desk label {
+  display: grid;
+  grid-template-columns: 84px 1fr 50px;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+}
+.light-desk input[type="range"] {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+}
+.light-desk input[type="color"] {
+  width: 100%;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.light-desk output {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.light-desk footer {
+  margin-top: 8px;
+}
+.light-desk footer input {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+.light-desk select,
+.light-desk button,
+.light-desk footer input {
+  color: inherit;
+  background: #ffffff1f;
+  border: 0;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font: inherit;
+}
+.light-desk option {
+  color: #000;
+}
+.light-desk button:disabled {
+  opacity: 0.4;
+}

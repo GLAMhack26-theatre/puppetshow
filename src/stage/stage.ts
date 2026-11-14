@@ -55,7 +55,7 @@ export const stageBounds = {
 
 /**
  * Unity exports the paper parts unlit (KHR_materials_unlit): they would
- * ignore the 3-point lighting and the spotlight. Swaps such a material for
+ * ignore the stage lighting. Swaps such a material for
  * a matte lit one with the same texture.
  */
 export function makeLit(object: Object3D) {
@@ -81,7 +81,7 @@ export async function loadStage(world: World) {
     if (!(object instanceof Mesh)) return;
     object.receiveShadow = true;
     // Unity exported the paper parts unlit (KHR_materials_unlit): they would
-    // ignore the 3-point lighting and the spotlight. Stage_Front stays unlit,
+    // ignore the stage lighting. Stage_Front stays unlit,
     // so the painted proscenium keeps its original colours.
     if (object.name !== "Stage_Front") makeLit(object);
   });

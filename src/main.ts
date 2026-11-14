@@ -1,7 +1,7 @@
 import { World } from "@iwsdk/core";
 import { PhysicsLink } from "./components/physics-link";
 import { setupHandTracking, startHandTracking } from "./input/mediapipe";
-import { addLighting } from "./stage/lighting";
+import { LightingSystem, addLighting } from "./stage/lighting";
 import { MainCurtainSystem, loadMainCurtain, skipMainCurtain } from "./stage/main-curtain";
 import { SignSystem, loadSigns, onPlayChosen } from "./stage/signs";
 import { startImpro } from "./impro/impro";
@@ -10,6 +10,7 @@ import { SpotlightSystem } from "./stage/spotlights";
 import { StageSystem, isCurtainOpen, loadStage, setCurtain, stageFloor } from "./stage/stage";
 import { RapierSystem, initPhysics } from "./systems/rapier-system";
 import { FpsSystem, hudLines } from "./spike/world";
+import { addLightDesk } from "./ui/light-desk";
 
 // Without ?test: the play itself. Curtain and signs, then the marionette,
 // led by the hand in front of the camera (the mouse until the camera runs).
@@ -45,6 +46,7 @@ world.registerSystem(MainCurtainSystem);
 world.registerSystem(SignSystem);
 world.registerSystem(BackdropSystem);
 world.registerSystem(SpotlightSystem);
+world.registerSystem(LightingSystem);
 
 if (test === "nocurtain") {
   skipMainCurtain();
@@ -61,6 +63,7 @@ if (test === "nocurtain") {
 }
 await loadStage(world);
 addLighting(world);
+addLightDesk();
 // Spike: V (Vorhang) toggles the curtain (later: closed on the title, opens on Play)
 addEventListener("keydown", (e) => e.key === "v" && setCurtain(!isCurtainOpen()));
 

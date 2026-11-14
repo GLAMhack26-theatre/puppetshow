@@ -19,7 +19,7 @@ import {
 // Follow spots: every puppet on the stage gets its own spotlight that tracks
 // it. As in a real theatre they hang on a bar out in front of the stage,
 // above the audience, and add a pool of focus light to the stage already lit
-// by the 3-point lighting (lighting.ts).
+// by the rest of the lighting rig (lighting.ts), whose scenes also set their look.
 
 /**
  * The lighting bar: height and distance in front of the stage (floor top y = 0,
@@ -34,24 +34,27 @@ const SLOTS_X = [-0.5, 0.5, 0, -0.9, 0.9];
 /** The lens hangs this far below the bar */
 const DROP = 0.1;
 
-const COLOR = 0xfff1d6; // warm tungsten
-/** cd; about 1.9 m to the puppet. Much more and the puppet's light clothes burn out (no tone mapping) */
-const INTENSITY = 15;
-/**
- * Half the beam angle, rad: a tight pool, about 0.55 m across at the puppet.
- * The 0.35 m puppet is just inside its fully lit core (ANGLE × (1 − PENUMBRA));
- * props next to it stay in the general light.
- */
-const ANGLE = 0.15;
-const PENUMBRA = 0.35;
-/** Brightness of the drawn beam (the haze in the air); 0 for none */
-const BEAM_OPACITY = 0.1;
 /** The drawn beam ends this far past the puppet, in beam lengths: about where it meets the floor */
 const BEAM_PAST = 1.2;
 /** How fast the beam catches up with its puppet, 1/s: a slight lag, like a spot operator */
 const FOLLOW = 6;
 /** Shadow maps are costly on phones: only the first spot casts shadows there */
 const MAX_SHADOW_SPOTS = matchMedia("(pointer: coarse)").matches ? 1 : 3;
+
+// The look of the spots: set by the lighting scene (lighting.ts, its "profile
+// spot" group) and changed from the light desk; these are only the values
+// until the lighting is set up. Kept here for spots hung up later.
+const look = {
+  color: new Color(0xfff1d6),
+  /** cd; about 1.9 m to the puppet */
+  intensity: 14,
+  /** Half the beam angle, rad */
+  angle: 0.15,
+  /** 0: hard edge … 1: soft all the way to the centre */
+  penumbra: 0.25,
+  /** Brightness of the drawn beam (the haze in the air); 0 for none */
+  beam: 0.1,
+};
 
 interface FollowSpot {
   slot: number;
@@ -67,14 +70,16 @@ interface FollowSpot {
 const spots: FollowSpot[] = [];
 let bar: Mesh | null = null;
 const metal = new MeshStandardMaterial({ color: 0x151515, roughness: 0.6, metalness: 0.6 });
+/** One for all fixtures: the lenses glow in the colour of the light */
+const lensMaterial = new MeshBasicMaterial({ color: look.color });
 
 // The beam in the air, as stage haze shows it: a cone that only adds light.
 // Rendering only; it fades towards its rim (seen edge-on) and its far end, so
-// no hard cone outline shows. Unit length along +z from the lens, scaled to
-// the distance each frame.
-const beamGeometry = new ConeGeometry(Math.tan(ANGLE), 1, 32, 1, true).translate(0, -0.5, 0).rotateX(-Math.PI / 2);
+// no hard cone outline shows. Unit length along +z from the lens and unit
+// radius at its far end, scaled to the distance and the beam angle each frame.
+const beamGeometry = new ConeGeometry(1, 1, 32, 1, true).translate(0, -0.5, 0).rotateX(-Math.PI / 2);
 const beamMaterial = new ShaderMaterial({
-  uniforms: { uColor: { value: new Color(COLOR) }, uOpacity: { value: BEAM_OPACITY } },
+  uniforms: { uColor: { value: look.color.clone() }, uOpacity: { value: look.beam } },
   vertexShader: /* glsl */ `
     varying float vAlong; // 1 at the lens, 0 at the far end
     varying vec3 vNormal;
@@ -121,7 +126,7 @@ export function addFollowSpot(world: World, aim: (out: Vector3) => void) {
   while (spots.some((s) => s.slot === slot)) slot++;
   const position = new Vector3(SLOTS_X[slot % SLOTS_X.length], BAR_Y - DROP, BAR_Z);
 
-  const light = new SpotLight(COLOR, INTENSITY, 6, ANGLE, PENUMBRA, 2);
+  const light = new SpotLight(look.color, look.intensity, 6, look.angle, look.penumbra, 2);
   light.position.copy(position);
   if (spots.filter((s) => s.light.castShadow).length < MAX_SHADOW_SPOTS) {
     light.castShadow = true;
@@ -134,7 +139,7 @@ export function addFollowSpot(world: World, aim: (out: Vector3) => void) {
   const fixture = createFixture();
   fixture.position.copy(position);
   const beam = new Mesh(beamGeometry, beamMaterial);
-  beam.visible = BEAM_OPACITY > 0;
+  beam.visible = look.beam > 0;
   fixture.add(beam);
   world.scene.add(light, light.target, fixture);
   const spot: FollowSpot = { slot, light, fixture, beam, aim, settled: false };
@@ -150,6 +155,20 @@ export function addFollowSpot(world: World, aim: (out: Vector3) => void) {
   };
 }
 
+/** Sets the look of all follow spots (a lighting scene, or a step of the fade between two). */
+export function setSpotLook(color: Color, intensity: number, angle: number, penumbra: number, beam: number) {
+  look.color.copy(color);
+  Object.assign(look, { intensity, angle, penumbra, beam });
+  lensMaterial.color.copy(color);
+  beamMaterial.uniforms.uColor.value.copy(color);
+  beamMaterial.uniforms.uOpacity.value = beam;
+  for (const spot of spots) {
+    spot.light.color.copy(color);
+    Object.assign(spot.light, { intensity, angle, penumbra });
+    spot.beam.visible = beam > 0;
+  }
+}
+
 // A small theatre spot: a can with a glowing lens, on a hanger from the bar.
 // Its +z is the beam, so lookAt() aims it.
 function createFixture() {
@@ -157,7 +176,7 @@ function createFixture() {
   const can = new Mesh(new CylinderGeometry(0.03, 0.038, 0.11, 16), metal);
   can.rotation.x = -Math.PI / 2; // the wide end (bottom) to the front
   can.position.z = -0.055;
-  const lens = new Mesh(new CircleGeometry(0.032, 16), new MeshBasicMaterial({ color: COLOR }));
+  const lens = new Mesh(new CircleGeometry(0.032, 16), lensMaterial);
   lens.position.z = 0.001;
   fixture.add(can, lens);
   return fixture;
@@ -172,7 +191,9 @@ export class SpotlightSystem extends createSystem({}) {
       else target.copy(goal);
       spot.settled = true;
       spot.fixture.lookAt(target);
-      spot.beam.scale.setScalar(spot.fixture.position.distanceTo(target) * BEAM_PAST);
+      const length = spot.fixture.position.distanceTo(target) * BEAM_PAST;
+      const radius = Math.tan(look.angle) * length;
+      spot.beam.scale.set(radius, radius, length);
     }
   }
 }

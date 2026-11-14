@@ -1,4 +1,14 @@
-import { Box3, type Material, MathUtils, Mesh, type Object3D, Vector3, createSystem, type World } from "@iwsdk/core";
+import {
+  Box3,
+  Color,
+  type Material,
+  MathUtils,
+  Mesh,
+  type Object3D,
+  Vector3,
+  createSystem,
+  type World,
+} from "@iwsdk/core";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { stageBounds } from "./stage";
 
@@ -55,6 +65,18 @@ export interface Backdrop {
 let catalogue: Promise<Backdrop[]> | null = null;
 let current: Backdrop | null = null;
 
+// The sheets are unlit (painted light and shade), so the stage lights do not
+// reach them: the lighting scene (lighting.ts) puts its mood on them as a
+// colour multiplied into the paint.
+const tint = new Color(0xffffff);
+/** Every sheet material with its own colour, before the tint */
+const paints: { color: Color; base: Color }[] = [];
+
+export function setBackdropTint(color: Color) {
+  tint.copy(color);
+  for (const paint of paints) paint.color.copy(paint.base).multiply(tint);
+}
+
 /** Loads all backdrops once (on first use, not at app start). */
 export function loadBackdrops(): Promise<Backdrop[]> {
   catalogue ??= Promise.all(
@@ -74,7 +96,14 @@ async function loadBackdrop(path: string, url: string): Promise<Backdrop> {
   const object = gltf.scene;
   const reveal = { value: 0 };
   object.traverse((o) => {
-    if (o instanceof Mesh) addReveal(o.material as Material, reveal);
+    if (!(o instanceof Mesh)) return;
+    addReveal(o.material as Material, reveal);
+    const { color } = o.material as { color?: Color };
+    if (color) {
+      // Loaded after the lighting scene was chosen: tinted right away
+      paints.push({ color, base: color.clone() });
+      color.multiply(tint);
+    }
   });
   return {
     id,
