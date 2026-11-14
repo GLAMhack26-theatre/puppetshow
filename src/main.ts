@@ -5,6 +5,7 @@ import { addLighting } from "./stage/lighting";
 import { MainCurtainSystem, loadMainCurtain, skipMainCurtain } from "./stage/main-curtain";
 import { SignSystem, loadSigns, onPlayChosen } from "./stage/signs";
 import { startImpro } from "./impro/impro";
+import { setupPresentation } from "./presentation/presentation";
 import { BackdropSystem } from "./stage/backdrops";
 import { RequisitSystem } from "./props/requisits";
 import { SpotlightSystem } from "./stage/spotlights";
@@ -23,6 +24,9 @@ import { FpsSystem } from "./spike/world";
 const test = new URLSearchParams(location.search).get("test") ?? "play";
 /** These tests have no camera control; everything else is the play */
 const handControl = !["world", "puppet", "interop"].includes(test);
+
+// Independent of the test: Shift+P / the "presentation" button
+setupPresentation();
 
 await initPhysics();
 

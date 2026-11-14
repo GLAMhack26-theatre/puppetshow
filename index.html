@@ -9,7 +9,8 @@
       #app { position: fixed; inset: 0; touch-action: none; }
       #hud { position: fixed; top: 8px; left: 8px; padding: 6px 8px; background: #0009; border-radius: 6px; white-space: pre; font-family: ui-monospace, monospace; pointer-events: none; }
       #tests { position: fixed; top: 8px; right: 8px; display: flex; gap: 6px; }
-      #tests a, #panel button { color: inherit; background: #0009; padding: 6px 8px; border-radius: 6px; text-decoration: none; border: 0; font: inherit; }
+      #tests button { cursor: pointer; }
+      #tests a, #tests button, #panel button { color: inherit; background: #0009; padding: 6px 8px; border-radius: 6px; text-decoration: none; border: 0; font: inherit; }
       #panel { position: fixed; bottom: 8px; left: 8px; right: 8px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
       #panel label { display: flex; gap: 4px; align-items: center; background: #0009; padding: 4px 8px; border-radius: 6px; }
       /* Old-film vignette over the 3D view (canvas, curtain), under the UI:
@@ -33,6 +34,7 @@
       <a href="?test=puppet">puppet</a>
       <a href="?test=interop">interop</a>
       <a href="?test=nocurtain">impro</a>
+      <button id="presentation-button" type="button" title="Presentation (Shift+P)">presentation</button>
     </nav>
     <div id="panel"></div>
     <script type="module" src="/src/main.ts"></script>

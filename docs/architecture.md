@@ -237,6 +237,7 @@ Add one line per change to a decision in this doc: date, what changed, why.
 
 | Date | Change | Reason |
 |---|---|---|
+| 2026-11-14 | Presentation mode (`src/presentation/`, Shift+P / button, ESC closes): 3 fullscreen slides (collection objects with turning models, marionette controls, outlook with QR code); one shared renderer for all slide views | Pitch inside the app, with the real models instead of screenshots |
 | 2026-11-14 | Impro menu: round icon buttons at the panels' edges (two per side, with empty Sound and Licht pages) and a golden X replace the text buttons at the bottom | Stage set-up tools sit where their panels open; room for sound and light later |
 | 2026-11-14 | IIIF drop field as the last props card: a 3D manifest becomes a prop on the stage; Draco decoder served locally next to the MediaPipe wasm | Objects from other collections join the play without a converter step |
 | 2026-11-14 | `assets/catalogue.json` holds label, scale and SKKG source of props and backdrops (replaces the label/scale tables in code); "i" button per card, `"ai"` sources reveal a fake-object popup; prop models moved to `assets/digital.skkg.ch/requisits/` | One place for non-programmers to tune sizes and add collection links; visitors learn to check sources |
