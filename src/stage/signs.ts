@@ -16,6 +16,7 @@ import froschkoenigUrl from "../../assets/stage_parts/Sign_Froschkoenig.glb?url"
 import haenselUrl from "../../assets/stage_parts/Sign_Haensel.glb?url";
 import improUrl from "../../assets/stage_parts/Sign_Impro.glb?url";
 import { curtainLift, isMainCurtainDown, raiseMainCurtain } from "./main-curtain";
+import { cueSignLanded } from "../audio/cues";
 
 // Three hanging signs in front of the main curtain (the plays to choose
 // from). Shortly after start they drop in one after another, overshoot a
@@ -206,6 +207,9 @@ function put(mesh: Mesh, x: number, y: number, distance: number, angle: number, 
   mesh.scale.setScalar(scale);
 }
 
+/** Signs that have already knocked (index) */
+const landed = new Set<number>();
+
 function place(world: World, delta: number) {
   const camera = world.camera;
   // Layout in units of the sign plane; the shadow plane is scaled by `far`
@@ -230,6 +234,11 @@ function place(world: World, delta: number) {
 
     const mess = MESS[i % MESS.length];
     const t = Math.min(1, age / DROP_SECONDS);
+    // A knock the first time the sign reaches its place, before it overshoots
+    if (!landed.has(i) && easeOutBack(t) >= 1) {
+      landed.add(i);
+      cueSignLanded(i);
+    }
     const targetY = ROW_Y * viewH + mess.y * size;
     const startY = viewH / 2 + size; // fully above the screen
     const y = MathUtils.lerp(startY, targetY, easeOutBack(t)) + lift;

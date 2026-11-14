@@ -15,7 +15,9 @@ import { FpsSystem } from "./spike/world";
 import { setupDebugMode } from "./ui/debug-mode";
 import { setAmbientPlay, setupAmbient } from "./audio/ambient";
 import { playCue, setupExcerpts } from "./audio/excerpts";
-import { isSoundOn, setSoundOn } from "./audio/audio";
+import { isOn, setOn } from "./audio/audio";
+import { setupImpacts } from "./audio/impacts";
+import { setupSfx } from "./audio/sfx";
 import { setupSoundToggle } from "./ui/sound-toggle";
 
 // Without ?test: the play itself. Curtain and signs, then the marionette,
@@ -34,9 +36,11 @@ const handControl = !["world", "puppet", "interop"].includes(test);
 // "presentation" button opens the presentation
 setupDebugMode();
 setupPresentation();
-// Sound: off until the speaker button (bottom right) or a sign is clicked
+// Sound: music and effects off until their buttons (bottom right) or a sign are clicked
 setupAmbient();
 setupExcerpts();
+setupSfx();
+setupImpacts();
 setupSoundToggle();
 
 await initPhysics();
@@ -72,11 +76,11 @@ if (test === "nocurtain") {
   onPlayChosen((play) => play === "impro" && startImpro(world));
   // Each play has its own music (assets/sounds/archive.json), crossfaded while the curtain rises
   onPlayChosen(setAmbientPlay);
-  // The sign click turns sound on (a user gesture, as the speaker button)
+  // The sign click turns music and effects on (a user gesture, as their buttons)
   // and plays the drum roll and announcement while the curtain rises.
   // After setAmbientPlay, so the music starts with the play's playlist.
   onPlayChosen(() => {
-    if (!isSoundOn()) setSoundOn(true);
+    for (const channel of ["music", "effects"] as const) if (!isOn(channel)) setOn(channel, true);
     playCue("curtain");
   });
   // The click on a sign also starts the camera: it is the user gesture

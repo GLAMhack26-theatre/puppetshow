@@ -1,6 +1,6 @@
 import data from "../../assets/sounds/archive.json";
 import { streamUrl } from "./ambient";
-import { audio, duck, isSoundOn, onSoundChange } from "./audio";
+import { audio, duck, isOn, onChannelChange } from "./audio";
 
 // Passages of a longer archive.org recording (Oda Klonk, "Ein Haus das
 // klingt"), played straight from the stream: the element seeks to `start`
@@ -75,10 +75,10 @@ function player(excerpt: Excerpt) {
   return created;
 }
 
-/** Plays an excerpt from its start; sound must be on (the caller decides whether to turn it on). */
+/** Plays an excerpt from its start; effects must be on (the caller decides whether to turn them on). */
 export function playExcerpt(id: string) {
   const excerpt = EXCERPTS.find((e) => e.id === id);
-  if (!excerpt || !audio() || !isSoundOn()) return;
+  if (!excerpt || !audio() || !isOn("effects")) return;
   const p = player(excerpt);
   clearTimeout(p.timer);
   const { context } = audio()!;
@@ -109,12 +109,12 @@ export function toggleExcerpt(id: string) {
   else playExcerpt(id);
 }
 
-/** An event cue (archive.json "cues"); silent while sound is off. */
+/** An event cue (archive.json "cues"); silent while effects are off. */
 export function playCue(name: string) {
   if (cues[name]) playExcerpt(cues[name]);
 }
 
-/** Loads the start of every excerpt in advance, once sound is on (the Sound page calls this when it opens). */
+/** Loads the start of every excerpt in advance, once audio exists (the Sound page calls this when it opens). */
 export function preloadExcerpts() {
   if (!audio()) return;
   for (const excerpt of EXCERPTS) {
@@ -125,8 +125,8 @@ export function preloadExcerpts() {
 }
 
 export function setupExcerpts() {
-  // Turning sound off silences the excerpts too (and releases their ducking)
-  onSoundChange((on) => {
-    if (!on) for (const excerpt of EXCERPTS) stopExcerpt(excerpt.id);
+  // Excerpts are effects: turning effects off stops them (and releases their ducking)
+  onChannelChange((channel, on) => {
+    if (channel === "effects" && !on) for (const excerpt of EXCERPTS) stopExcerpt(excerpt.id);
   });
 }

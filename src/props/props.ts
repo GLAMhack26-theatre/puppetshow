@@ -57,7 +57,8 @@ export async function loadProps(world: World) {
       : RAPIER.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2)
     )
       .setDensity(spec.density ?? 500)
-      .setCollisionGroups(GROUP.prop);
+      .setCollisionGroups(GROUP.prop)
+      .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS); // impact sounds, audio/impacts.ts
     const linked = addLinked(world, holder, desc, collider);
     holder.traverse((o) => (o.receiveShadow = true));
     if (spec.grabbable) grabbables.push({ name: spec.name, body: linked.body, collider: linked.collider! });

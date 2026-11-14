@@ -28,6 +28,7 @@ import { PhysicsLink } from "../components/physics-link";
 import { grabbables } from "../puppet/grab";
 import { stageBounds } from "../stage/stage";
 import { GROUP, physics } from "../systems/rapier-system";
+import { cuePropLanded, cueRope } from "../audio/cues";
 import type { IiifObject } from "./iiif";
 
 // Props ("Requisiten") for the impro mode: every .glb in
@@ -279,7 +280,10 @@ export async function toggleRequisit(world: World, requisit: Requisit) {
   );
   // Low density: the box is much bigger than the wood, and props must stay light against a 0.15 kg puppet
   const collider = physics.world.createCollider(
-    RAPIER.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2).setDensity(80).setCollisionGroups(GROUP.prop),
+    RAPIER.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2)
+      .setDensity(80)
+      .setCollisionGroups(GROUP.prop)
+      .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS), // impact sounds, audio/impacts.ts
     body,
   );
   const entity = world.createTransformEntity(holder);
@@ -301,6 +305,7 @@ export async function toggleRequisit(world: World, requisit: Requisit) {
     yaw,
   };
   placed.set(requisit, p);
+  cueRope(spot.x);
   if (Math.max(size.x, size.y, size.z) <= GRAB_SIZE) grabbables.push({ name: requisit.id, body, collider });
 }
 
@@ -312,6 +317,7 @@ function liftOff(p: Placed) {
   p.yaw = yawOf(p.body.rotation());
   setKinematic(p);
   p.mode = "lift";
+  cueRope(p.x);
   p.t = Math.min(1, Math.max(0, 1 - (at.y - p.halfHeight) / DROP));
 }
 
@@ -391,6 +397,7 @@ export class RequisitSystem extends createSystem({}) {
         if (p.mode === "lower" && p.t === 1) {
           p.mode = "rest";
           setDynamic(p);
+          cuePropLanded(p.x);
         } else if (p.mode === "lift" && p.t === 0) remove(p);
       } else if (p.mode === "drag") {
         p.body.setNextKinematicTranslation({ x: p.x, y: p.halfHeight + DRAG_LIFT, z: p.z });
@@ -403,6 +410,7 @@ export class RequisitSystem extends createSystem({}) {
         p.body.setTranslation({ x: p.x, y: p.halfHeight + DROP, z: p.z }, true);
         p.mode = "lower";
         p.t = 0;
+        cueRope(p.x);
       }
     }
   }

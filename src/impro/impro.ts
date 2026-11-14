@@ -14,7 +14,7 @@ import { curtainLift } from "../stage/main-curtain";
 import { createSlider, type Slider } from "./backdrop-slider";
 import { infoHandler } from "./source-info";
 import { soundIcon } from "./sound-icons";
-import { isSoundOn, setSoundOn } from "../audio/audio";
+import { isOn, setOn } from "../audio/audio";
 import {
   EXCERPTS,
   type Excerpt,
@@ -187,8 +187,8 @@ function fillSounds(slider: Slider) {
       onInfo: infoHandler(e.url),
     })),
     (index) => {
-      // A card click is a user gesture: it may turn sound on, as the speaker button does
-      if (!isSoundOn()) setSoundOn(true);
+      // A card click is a user gesture: it may turn the effects on, as their button does
+      if (!isOn("effects")) setOn("effects", true);
       toggleExcerpt(EXCERPTS[index].id);
     },
   );
