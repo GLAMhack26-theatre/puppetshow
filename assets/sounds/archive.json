@@ -5,6 +5,9 @@
     "haensel": "percussion",
     "impro": "percussion"
   },
+  "cues": {
+    "curtain": "opening"
+  },
   "playlists": {
     "ragtime": {
       "label": "Frog Legs: Ragtime Era Favorites",
@@ -268,22 +271,11 @@
   },
   "excerpts": [
     {
-      "id": "drums",
-      "label": "Drums",
+      "id": "opening",
+      "label": "Eröffnung",
+      "icon": "voice",
       "item": "OdaKlonkEinHausDasKlingt",
-      "start": 9,
-      "end": 48,
-      "file": "OdaKlonk_Ein Haus das klingt.mp3",
-      "title": "Ein Haus das klingt",
-      "creator": "Oda Klonk",
-      "licence": "CC BY-NC-ND 3.0",
-      "url": "https://archive.org/details/OdaKlonkEinHausDasKlingt"
-    },
-    {
-      "id": "announcement",
-      "label": "Announcement",
-      "item": "OdaKlonkEinHausDasKlingt",
-      "start": 46,
+      "start": 38,
       "end": 51,
       "file": "OdaKlonk_Ein Haus das klingt.mp3",
       "title": "Ein Haus das klingt",
@@ -292,8 +284,34 @@
       "url": "https://archive.org/details/OdaKlonkEinHausDasKlingt"
     },
     {
+      "id": "drums",
+      "label": "Trommeln",
+      "item": "OdaKlonkEinHausDasKlingt",
+      "start": 9,
+      "end": 48,
+      "file": "OdaKlonk_Ein Haus das klingt.mp3",
+      "title": "Ein Haus das klingt",
+      "creator": "Oda Klonk",
+      "licence": "CC BY-NC-ND 3.0",
+      "url": "https://archive.org/details/OdaKlonkEinHausDasKlingt",
+      "icon": "drum"
+    },
+    {
+      "id": "announcement",
+      "label": "Ansage",
+      "item": "OdaKlonkEinHausDasKlingt",
+      "start": 46,
+      "end": 51,
+      "file": "OdaKlonk_Ein Haus das klingt.mp3",
+      "title": "Ein Haus das klingt",
+      "creator": "Oda Klonk",
+      "licence": "CC BY-NC-ND 3.0",
+      "url": "https://archive.org/details/OdaKlonkEinHausDasKlingt",
+      "icon": "voice"
+    },
+    {
       "id": "children",
-      "label": "Children's voices",
+      "label": "Kinderstimmen",
       "item": "OdaKlonkEinHausDasKlingt",
       "start": 390,
       "end": 438,
@@ -301,11 +319,12 @@
       "title": "Ein Haus das klingt",
       "creator": "Oda Klonk",
       "licence": "CC BY-NC-ND 3.0",
-      "url": "https://archive.org/details/OdaKlonkEinHausDasKlingt"
+      "url": "https://archive.org/details/OdaKlonkEinHausDasKlingt",
+      "icon": "voices"
     },
     {
       "id": "harp",
-      "label": "Harp",
+      "label": "Harfe",
       "item": "OdaKlonkEinHausDasKlingt",
       "start": 466,
       "end": 488,
@@ -313,11 +332,12 @@
       "title": "Ein Haus das klingt",
       "creator": "Oda Klonk",
       "licence": "CC BY-NC-ND 3.0",
-      "url": "https://archive.org/details/OdaKlonkEinHausDasKlingt"
+      "url": "https://archive.org/details/OdaKlonkEinHausDasKlingt",
+      "icon": "harp"
     },
     {
       "id": "classical",
-      "label": "Classical music",
+      "label": "Klassische Musik",
       "item": "OdaKlonkEinHausDasKlingt",
       "start": 992,
       "end": 1067,
@@ -325,11 +345,12 @@
       "title": "Ein Haus das klingt",
       "creator": "Oda Klonk",
       "licence": "CC BY-NC-ND 3.0",
-      "url": "https://archive.org/details/OdaKlonkEinHausDasKlingt"
+      "url": "https://archive.org/details/OdaKlonkEinHausDasKlingt",
+      "icon": "notes"
     },
     {
       "id": "drum-kit",
-      "label": "Drum kit",
+      "label": "Schlagzeug",
       "item": "OdaKlonkEinHausDasKlingt",
       "start": 1068,
       "end": 1093,
@@ -337,11 +358,12 @@
       "title": "Ein Haus das klingt",
       "creator": "Oda Klonk",
       "licence": "CC BY-NC-ND 3.0",
-      "url": "https://archive.org/details/OdaKlonkEinHausDasKlingt"
+      "url": "https://archive.org/details/OdaKlonkEinHausDasKlingt",
+      "icon": "drum"
     },
     {
       "id": "xylophone",
-      "label": "Xylophone and tin drum",
+      "label": "Xylophon und Blechtrommel",
       "item": "OdaKlonkEinHausDasKlingt",
       "start": 1273,
       "end": 1373,
@@ -349,7 +371,8 @@
       "title": "Ein Haus das klingt",
       "creator": "Oda Klonk",
       "licence": "CC BY-NC-ND 3.0",
-      "url": "https://archive.org/details/OdaKlonkEinHausDasKlingt"
+      "url": "https://archive.org/details/OdaKlonkEinHausDasKlingt",
+      "icon": "xylophone"
     }
   ]
 }

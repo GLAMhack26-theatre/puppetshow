@@ -13,6 +13,16 @@ import { scaleCaption } from "../catalogue";
 import { curtainLift } from "../stage/main-curtain";
 import { createSlider, type Slider } from "./backdrop-slider";
 import { infoHandler } from "./source-info";
+import { soundIcon } from "./sound-icons";
+import { isSoundOn, setSoundOn } from "../audio/audio";
+import {
+  EXCERPTS,
+  type Excerpt,
+  isExcerptPlaying,
+  onExcerptChange,
+  preloadExcerpts,
+  toggleExcerpt,
+} from "../audio/excerpts";
 import iconBackground from "../../assets/ui/icon-background.png";
 import iconLight from "../../assets/ui/icon-light.png";
 import iconRequisites from "../../assets/ui/icon-requisites.png";
@@ -24,8 +34,8 @@ import "./impro.css";
 // two pages, picked by round icon buttons that ride along at the panel's
 // scalloped edge: on the right "Hintergrund" (the painted backdrops as paper
 // cards) and "Licht", on the left "Requisiten" (the props, the slider
-// mirrored, props/requisits.ts) and "Sound". Light and sound are empty skies
-// for now. A golden X under the buttons closes the panel. A click puts the backdrop at the back of the stage
+// mirrored, props/requisits.ts) and "Sound" (archive.org excerpts,
+// audio/excerpts.ts). Light is an empty sky for now. A golden X under the buttons closes the panel. A click puts the backdrop at the back of the stage
 // or lowers the prop onto it; placed props are dragged around on the floor.
 // The last props card is a drop field for IIIF 3D manifests (props/iiif.ts):
 // the object becomes a new card and lands on the stage at once.
@@ -46,8 +56,12 @@ export function startImpro(world: World) {
   // Only one side is open at a time, so the stage stays visible in the middle
   left.onOpen = right.close;
   right.onOpen = left.close;
-  const [props] = left.pages;
+  const [props, sound] = left.pages;
   const [set] = right.pages;
+  sound.loaded();
+  fillSounds(sound.slider);
+  // Opening the Sound page loads the start of every excerpt, so a click plays sooner
+  sound.button.addEventListener("click", preloadExcerpts);
 
   backdrops.then((all) => {
     set.loaded();
@@ -115,8 +129,8 @@ function createSide(side: "left" | "right", pageSpecs: { title: string; icon: st
   dock.append(close);
   panel.append(...pages.map((p) => p.page), header, dock);
   document.body.append(panel);
-  // The second pages (light, sound) have no content yet: the bare sky
-  for (const p of pages.slice(1)) {
+  // The light page has no content yet: the bare sky (the sound page is filled by startImpro)
+  for (const p of pages.filter((p) => p.title === "Licht")) {
     p.slider.setItems([], () => {});
     p.loaded();
   }
@@ -156,6 +170,30 @@ function createSide(side: "left" | "right", pageSpecs: { title: string; icon: st
   open(null);
 
   return handle;
+}
+
+/** The archive.org excerpts (audio/excerpts.ts): a click plays one, a second click stops it. */
+function fillSounds(slider: Slider) {
+  const markSelected = () => slider.setSelected((i) => isExcerptPlaying(EXCERPTS[i].id));
+  const length = (e: Excerpt) => {
+    const s = Math.round(e.end - e.start);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  };
+  slider.setItems(
+    EXCERPTS.map((e) => ({
+      label: e.label,
+      thumbnail: soundIcon(e.icon),
+      caption: `${e.creator} · ${length(e)}`,
+      onInfo: infoHandler(e.url),
+    })),
+    (index) => {
+      // A card click is a user gesture: it may turn sound on, as the speaker button does
+      if (!isSoundOn()) setSoundOn(true);
+      toggleExcerpt(EXCERPTS[index].id);
+    },
+  );
+  onExcerptChange(markSelected);
+  markSelected();
 }
 
 function fillBackdrops(world: World, slider: Slider, backdrops: Backdrop[]) {

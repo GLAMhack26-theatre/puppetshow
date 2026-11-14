@@ -14,6 +14,8 @@ import { RapierSystem, initPhysics } from "./systems/rapier-system";
 import { FpsSystem } from "./spike/world";
 import { setupDebugMode } from "./ui/debug-mode";
 import { setAmbientPlay, setupAmbient } from "./audio/ambient";
+import { playCue, setupExcerpts } from "./audio/excerpts";
+import { isSoundOn, setSoundOn } from "./audio/audio";
 import { setupSoundToggle } from "./ui/sound-toggle";
 
 // Without ?test: the play itself. Curtain and signs, then the marionette,
@@ -32,8 +34,9 @@ const handControl = !["world", "puppet", "interop"].includes(test);
 // "presentation" button opens the presentation
 setupDebugMode();
 setupPresentation();
-// Sound: off until the speaker button (bottom right) is clicked
+// Sound: off until the speaker button (bottom right) or a sign is clicked
 setupAmbient();
+setupExcerpts();
 setupSoundToggle();
 
 await initPhysics();
@@ -69,6 +72,13 @@ if (test === "nocurtain") {
   onPlayChosen((play) => play === "impro" && startImpro(world));
   // Each play has its own music (assets/sounds/archive.json), crossfaded while the curtain rises
   onPlayChosen(setAmbientPlay);
+  // The sign click turns sound on (a user gesture, as the speaker button)
+  // and plays the drum roll and announcement while the curtain rises.
+  // After setAmbientPlay, so the music starts with the play's playlist.
+  onPlayChosen(() => {
+    if (!isSoundOn()) setSoundOn(true);
+    playCue("curtain");
+  });
   // The click on a sign also starts the camera: it is the user gesture
   // camera access needs. Registered here, before the stage and the puppet
   // load: the signs can be clicked long before those are ready.

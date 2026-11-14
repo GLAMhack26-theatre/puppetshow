@@ -1,4 +1,5 @@
-import { nowPlaying, onTrackChange, type Track } from "../audio/ambient";
+import { nowPlaying, onTrackChange } from "../audio/ambient";
+import { onExcerptChange, playingExcerpt } from "../audio/excerpts";
 import { isSoundOn, onSoundChange, setSoundOn } from "../audio/audio";
 import "./sound-toggle.css";
 
@@ -31,19 +32,22 @@ export function setupSoundToggle() {
 
   const showButton = (on: boolean) => {
     button.setAttribute("aria-pressed", String(on));
-    button.title = button.ariaLabel = on ? "Sound off" : "Sound on";
+    button.title = button.ariaLabel = on ? "Ton aus" : "Ton an";
   };
-  const showCredit = (track: Track | null) => {
+  // An excerpt playing is credited before the background music
+  const showCredit = () => {
+    const track = playingExcerpt() ?? nowPlaying();
     credit.hidden = !track;
     if (!track) return;
     credit.href = track.url;
     credit.textContent = `${track.title} · ${track.creator} · ${track.licence}`;
-    credit.title = `Now playing on archive.org: ${credit.textContent}`;
+    credit.title = `Läuft gerade, auf archive.org: ${credit.textContent}`;
   };
 
   button.addEventListener("click", () => setSoundOn(!isSoundOn()));
   onSoundChange(showButton);
   onTrackChange(showCredit);
+  onExcerptChange(showCredit);
   showButton(false);
-  showCredit(nowPlaying());
+  showCredit();
 }

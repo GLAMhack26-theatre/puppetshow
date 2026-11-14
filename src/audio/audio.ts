@@ -44,3 +44,15 @@ export function setSoundOn(value: boolean) {
 export function onSoundChange(fn: (on: boolean) => void) {
   listeners.push(fn);
 }
+
+/** While an excerpt plays, the background music steps back */
+const DUCKED = 0.3;
+let ducking = 0;
+
+/** Counted: duck(true) and duck(false) come in pairs, one per playing excerpt. */
+export function duck(down: boolean) {
+  ducking = Math.max(0, ducking + (down ? 1 : -1));
+  if (!context) return;
+  const level = ducking ? AMBIENT_LEVEL * DUCKED : AMBIENT_LEVEL;
+  ambientBus.gain.setTargetAtTime(level, context.currentTime, 0.25);
+}
