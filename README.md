@@ -8,29 +8,50 @@ Decisions, setup and phases: [docs/architecture.md](docs/architecture.md)
 
 ## Tuning
 
-The look is tuned with constants at the top of the source files; there is no settings UI.
+### Stage lighting: the light desk
+
+The lighting is tuned live, not in code: **Lichtpult** in the button panel opens the light desk, with one slider per parameter of the lighting rig. The rig follows the advice of a theatre lighting designer; every light is on a dimmer (0 … 100 %).
+
+| Group on the desk | The light | Parameters |
+|---|---|---|
+| Vorderlicht (2 × 45°) | Two white lights out front, 45° above the stage and 45° to either side. Diffuse, over the full stage width. | Helligkeit, Farbtemperatur (3000 … 5600 K) |
+| Profilscheinwerfer (Verfolger) | The focus light: one follow spot per puppet, on a bar in front of the stage, tracking it. Nearly parallel and hard, with a soft rim; the only light casting shadows. | Helligkeit, Farbtemperatur, Öffnung (beam angle, 8 … 45°), Weicher Rand (0 % is a hard edge), Strahl im Dunst (the beam drawn in the air) |
+| Oberlicht | Area light above the stage: the mood light. 40 % in the neutral scene. | Helligkeit, Farbe |
+| Seitenlicht (Gassen) | Area lights in the wings on both sides: plasticity. | Helligkeit, Farbtemperatur |
+| Rampe (Fussrampe) | Striplight along the front edge of the stage, shining up at 45° into the faces. | Helligkeit, Farbe |
+| Raum | Reflections of the room on the puppet's glossy materials, and a little light from everywhere. | Raumlicht |
+
+The top, side and strip lights are area lights without a visible source. The renderer has no tone mapping, so light adds up to white: with several groups high, light clothes burn out. The painted backdrops are unlit; they take their tint from the dimmers (mostly the front light), so a dark scene also darkens the backdrop. A bright or coloured striplight shows as a thin line on the gold band at the foot of the wall behind the stage, which mirrors it.
+
+**Lighting scenes** are sets of these values:
+
+- The list at the top of the desk chooses a scene; **Licht: …** (or the L key) steps through them with a 1.5 s fade. `?light=abend`, `?light=morgen`, `?light=dramatisch` (or a saved scene's key) starts in one.
+- **Speichern** saves the desk's values under the name typed above it (empty: the current scene). Saved scenes live in this browser only (`localStorage`). Saving under the name of a built-in scene replaces it; **Zurücksetzen** brings the built-in one back, **Löschen** removes a scene of your own.
+- **Als Code kopieren** copies the scene as an entry for `PRESETS` in `src/stage/lighting.ts`. That is the way a tuned scene gets into the repo, to the rest of the team and onto the phone.
+
+Built-in scenes (dimmers in %):
+
+| Scene | Vorderlicht | Profil | Oberlicht | Seitenlicht | Rampe | Raum |
+|---|---|---|---|---|---|---|
+| Neutral | 50, 5600 K | 27, 5200 K, 17° | 40, warm white | 30, 5000 K | 10, warm white | 30 |
+| Abendstimmung | 30, 3000 K | 22, 3200 K, 20°, soft | 55, violet | 50, 3000 K | 30, orange | 15 |
+| Morgenstimmung (outdoors) | 80, 5600 K | 10, 36°, very soft, no beam | 70, sky blue | 40, 5600 K | 20, pale yellow | 50 |
+| Dramatisch | 3 | 40, 5600 K, 14°, hard, strong beam | 85, red | 35, 5600 K | 0 | 6 |
+
+In the code (`src/stage/lighting.ts`): the `…_FULL` constants are what 100 % means for each light, `TOP_HEIGHT`, `SIDE_HEIGHT`, `SIDE_Y`, `STRIP_HEIGHT` and `STRIP_TILT` place the area lights (their width and depth come from the stage floor), `FADE_SECONDS` is the time a switch takes.
 
 ### Follow spots (`src/stage/spotlights.ts`)
 
-Every puppet gets its own spotlight, which hangs on a lighting bar in front of the stage and tracks the puppet's chest.
+The look of the spots (brightness, colour, beam angle, rim, haze) comes from the lighting scene, see above. What is fixed in the code:
 
 | Constant | Value | What it changes |
 |---|---|---|
-| `INTENSITY` | 15 cd | Brightness of the spot. The renderer has no tone mapping, so light clothes burn out to white above about 18. |
-| `ANGLE` | 0.15 rad | Half the beam angle: the size of the pool, about 0.55 m across at the puppet. Smaller is more focused. |
-| `PENUMBRA` | 0.35 | Softness of the pool's edge, 0 (hard) … 1 (soft all the way to the centre). The fully lit core is `ANGLE × (1 − PENUMBRA)`; keep the 0.35 m puppet inside it. |
-| `COLOR` | `0xfff1d6` | Colour of the light, the lens and the drawn beam (warm tungsten). |
-| `BEAM_OPACITY` | 0.1 | Brightness of the beam drawn in the air (haze); 0 switches it off. Rendering only, it lights nothing. |
-| `BEAM_PAST` | 1.2 | How far the drawn beam reaches past the puppet, in beam lengths (about to the floor). |
-| `FOLLOW` | 6 /s | How fast the spot catches up with its puppet. Lower lags more, like a slow spot operator. |
 | `BAR_Y`, `BAR_Z` | 1.2 m, 1.6 m | Height of the lighting bar and its distance in front of the stage centre: the angle the light comes in at. It has to stay under the top of the proscenium opening and out of the camera's view. |
 | `SLOTS_X` | −0.5, 0.5, 0, −0.9, 0.9 m | Where the spots hang along the bar, in the order the puppets arrive. Off-centre gives the puppet some modelling shadow. |
 | `DROP` | 0.1 m | How far the lens hangs below the bar. |
+| `BEAM_PAST` | 1.2 | How far the drawn beam reaches past the puppet, in beam lengths (about to the floor). |
+| `FOLLOW` | 6 /s | How fast the spot catches up with its puppet. Lower lags more, like a slow spot operator. |
 | `MAX_SHADOW_SPOTS` | 3 (phones: 1) | How many spots cast shadows; shadow maps are costly on phones. |
-
-How much the pool stands out also depends on the general light on the stage in `src/stage/lighting.ts` (key 0.8, fill 0.25, back 0.6, hemisphere 0.15, `ENVIRONMENT_INTENSITY` 0.3): lower those to make the spot read stronger without burning out the puppet.
-
-
 
 ## Marionette model (SKKG Marionettenpuppe 46154)
 

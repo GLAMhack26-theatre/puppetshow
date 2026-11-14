@@ -48,7 +48,7 @@ Background: other engines and physics libraries were also evaluated.
 **Systems:**
 - **Input:** `MediaPipeInputSystem`, `PhoneInputSystem` and `MouseInputSystem` all write `ControlInput`. `RemoteInputSystem` and `XRInputSystem` come later.
 - **Puppet:** `PuppetRigSystem` (physics pose → `SkinnedMesh` bones), `StringSystem` (constraint lengths + rendering the strings), `GrabSystem`.
-- **Stage and scenes:** `SpotlightSystem`, `AudioSystem`, `SceneFlowSystem` (Title ↔ Main).
+- **Stage and scenes:** `SpotlightSystem`, `LightingSystem`, `AudioSystem`, `SceneFlowSystem` (Title ↔ Main).
 
 **Components:** `Puppet`, `StringAttachment`, `Prop` (grabbable/throwable), `HangingLetter`, `Spotlight`.
 
@@ -75,10 +75,22 @@ If items 1 or 2 fail, the fallback is our own thin engine with the same split in
 - A central stage that fills the room: proscenium, curtains, and layered paper-theatre backdrops (scans as alpha planes).
 - Behind the theatre: a curved red velvet wall with a gold band at its foot (`assets/stage_parts/wall.glb`, `src/stage/wall.ts`), 4 m wide, its hollow side towards the camera, 0.3 m behind the stage; the velvet texture is grey and tiled (one repeat per 0.5 m) instead of stretched; its colour is multiplied in from `VELVET_COLOR`.
 - Around the theatre: a 20 m ground plane with the tiled asphalt wood (`assets/textures/herringbone_parquet_diff_1k.jpg`, one repeat per 1.5 m) at the bottom of the stage model, fading out radially so there is no horizon line (`src/stage/ground.ts`).
-- **3-point lighting:** key, fill and back light (`src/stage/lighting.ts`), the general light on the stage. Kept low enough that the follow spots stand out and white props do not burn out (the renderer has no tone mapping, so the unlit painted parts keep their colours).
-- **Follow spots** (`src/stage/spotlights.ts`, `SpotlightSystem`): every puppet on the stage gets its own spotlight, created with the puppet (`createPuppet`), which tracks its chest with a slight lag.
+- **Stage lighting** (`src/stage/lighting.ts`, `LightingSystem`): the rig a theatre lighting designer set up for us, five groups, each on a dimmer (0 … 100 %):
+  - **Front light** (Vorderlicht): two white lights out front, 45° up and 45° to either side, diffuse over the full stage width, 3000 … 5600 K (directional lights).
+  - **Profile spot** (Profilscheinwerfer): the follow spots below; nearly parallel, hard light with a soft rim. Brightness, colour temperature, beam angle, softness of the rim, haze.
+  - **Top light** (Oberlicht): an area light above the stage, any colour: the mood. 40 % in the plain scene.
+  - **Side light** (Seitenlicht): area lights in the wings on both sides, for plasticity; 3000 … 5600 K.
+  - **Striplight** (Rampe): along the front edge of the floor, shining up at 45° into the faces, any colour.
+  - Top, side and strip are `RectAreaLight`s: soft, without a visible source (no "wall of light"), falling off with distance, so they light the stage and not the room. Only the profile spots cast shadows.
+  - A sixth dimmer, room light, sets the environment reflections on the glossy materials.
+  - The renderer has no tone mapping (the unlit painted parts keep their colours), so light adds up to white; the scenes are balanced so that light clothes do not burn out.
+  - The painted backdrops are unlit: they are tinted with the light that would fall on a sheet at the back of the stage, worked out from the dimmers (mostly the front light). The proscenium, also unlit, keeps its colours.
+- **Lighting scenes:** a scene is one set of values for the rig. Built in: **Neutral** (the start), **Abendstimmung**, **Morgenstimmung** (outdoors) and **Dramatisch**. Switching fades over 1.5 s; lights are never added or removed (that would recompile every lit material).
+  - **Light desk** (Lichtpult, `src/ui/light-desk.ts`, a button in the debug panel): one slider or colour field per parameter, grouped by light. The desk's values can be saved as a scene under a name; saved scenes live in the browser (`localStorage`), one saved under a built-in name replaces that scene until it is reset. **Als Code kopieren** copies a scene as an entry for the built-in ones, which is how a tuned scene reaches the repo, teammates and the phone.
+  - **Licht: …** (or L) steps through the scenes; `?light=abend|morgen|dramatisch` (or a saved scene's key) starts in one.
+- **Follow spots** (`src/stage/spotlights.ts`, `SpotlightSystem`): every puppet on the stage gets its own profile spot, created with the puppet (`createPuppet`), which tracks its chest with a slight lag.
   - They hang on a lighting bar out in front of the stage (1.6 m in front, 1.2 m up, above the camera's view), as front-of-house spots do in a real theatre, each as a small fixture that turns with its beam.
-  - They add a pool of focus light around the puppet to the stage already lit by the 3-point lighting; the beam is also drawn as faint haze (an additive cone, rendering only).
+  - They add a pool of focus light around the puppet to the stage already lit by the other groups; the beam is also drawn as faint haze (an additive cone, rendering only). Their look comes from the lighting scene.
   - They are the only lights casting shadows; on phones only the first spot does.
 - The marionette and props it can interact with: hold, throw, drop.
 - **Exit** goes back to the title.
@@ -233,7 +245,7 @@ src/
   stage/{stage,lighting,spotlights,backdrops}.ts
   input/{control-input,mediapipe,hand-tracking,hand-overlay,hand-synthetic,hand-release,phone,mouse}.ts
   audio/{audio,zzfx}.ts
-  ui/                   # overlay, release timer, styles, Geist fonts
+  ui/                   # overlay, release timer, light desk, styles, Geist fonts
 index.html  vite.config.ts  tsconfig.json  package.json
 Dockerfile  docker-compose.yml  dev.sh  CLAUDE.md
 ```
@@ -295,6 +307,8 @@ Add one line per change to a decision in this doc: date, what changed, why.
 | 2026-11-14 | MediaPipe: the player's view replaces face-to-face as the default (mirrored picture, hand towards the screen = upstage, cross turns and rolls as the hand is seen to; tipping the hand forward still bows the puppet); the hand is the cross (level palm = level cross); palm size, tilt and finger signals come from the palm's outline in the image instead of MediaPipe's 3D landmarks; a stand-in rest pose at once, the hand's own at its first pause; overlay movable | The user sits in front of the screen with the webcam facing them. A recorded real session showed the 3D landmarks shrinking and flipping when the hand leans, as it does when holding a cross: the puppet jumped downstage on every bow, the tilt moved in steps and the head bar rocked by itself |
 | 2026-11-14 | MediaPipe control reworked (`src/input/`): time-aware filtering and a turn-rate cap in the engine; face-to-face mapping by default (selfie mirror as a toggle); depth from hand size against a sliding baseline; cross tilt from the palm's orientation; fingers drive the leg and head bar; an overlay shows the cross on the hand; record / replay | The spike tracking was shaky, had no depth and no fine control; puppeteers face their audience |
 | 2026-11-14 | The first hand is the cross hand; a second hand takes the hand bar off the cross and moves it freely (`ControlInput.handBar`), it returns when let go. The head bar is hinged (`rock.head`, ±45°) | Two-handed play as on the real cross: one hand holds it, the other works the hand bar |
+| 2026-11-14 | Stage lighting: a lighting designer's rig (front light 2 × 45°, profile spots, top light, side light, striplight; top, side and strip as area lights) replaces the 3-point lighting; every group on a dimmer, tuned on a light desk (sliders) | Professional advice from a theatre lighting expert; real area lights give soft light without a visible source |
+| 2026-11-14 | Lighting scenes: sets of rig values (Neutral, Abendstimmung, Morgenstimmung, Dramatisch built in), faded, saved from the desk into `localStorage`, copied out as code; the unlit backdrops are tinted from the dimmers | Moods for the plays, tunable without touching code; a fixed rig avoids shader recompiles when switching |
 | 2026-11-14 | Follow spots: one spotlight per puppet, tracking it, on a lighting bar in front of the stage, replace the single controllable spotlight (`ControlInput.spotlight` dropped); general lighting about halved | Each puppet gets its own focus light, as in a real theatre; under the old levels the spot's pool did not show and whites burnt out |
 | 2026-11-14 | The page without `?test` is the play (curtain, signs, marionette, hand control); the click on a sign starts the camera and MediaPipe; `?test=nocurtain` has the marionette too, the orbit camera stays in `?test=world` | No extra "start camera" step; the sign click is the user gesture iOS needs. Orbit and the mouse-led cross would fight over the pointer |
 | 2026-11-14 | Letting go of the puppet: fist held 3 s releases the hand, 5 s countdown, then a hand above the low zone connects again; grip is the pinch only | The player must be able to put the hand down without dragging the puppet to the floor |
