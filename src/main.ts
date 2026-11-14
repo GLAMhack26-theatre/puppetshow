@@ -5,6 +5,7 @@ import { MainCurtainSystem, loadMainCurtain, skipMainCurtain } from "./stage/mai
 import { SignSystem, loadSigns, onPlayChosen } from "./stage/signs";
 import { startImpro } from "./impro/impro";
 import { BackdropSystem } from "./stage/backdrops";
+import { RequisitSystem } from "./props/requisits";
 import { StageSystem, isCurtainOpen, loadStage, setCurtain } from "./stage/stage";
 import { RapierSystem, initPhysics } from "./systems/rapier-system";
 import { FpsSystem } from "./spike/world";
@@ -35,6 +36,7 @@ world.registerSystem(FpsSystem);
 world.registerSystem(MainCurtainSystem);
 world.registerSystem(SignSystem);
 world.registerSystem(BackdropSystem);
+world.registerSystem(RequisitSystem);
 
 if (test === "nocurtain") {
   skipMainCurtain();

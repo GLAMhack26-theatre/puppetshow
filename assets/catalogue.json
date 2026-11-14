@@ -1,0 +1,26 @@
+{
+  "_hinweis": [
+    "Einstellungen für die Requisiten (assets/digital.skkg.ch/requisits/*.glb) und Hintergründe (assets/stage_parts/Background_*.glb).",
+    "Schlüssel = Dateiname ohne .glb (bei Hintergründen ohne 'Background_').",
+    "label:  Name auf der Karte (ohne label: Dateiname ohne Inventarnummer).",
+    "scale:  nur Requisiten. 1 = Originalgrösse; 0.2 = auf ein Fünftel verkleinert. Ist er nicht 1, steht der Massstab unter dem Namen (z.B. 1 : 5).",
+    "source: Link zur SKKG-Sammlung -> der i-Knopf öffnet ihn in einem neuen Tab.",
+    "        \"ai\" = ausgedachtes Objekt ohne Vorlage -> der i-Knopf zeigt das Popup 'Fake-Objekt gefunden!'.",
+    "        leer \"\" = noch kein Link: kein i-Knopf."
+  ],
+  "requisits": {
+    "Becher_48468.21": { "label": "Becher", "scale": 1, "source": "https://digital.skkg.ch/de/intro/skkg%3Aobject%2F75eef8be-9ba0-4361-b986-6d2a445625e6" },
+    "Bett_44012": { "label": "Bett", "scale": 1, "source": "https://digital.skkg.ch/de/intro/skkg%3Aobject%2F75eef8be-9ba0-4361-b986-6d2a445625e6" },
+    "Hund_38872.24": { "label": "Hund", "scale": 1, "source": "https://digital.skkg.ch/de/intro/skkg%3Aobject%2F75eef8be-9ba0-4361-b986-6d2a445625e6" },
+    "Katze_29404.202": { "label": "Katze", "scale": 1, "source": "https://digital.skkg.ch/de/intro/skkg%3Aobject%2F75eef8be-9ba0-4361-b986-6d2a445625e6" },
+    "Kugel_38896.3": { "label": "Kugel", "scale": 0.2, "source": "https://digital.skkg.ch/de/intro/skkg%3Aobject%2F75eef8be-9ba0-4361-b986-6d2a445625e6" },
+    "Laterne_kuenstlich": { "label": "Laterne", "scale": 1, "source": "ai" },
+    "Stuhl_25210.6": { "label": "Stuhl", "scale": 1, "source": "https://digital.skkg.ch/de/intro/skkg%3Aobject%2F75eef8be-9ba0-4361-b986-6d2a445625e6" }
+  },
+  "backdrops": {
+    "Inside_Castle": { "label": "Im Schloss", "source": "https://digital.skkg.ch/de/intro/skkg%3Aobject%2F75eef8be-9ba0-4361-b986-6d2a445625e6" },
+    "Outside_Castle": { "label": "Vor dem Schloss", "source": "https://digital.skkg.ch/de/intro/skkg%3Aobject%2F75eef8be-9ba0-4361-b986-6d2a445625e6" },
+    "Morschach": { "label": "Morschach", "source": "https://digital.skkg.ch/de/intro/skkg%3Aobject%2F75eef8be-9ba0-4361-b986-6d2a445625e6" },
+    "Seelandschaft": { "label": "Seelandschaft", "source": "https://digital.skkg.ch/de/intro/skkg%3Aobject%2F75eef8be-9ba0-4361-b986-6d2a445625e6" }
+  }
+}

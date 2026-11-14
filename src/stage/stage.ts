@@ -45,6 +45,8 @@ export const stageBounds = {
   scale: 1,
   /** z of the back edge of the floor. */
   backZ: 0,
+  /** z of the front edge of the floor (towards the camera). */
+  frontZ: 0,
   /** Width (x) of the floor, Ground_Box. */
   width: 0,
   centerX: 0,
@@ -109,6 +111,7 @@ export async function loadStage(world: World) {
   const center = groundBox.getCenter(new Vector3());
   stageBounds.scale = root.scale.x;
   stageBounds.backZ = groundBox.min.z;
+  stageBounds.frontZ = groundBox.max.z;
   stageBounds.centerX = center.x;
   stageBounds.width = size.x;
   physics.world.createCollider(

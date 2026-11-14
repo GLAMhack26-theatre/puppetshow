@@ -1,5 +1,6 @@
 import { Box3, type Material, MathUtils, Mesh, type Object3D, Vector3, createSystem, type World } from "@iwsdk/core";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { catalogueEntry } from "../catalogue";
 import { stageBounds } from "./stage";
 
 // Painted backdrops ("Hintergrund"-Aufsteller) for the impro mode: every
@@ -20,13 +21,8 @@ const FILES = import.meta.glob("../../assets/stage_parts/Background_*.glb", {
   eager: true,
 }) as Record<string, string>;
 
-/** Display names; files not listed here show their file name. */
-const LABELS: Record<string, string> = {
-  Inside_Castle: "Im Schloss",
-  Outside_Castle: "Vor dem Schloss",
-  Morschach: "Morschach",
-  Seelandschaft: "Seelandschaft",
-};
+// Display names and SKKG sources: assets/catalogue.json ("backdrops");
+// files not listed there show their file name.
 
 /** Just in front of the back edge, so the floor does not cut the bottom of the quad. */
 const BACK_INSET = 0.005;
@@ -42,6 +38,8 @@ const EDGE = 0.12;
 export interface Backdrop {
   id: string;
   label: string;
+  /** Link to the SKKG collection, "ai" for an invented one (assets/catalogue.json). */
+  source: string;
   /** Object URL of the painted sheet (the texture inside the .glb), for the picker. */
   thumbnail: string;
   object: Object3D;
@@ -78,7 +76,8 @@ async function loadBackdrop(path: string, url: string): Promise<Backdrop> {
   });
   return {
     id,
-    label: LABELS[id] ?? id.replaceAll("_", " "),
+    label: catalogueEntry("backdrops", id).label ?? id.replaceAll("_", " "),
+    source: catalogueEntry("backdrops", id).source ?? "",
     thumbnail: embeddedImage(buffer),
     object,
     reveal,

@@ -1,9 +1,9 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import { Box3, Group, Vector3, type World } from "@iwsdk/core";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import ballUrl from "../../assets/digital.skkg.ch/Kugel_38896.3.glb?url";
-import chairUrl from "../../assets/digital.skkg.ch/Stuhl_25210.6.glb?url";
-import bedUrl from "../../assets/digital.skkg.ch/Bett_44012.glb?url";
+import ballUrl from "../../assets/digital.skkg.ch/requisits/Kugel_38896.3.glb?url";
+import chairUrl from "../../assets/digital.skkg.ch/requisits/Stuhl_25210.6.glb?url";
+import bedUrl from "../../assets/digital.skkg.ch/requisits/Bett_44012.glb?url";
 import { grabbables } from "../puppet/grab";
 import { GROUP, addLinked } from "../systems/rapier-system";
 

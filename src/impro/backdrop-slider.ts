@@ -4,6 +4,10 @@
 // middle bulges out furthest and is the biggest; cards tilt along the curve
 // and fade out at the top and bottom. Scrolling is native (wheel, touch),
 // the cards are only positioned from scrollTop.
+//
+// The same slider serves the props on the left side: `mirror` flips the
+// whole slider with CSS and flips every card back, so the layout code only
+// ever thinks in the right-hand version.
 
 /** Tune the look here; there is deliberately no settings UI. */
 const SLIDER = {
@@ -30,6 +34,10 @@ const STAR_COLOURS = ["#e9895a", "#f0a15f", "#d9774a", "#f2b36c"];
 export interface SliderItem {
   label: string;
   thumbnail: string;
+  /** Small line under the label, e.g. the scale. */
+  caption?: string;
+  /** Shows a round "i" on the card's outer side; called on a click. */
+  onInfo?: () => void;
 }
 
 export interface Slider {
@@ -37,14 +45,20 @@ export interface Slider {
   root: HTMLElement;
   /** Replaces the cards; `onPick(i)` fires on a click. */
   setItems(items: SliderItem[], onPick: (index: number) => void): void;
-  /** Marks one card as chosen (or none). */
-  setSelected(index: number | null): void;
+  /** Swaps the image of one card (thumbnails that are rendered later). */
+  setThumbnail(index: number, thumbnail: string): void;
+  /** Swaps the line under the label. */
+  setCaption(index: number, caption: string): void;
+  /** Marks the chosen cards. */
+  setSelected(isSelected: (index: number) => boolean): void;
   /** Re-measures the panel (on open and on resize). */
   layout(): void;
 }
 
-export function createSlider(): Slider {
-  const root = div("slider");
+export function createSlider({ mirror = false } = {}): Slider {
+  const root = div(mirror ? "slider slider-mirrored" : "slider");
+  // Flips each card back inside the mirrored slider, so text and images read normally
+  const unflip = mirror ? " scaleX(-1)" : "";
   const clip = div("slider-clip");
   const scroller = div("slider-scroller");
   const stage = div("slider-stage");
@@ -73,7 +87,7 @@ export function createSlider(): Slider {
   edge.append(edgeShadow, edgeGold);
   root.append(clip, edge);
 
-  let cards: HTMLButtonElement[] = [];
+  let cards: HTMLElement[] = [];
   let W = 0;
   let H = 0;
   let cardW = 0;
@@ -198,7 +212,7 @@ export function createSlider(): Slider {
       const angle = (angleAt(u) * 180) / Math.PI;
       const scale = 1 + SLIDER.boost * Math.max(0, f(u)) - 0.25 * Math.min(1, Math.max(0, u * u - 1) * 3);
       const opacity = Math.max(0, 1 - Math.max(0, Math.abs(u) - 1.05) * 3);
-      card.style.transform = `translate3d(${(centerX(u) - cardW / 2).toFixed(1)}px,${(y - cardH / 2).toFixed(1)}px,0) rotate(${angle.toFixed(2)}deg) scale(${scale.toFixed(3)})`;
+      card.style.transform = `translate3d(${(centerX(u) - cardW / 2).toFixed(1)}px,${(y - cardH / 2).toFixed(1)}px,0) rotate(${angle.toFixed(2)}deg) scale(${scale.toFixed(3)})${unflip}`;
       card.style.opacity = opacity.toFixed(2);
       card.style.zIndex = String(Math.round(100 - Math.abs(u) * 50));
     });
@@ -227,29 +241,56 @@ export function createSlider(): Slider {
     setItems(items, onPick) {
       for (const card of cards) card.remove();
       cards = items.map((item, i) => {
-        const card = document.createElement("button");
-        card.type = "button";
-        card.className = "slider-card";
+        // A card is a positioned frame holding a transparent pick button over
+        // the picture and an optional "i" button: buttons cannot be nested
+        const card = div("slider-card");
         const image = document.createElement("img");
-        image.src = item.thumbnail;
+        if (item.thumbnail) image.src = item.thumbnail;
         image.alt = "";
         image.draggable = false;
         const label = document.createElement("span");
         label.textContent = item.label;
-        card.append(image, label);
-        card.addEventListener("click", () => {
+        const caption = document.createElement("small");
+        caption.className = "slider-caption";
+        caption.textContent = item.caption ?? "";
+        const pick = document.createElement("button");
+        pick.type = "button";
+        pick.className = "slider-pick";
+        pick.setAttribute("aria-label", item.label);
+        pick.addEventListener("click", () => {
           centre(i);
           onPick(i);
         });
         // Keyboard users tab through the cards; bring the focused one to the middle
-        card.addEventListener("focus", () => centre(i));
+        pick.addEventListener("focus", () => centre(i));
+        card.append(image, label, caption, pick);
+        if (item.onInfo) {
+          const info = document.createElement("button");
+          info.type = "button";
+          info.className = "slider-info";
+          info.textContent = "i";
+          info.setAttribute("aria-label", `Quelle: ${item.label}`);
+          info.addEventListener("click", item.onInfo);
+          card.append(info);
+        }
         stage.append(card);
         return card;
       });
       layout();
     },
-    setSelected(index) {
-      cards.forEach((card, i) => card.setAttribute("aria-pressed", String(i === index)));
+    setCaption(index, caption) {
+      const line = cards[index]?.querySelector(".slider-caption");
+      if (line) line.textContent = caption;
+    },
+    setThumbnail(index, thumbnail) {
+      const image = cards[index]?.querySelector("img");
+      if (image) image.src = thumbnail;
+    },
+    setSelected(isSelected) {
+      cards.forEach((card, i) => {
+        card.classList.toggle("selected", isSelected(i));
+        card.querySelector(".slider-pick")!.setAttribute("aria-pressed", String(isSelected(i)));
+      });
     },
   };
 }
