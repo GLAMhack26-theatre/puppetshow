@@ -1,12 +1,14 @@
 import { Vector3 } from "@iwsdk/core";
 import type { RigController } from "../puppet/rig";
 import { controlInput } from "./control-input";
-import { HAND_BONES, TUNING, projectCross, tiltFromQuat, type HandView, type Tilt, type TrackerOutput } from "./hand-tracking.ts";
+import { HAND_BONES, TUNING, rotateByTilt, type HandView, type TrackerOutput } from "./hand-tracking.ts";
 
 // The picture above the camera feed: how the hands hold the cross. It draws
-// the tracked hands, the cross on the cross hand in its live pose (every bar
-// as the rig defines it, rocked as ControlInput says), and meters for depth
-// and the rocking bars. One colour per function: the fingers that drive a bar
+// the tracked hands, the cross lying in the cross hand (rear end at the wrist,
+// front tip at the fingertips; every bar as the rig defines it, rocked as
+// ControlInput says), the handles where the second hand takes the hand bar or
+// the head bar, the back string it can push, and meters for depth and the
+// rocking bars. One colour per function: the fingers that drive a bar
 // have the bar's colour, so a glance shows what moves what.
 
 const COLOR = {
@@ -165,7 +167,7 @@ export function createHandOverlay(controller?: RigController) {
         ctx.fill();
       }
       ctx.globalAlpha = 1;
-      // Above the hand: below it is the arm, and the cross is drawn beside it
+      // Above the hand: below it are the arm and the back string
       const top = Math.min(...view.landmarks.map((p) => p.y));
       text(label, view.landmarks[9].x * width, Math.max(36 * unit, top * height - 6 * unit), colors[0], "center", 8);
     };
@@ -175,66 +177,87 @@ export function createHandOverlay(controller?: RigController) {
     };
     const handName = (view: HandView) => (view.hand === "left" ? "linke Hand" : "rechte Hand");
 
-    const bar = out.handBar;
+    const { handBar: bar, headBar: head, hook, handles, gizmo } = out;
     if (out.second) {
-      const color = bar.detached ? COLOR.active : COLOR.hands;
-      hand(out.second, Array(6).fill(color), bar.detached ? "hält das Handkreuz" : `2. Hand · ${handName(out.second)}`);
+      const busy = bar.detached || head.held || hook.active;
+      const label = bar.detached ? "hält das Handkreuz" : head.held ? "dreht das Kopfkreuz" : hook.active ? "drückt den Rückenfaden" : `2. Hand · ${handName(out.second)}`;
+      hand(out.second, Array(6).fill(busy ? COLOR.active : COLOR.hands), label);
     }
     if (out.cross) {
       hand(out.cross, FINGER_COLOR, `Kreuz · ${handName(out.cross)}`);
       const attached = out.status === "attached" || out.status === "lost";
-      const origin = { x: out.cross.palm.x * height, y: out.cross.palm.y * height };
-      const scale = bar.unit * height; // px per palm length
-      const project = (p: [number, number, number], tilt: Tilt) => {
-        const q = projectCross(p, tilt, bar.side);
-        return { x: origin.x + q.x * scale, y: origin.y + q.y * scale };
+      // The cross lies in the cross hand: a point of the main bar's frame (m) → picture
+      const offset = ([x, y, z]: [number, number, number]) => ({
+        x: (x * gizmo.x[0] + y * gizmo.y[0] + z * gizmo.z[0]) * height,
+        y: (x * gizmo.x[1] + y * gizmo.y[1] + z * gizmo.z[1]) * height,
+      });
+      const project = (p: [number, number, number]) => {
+        const q = offset(p);
+        return { x: gizmo.origin.x * height + q.x, y: gizmo.origin.y * height + q.y };
       };
-
-      // Magnet point and reach: where the second hand takes the hand bar
-      const magnet = { x: bar.magnet.x * height, y: bar.magnet.y * height };
-      if (attached && (out.second || bar.detached)) {
-        ctx.setLineDash([4 * unit, 4 * unit]);
-        ctx.strokeStyle = bar.detached ? COLOR.active : bar.near ? COLOR.hands : COLOR.dim;
-        ctx.lineWidth = (bar.near ? 1.5 : 1) * unit;
+      const palm = gizmo.unit * height; // px per palm length
+      const ring = (at: { x: number; y: number }, radius: number, color: string, thickness: number, dashed = false) => {
+        if (dashed) ctx.setLineDash([4 * unit, 4 * unit]);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = thickness * unit;
         ctx.beginPath();
-        ctx.arc(magnet.x, magnet.y, bar.radius * height, 0, 2 * Math.PI);
+        ctx.arc(at.x, at.y, radius, 0, 2 * Math.PI);
         ctx.stroke();
         ctx.setLineDash([]);
-      }
+      };
 
-      // The cross, bar by bar; a short string hangs from each end of the rocking bars
       if (controller && mainBar && attached) {
+        // The back string: it hangs down from the rear end; a hand moving against it bends it
+        const top = { x: hook.line.x * height, y: hook.line.top * height };
+        const bottom = { x: hook.line.x * height, y: hook.line.bottom * height };
+        if (hook.active) {
+          const edge = { x: hook.edge.x * height, y: hook.edge.y * height };
+          line(top.x, top.y, edge.x, edge.y, COLOR.active, 1.5);
+          line(edge.x, edge.y, bottom.x, bottom.y, COLOR.active, 1.5);
+        } else {
+          line(top.x, top.y, bottom.x, bottom.y, out.second ? COLOR.cross : COLOR.dim, 1);
+        }
+
+        // The cross, bar by bar; a short string hangs from each end of the rocking bars
         for (const b of controller.bars) {
           const color = b.input ? COLOR[b.input] : COLOR.cross;
           const free = b.detachable && bar.detached && out.second;
+          const held = free || (b.input === "head" && head.held);
+          const handle = b.detachable ? bar.magnet : b.input === "head" ? head.handle : undefined;
+          const at = handle && { x: handle.x * height, y: handle.y * height };
           for (const stick of b.sticks) {
             let ends;
             if (free) {
-              // Taken off: drawn in the second hand, turned as the free bar is turned
+              // Taken off: drawn in the second hand, turned as the hand has turned it since
               const grip = [out.second!.landmarks[4], out.second!.landmarks[8]];
               const centre = { x: ((grip[0].x + grip[1].x) / 2) * width, y: ((grip[0].y + grip[1].y) / 2) * height };
-              const turn = tiltFromQuat(controlInput.handBar.rotation.toArray() as [number, number, number, number]);
               ends = [stick.a, stick.b].map((end) => {
                 point.copy(end).sub(b.pivot);
-                const q = projectCross([point.x, point.y, point.z], turn, bar.side);
-                return { x: centre.x + q.x * scale, y: centre.y + q.y * scale };
+                const q = offset(rotateByTilt([point.x, point.y, point.z], bar));
+                return { x: centre.x + q.x, y: centre.y + q.y };
               });
-              line(magnet.x, magnet.y, centre.x, centre.y, COLOR.dim, 1);
+              if (at) line(at.x, at.y, centre.x, centre.y, COLOR.dim, 1);
             } else {
-              ends = [stick.a, stick.b].map((end) => project(inBarFrame(b, end), out.bar));
+              ends = [stick.a, stick.b].map((end) => project(inBarFrame(b, end)));
+              // The handle: beyond the bar's end, clear of the cross hand
+              if (at) {
+                const near = ends[0].x * handles.side > ends[1].x * handles.side ? ends[0] : ends[1];
+                ctx.setLineDash([2 * unit, 3 * unit]);
+                line(near.x, near.y, at.x, at.y, held ? COLOR.active : color, 1);
+                ctx.setLineDash([]);
+              }
             }
-            if (b.input) for (const end of ends) line(end.x, end.y, end.x, end.y + 0.45 * scale, COLOR.dim, 1);
-            drawStick(ends[0], ends[1], free ? COLOR.active : color, b.input ? 4 : 3);
+            if (b.input) for (const end of ends) line(end.x, end.y, end.x, end.y + 0.45 * palm, COLOR.dim, 1);
+            drawStick(ends[0], ends[1], held ? COLOR.active : color, b.input ? 4 : 3);
+          }
+          if (at) {
+            // A ring where the second hand takes this bar; its reach is shown while that hand is in the picture
+            const which = b.detachable ? "hand" : "head";
+            const near = handles.near === which;
+            ring(at, 4.5 * unit, held ? COLOR.active : color, near ? 2.5 : 1.5);
+            if (out.second && (near || !handles.near)) ring(at, handles.radius * height, held ? COLOR.active : near ? color : COLOR.dim, near ? 1.5 : 1, true);
           }
         }
-      }
-      if (attached) {
-        // The magnet: a ring where the hand bar sits, empty while the bar is away
-        ctx.strokeStyle = COLOR.hands;
-        ctx.lineWidth = 1.5 * unit;
-        ctx.beginPath();
-        ctx.arc(magnet.x, magnet.y, 5 * unit, 0, 2 * Math.PI);
-        ctx.stroke();
       }
     }
 
@@ -261,7 +284,7 @@ export function createHandOverlay(controller?: RigController) {
     // Meters, bottom: each rocker from −limit to +limit, and the cross's tilt
     const meters: [string, number, string][] = [
       ["Beine · Zeige- / Mittelfinger", out.rock.legs, COLOR.legs],
-      ["Kopf · Ring + kl. Finger / Daumen", out.rock.head, COLOR.head],
+      [head.held ? "Kopf · 2. Hand dreht" : "Kopf · Ring + kl. Finger / Daumen", out.rock.head, head.held ? COLOR.active : COLOR.head],
     ];
     meters.forEach(([label, value, color], i) => {
       const y = height - (36 - i * 18) * unit;
@@ -275,7 +298,8 @@ export function createHandOverlay(controller?: RigController) {
     const degrees = (rad: number) => `${rad >= 0 ? "+" : "−"}${Math.abs((rad * 180) / Math.PI).toFixed(0)}°`;
     const tilt = `neigen ${degrees(out.bar.pitch)}   kippen ${degrees(out.bar.roll)}   drehen ${degrees(out.bar.yaw)}`;
     text(tilt, width - 8 * unit, height - 24 * unit, COLOR.cross, "right", 8);
-    text(bar.detached ? "Handkreuz · frei in der 2. Hand" : "Handkreuz · 2. Hand greift am Punkt", width - 8 * unit, height - 10 * unit, bar.detached ? COLOR.active : COLOR.hands, "right", 7.5);
+    const secondHand = bar.detached ? "Handkreuz · frei in der 2. Hand" : head.held ? "Kopfkreuz · 2. Hand drehen" : hook.active ? "Rückenfaden · gedrückt" : "2. Hand: am Ring greifen · offen gegen den Rückenfaden";
+    text(secondHand, width - 8 * unit, height - 10 * unit, bar.detached || head.held || hook.active ? COLOR.active : COLOR.hands, "right", 7.5);
   }
 
   return { canvas, draw };
