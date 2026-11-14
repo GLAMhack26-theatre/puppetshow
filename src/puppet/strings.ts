@@ -13,8 +13,8 @@ import {
   type Object3D,
   type World,
 } from "@iwsdk/core";
-import { STRING_IDS, controlInput, type RockId, type StringId } from "../input/control-input";
-import { STEP, addLinked, physics, renderPoint, setJointLimits } from "../systems/rapier-system";
+import { STRING_IDS, type ControlInput, type RockId, type StringId } from "../input/control-input";
+import { STEP, addHook, addLinked, physics, renderPoint, setJointLimits, toQuat, toVec } from "../systems/rapier-system";
 import type { Rig, RigController, RigPart, RigString } from "./rig";
 
 // The control cross (Spielkreuz) and the strings, rebuilt from the real SKKG
@@ -26,6 +26,10 @@ import type { Rig, RigController, RigPart, RigString } from "./rig";
 // the main bar's pose (tilting it bows or turns the puppet), the rocking
 // angles, the hand bar taken off the cross and moved freely, and per-string
 // pulls on top (plucking a single string).
+//
+// A replicated puppet (simulated on another device, src/net/) has the same
+// bars and drawn strings, but no rope joints and no input: its bars are set
+// from the network like its other bodies.
 
 const PULL_RANGE = 0.12; // m: a full pull shortens a string by this much (puppet: 0.35 m)
 const MAX_PULL_SPEED = 1; // m/s: a string is drawn in, not teleported (a slider jump would otherwise leave it 12 cm too long for a step)
@@ -45,7 +49,8 @@ interface PuppetString {
   barAnchor: RAPIER.Vector; // on the bar
   rest: number;
   length: number;
-  joint: RAPIER.ImpulseJoint;
+  /** None on a replicated puppet */
+  joint?: RAPIER.ImpulseJoint;
   line: Line;
 }
 
@@ -67,8 +72,21 @@ interface RockingBar {
 const vec = (v: Vector3): RAPIER.Vector => ({ x: v.x, y: v.y, z: v.z });
 const UP = new Vector3(0, 0, 1);
 
-export function createStrings(world: World, root: Object3D, rig: Rig, description: RigString[], controller: RigController) {
+export interface StringOptions {
+  /**
+   * Who leads the cross. Without it the puppet is replicated and led by
+   * nobody here; a replicated puppet with an input is the local player's own
+   * (the input is kept in step with the cross, see below).
+   */
+  input?: ControlInput;
+  mode?: "simulated" | "replicated";
+}
+
+export function createStrings(world: World, root: Object3D, rig: Rig, description: RigString[], controller: RigController, options: StringOptions = {}) {
   const pw = physics.world;
+  const simulated = options.mode !== "replicated";
+  const input = options.input;
+  const removers: Array<() => void> = [];
   root.updateMatrixWorld(true);
   const toWorld = (v: Vector3) => v.clone().applyMatrix4(root.matrixWorld);
   const dirToWorld = (v: Vector3) => v.clone().transformDirection(root.matrixWorld);
@@ -89,12 +107,14 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
       mesh.quaternion.setFromUnitVectors(UP, b.clone().sub(a).normalize());
       group.add(mesh);
     }
-    const { body } = addLinked(world, group, RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(pivot.x, pivot.y, pivot.z));
+    const { body, remove } = addLinked(world, group, RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(pivot.x, pivot.y, pivot.z));
     bodies.set(bar.name, { body, pivot });
+    removers.push(remove);
   }
   const mainBar = controller.bars.find((b) => !b.parent)!;
   const main = bodies.get(mainBar.name)!;
-  controlInput.bar.position.copy(main.pivot);
+  // The input starts where the cross hangs, so the puppet does not jump to a default place
+  input?.bar.position.copy(main.pivot);
   const rocking: RockingBar[] = controller.bars
     .filter((b) => b.parent && b.axis && b.input)
     .map((b) => {
@@ -111,13 +131,17 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
     const anchor = vec(toWorld(s.position).sub(new Vector3().copy(part.body.translation())));
     const barAnchor = vec(toWorld(s.barPoint).sub(bar.pivot));
     const rest = s.restLength;
-    const joint = pw.createImpulseJoint(RAPIER.JointData.rope(rest, barAnchor, anchor), bar.body, part.body, true);
+    const joint = simulated ? pw.createImpulseJoint(RAPIER.JointData.rope(rest, barAnchor, anchor), bar.body, part.body, true) : undefined;
 
     const geometry = new BufferGeometry();
     geometry.setAttribute("position", new Float32BufferAttribute(new Float32Array((SEGMENTS + 1) * 3), 3));
     const line = new Line(geometry, material);
     line.frustumCulled = false;
     world.scene.add(line);
+    removers.push(() => {
+      line.removeFromParent();
+      geometry.dispose();
+    });
     strings.push({ id: s.id, part, bar: bar.body, anchor, barAnchor, rest, length: rest, joint, line });
   }
 
@@ -127,12 +151,12 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
   const rockQ = new Quaternion();
   const p = new Vector3();
   const q = new Quaternion();
-  const handBar = controlInput.handBar;
-  handBar.detached = false;
-  physics.beforeStep.push(() => {
-    barMove.subVectors(controlInput.bar.position, barPosition).clampLength(0, MAX_BAR_SPEED * STEP);
+  if (input) input.handBar.detached = false;
+  if (simulated && input) removers.push(addHook(physics.beforeStep, () => {
+    const handBar = input.handBar;
+    barMove.subVectors(input.bar.position, barPosition).clampLength(0, MAX_BAR_SPEED * STEP);
     barPosition.add(barMove);
-    barRotation.rotateTowards(controlInput.bar.rotation, MAX_BAR_TURN * STEP);
+    barRotation.rotateTowards(input.bar.rotation, MAX_BAR_TURN * STEP);
     main.body.setNextKinematicTranslation(barPosition);
     main.body.setNextKinematicRotation(barRotation);
 
@@ -140,7 +164,7 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
     // about their axis (in the main bar's frame) on top of its rotation
     for (const r of rocking) {
       // ?? 0: a rig may name a rocker this build has no input for yet
-      const target = Math.max(-r.limit, Math.min(r.limit, controlInput.rock[r.input] ?? 0));
+      const target = Math.max(-r.limit, Math.min(r.limit, input.rock[r.input] ?? 0));
       r.angle += Math.max(-MAX_ROCK_SPEED * STEP, Math.min(MAX_ROCK_SPEED * STEP, target - r.angle));
       p.copy(r.offset).applyQuaternion(barRotation).add(barPosition);
       q.copy(barRotation).multiply(rockQ.setFromAxisAngle(r.axis, r.angle));
@@ -180,19 +204,29 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
     // first axis, so its length is that limit: set it instead of recreating
     // the joint (which pulled in 5 mm steps and threw the solver's state away)
     for (const s of strings) {
-      const target = Math.max(0.05, s.rest - PULL_RANGE * controlInput.pulls[s.id]);
-      if (target === s.length) continue;
+      const target = Math.max(0.05, s.rest - PULL_RANGE * input.pulls[s.id]);
+      if (target === s.length || !s.joint) continue;
       const length = s.length + Math.max(-MAX_PULL_SPEED * STEP, Math.min(MAX_PULL_SPEED * STEP, target - s.length));
       setJointLimits(s.joint, RAPIER.JointAxis.LinX, 0, length);
       s.part.body.wakeUp(); // a resting puppet sleeps, and a limit alone does not wake it
       s.length = length;
     }
-  });
+  }));
+
+  // The local player's own puppet, simulated elsewhere: the engine there keeps
+  // handBar at the bar's seat while it is on the cross. Do the same here from
+  // the replicated bar, so that taking it off starts from where it is.
+  const detachable = rocking.find((r) => r.detachable);
+  if (!simulated && input && detachable) removers.push(addHook(physics.beforeStep, () => {
+    if (input.handBar.detached) return;
+    toVec(detachable.body.translation(), input.handBar.position);
+    toQuat(detachable.body.rotation(), input.handBar.rotation);
+  }));
 
   // Drawn with a parabolic sag that grows with the slack (rendering only)
   const a = new Vector3();
   const b = new Vector3();
-  physics.afterSync.push(() => {
+  removers.push(addHook(physics.afterSync, () => {
     for (const s of strings) {
       renderPoint(s.bar, s.barAnchor, a);
       renderPoint(s.part.body, s.anchor, b);
@@ -205,7 +239,14 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
       }
       position.needsUpdate = true;
     }
-  });
+  }));
 
-  return { bar: main.body, strings };
+  const dispose = () => {
+    for (const remove of removers) remove();
+    wood.dispose();
+    material.dispose();
+  };
+  /** The bars' bodies in the rig's order: the same list on every device (src/net/) */
+  const barBodies = controller.bars.map((b) => bodies.get(b.name)!.body);
+  return { bar: main.body, bars: barBodies, strings, dispose };
 }

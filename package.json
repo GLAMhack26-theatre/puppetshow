@@ -12,7 +12,8 @@
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",
     "@iwsdk/core": "^1.1.0-rc.2",
-    "@mediapipe/tasks-vision": "^1.2.3"
+    "@mediapipe/tasks-vision": "^1.2.3",
+    "trystero": "0.27.0"
   },
   "devDependencies": {
     "@vitejs/plugin-basic-ssl": "^2.3.0",

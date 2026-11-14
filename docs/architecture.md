@@ -14,13 +14,14 @@ The repo is empty apart from the README; this doc defines the setup and architec
 | Game engine | **Meta IWSDK** (`@iwsdk/core`, MIT) in browser mode: `World.create(container, { xr: false })`. WebXR later via `xr: { offer: … }` |
 | Physics | **Rapier** (`@dimforge/rapier3d-compat`) as our own system; IWSDK physics stays off (`features.physics: false`) |
 | Gestures | MediaPipe (`@mediapipe/tasks-vision`: HandLandmarker + GestureRecognizer) |
-| Targets | Phone and desktop with a webcam first, the phone running everything itself. WebRTC remote and VR later |
+| Targets | Phone and desktop with a webcam first, the phone running everything itself. VR later |
+| Multiplayer | Several players on one stage, joined by a secret room id in the URL. **Trystero** (WebRTC data channels; peers meet over public Nostr relays, no server of our own). One host device simulates, the others send input and show poses (section 3.3) |
 | Audio | three.js audio (Web Audio, positional) + **ZzFX** (~1 KB) for generated effects; music as `.m4a` |
 | Tooling | TypeScript + Vite + HTTPS + Docker Compose; the app is served directly by Vite (no Traefik or nginx for now) |
 | Assets | Sources committed in `/assets`, grouped by source; large files on external storage, downloaded by hand into `assets/external/` (git-ignored); the `convert` service turns both automatically into `/public` |
 | Fonts | Geist Serif (titles, 3D letters) + Geist Sans (UI), bundled from the `geist` npm package (OFL) |
 | Exit | Back to the title screen |
-| Later | WebRTC remote (display + phone via QR), WebXR 3DoF/6DoF, LiteRT-LM |
+| Later | WebXR 3DoF/6DoF, an AI player and audience directions over the room (section 3.3), LiteRT-LM |
 
 Background: other engines and physics libraries were also evaluated.
 - **Engines:** Needle Engine (not MIT), Houseki (GPL), elixr, Meep (archived), LittleJS (2D only), and our own thin engine.
@@ -46,7 +47,7 @@ Background: other engines and physics libraries were also evaluated.
 - the puppet rig, strings and grab: we write our own `GrabSystem`, because IWSDK's near-field grab is XR-only and grabbing here is done by the puppet's hands, not the user's
 
 **Systems:**
-- **Input:** `MediaPipeInputSystem`, `PhoneInputSystem` and `MouseInputSystem` all write `ControlInput`. `RemoteInputSystem` and `XRInputSystem` come later.
+- **Input:** `MediaPipeInputSystem`, `PhoneInputSystem` and `MouseInputSystem` all write `ControlInput`. `XRInputSystem` comes later. Every puppet has its own `ControlInput`; with several players the others' are filled from the network (`src/net/`, section 3.3).
 - **Puppet:** `PuppetRigSystem` (physics pose → `SkinnedMesh` bones), `StringSystem` (constraint lengths + rendering the strings), `GrabSystem`.
 - **Stage and scenes:** `SpotlightSystem`, `LightingSystem`, `AudioSystem`, `SceneFlowSystem` (Title ↔ Main).
 
@@ -123,7 +124,7 @@ interface ControlInput {                              // mutable, written once p
 | MediaPipe (webcam on desktop or phone) | Palm of the cross hand: position, size (depth) and tilt | Finger flexion of the cross hand (legs, head) | A second hand takes it | None | Fist of the cross hand; held 3 s it lets go of the puppet, see below | now |
 | Phone sensors + touch | DeviceOrientation (3DoF) | Open (not decided; e.g. touch sliders) | Open | Touch zones/sliders | Button | now |
 | Mouse/keyboard | Drag, wheel | Q/E legs, A/D hands, Y/X head, sliders | H, then pointer and wheel | Sliders | Click | now (dev) |
-| Remote phone (WebRTC) | Same as phone, streamed | Same | Same | Same | Same | later |
+| Another device in the room (WebRTC, section 3.3) | Any of the above, on that device; its whole `ControlInput` is sent to the host | Same | Same | Same | Same | now |
 | WebXR 3DoF / 6DoF | Controller orientation / controller or `XRHand` pose | Open (not decided) | Open | Trigger / finger joints | Grip / pinch | later |
 
 #### MediaPipe hands
@@ -209,6 +210,45 @@ Rockers are differences of two finger signals, so moving or turning the hand doe
    - grip while a prop is in reach creates a fixed joint
    - release removes the joint; the prop keeps the hand's velocity, which gives a throw
    - release at low speed is a drop
+   - a prop in one hand cannot be taken by another hand (several puppets)
+
+### 3.3 Several players (`src/net/`)
+
+Several devices play on one stage; every device shows the whole stage. All open the same `?room=<secret>`.
+
+**Why one device simulates.** Sending only the hands and simulating everywhere does not work: the physics is not the same on two devices (steps per frame, the step at which an input arrives), so puppets that touch each other or share props would drift apart. One device, the **host**, runs the physics for everyone.
+
+- **Host:** opened with `?room=<secret>&host` (without a room it makes one up and puts it in the URL). It is chosen by hand, not elected: it should be the strongest device, and there is exactly one per room. It simulates every puppet from its player's `ControlInput` and sends the poses of all bodies.
+- **Clients:** every other device. They send their `ControlInput` and show the poses they receive. Their puppets and props are kinematic bodies without joints or colliders, set from the network; bones, strings and follow spots work as for a simulated puppet, because they only read body poses.
+- **IWSDK has no networking** (its guide leaves realtime multiplayer to the app), so this is our own layer, next to Rapier.
+
+**Transport** (`transport.ts`): **Trystero** (pinned), Nostr strategy. A page cannot discover devices on a LAN, so peers need a place to meet: public Nostr relays carry the WebRTC handshake, encrypted with the room id as password; after that the devices talk directly. The rest of `src/net/` only knows a small `Transport` interface.
+
+- **Reliable messages** (JSON, Trystero action): who plays what, the stage set.
+- **Pose packets** (binary): over our own second data channel on the same connection, unordered and without retransmits (`negotiated`, so Trystero does not see it), because on a congested Wi-Fi one lost packet would otherwise hold back all later ones. Used only after the other side answered on it; until then, and with `&lossy=0`, pose packets use Trystero's ordered channel.
+- **Fallbacks** when a network blocks direct connections: TURN (`VITE_TURN_URLS`, `VITE_TURN_USERNAME`, `VITE_TURN_CREDENTIAL`), or a second `Transport` implementation: a WebSocket relay as a Vite plugin (not built).
+
+**Messages** (`protocol.ts`):
+
+| Message | Direction | Rate | Size | Channel |
+|---|---|---|---|---|
+| Input: the whole `ControlInput`, with a sequence number | client → host | 60 Hz | 60 B | pose |
+| Puppet: its slot, the host's physics step, the pose of every body (bars, then bones) | host → all | 30 Hz | 244 B per puppet | pose |
+| Props: the poses of the moving props | host → all | 30 Hz | about 35 B | pose |
+| Roster: peer → puppet slot | host → all | on change, repeated every 2 s | small | reliable |
+| Stage: the backdrop | whoever changed it → all; host → a device that joins | on change | small | reliable |
+| Bye | a closing page → all | once | small | reliable |
+
+- Poses are absolute (16-bit positions in 0.2 mm steps, 16-bit quaternions); an older or repeated packet is dropped. One packet per puppet keeps each far below the size at which packets are split.
+- Bodies are told apart by their place in a list that is the same on every device (the cross's bars in rig order, then the bones; the moving props in `PROPS` order), never by Rapier handle.
+
+**On a client** (`session.ts`): poses are shown 73 ms in the past, blended between two snapshots, never guessed ahead. From an input to the player's own cross moving on screen: about 100 ms plus the network's round trip (measured: 97 ms on one machine). After 0.5 s without poses the client shows "Bühne pausiert": the host's physics runs in its render loop and stops when its tab is hidden.
+
+**Puppets on the stage:** up to six, each in its own slot: a starting place, and its own collision group, so a puppet's parts ignore each other but bump into other puppets (`&contact=0` on the host: they pass through each other). A puppet is removed when its player leaves.
+
+**Not shared:** the main curtain and the signs. Every device clicks a sign itself, because that click is the user gesture its camera needs.
+
+**Later, over the same room:** an AI player (simplest as another `ControlInput` writer on the host, without the network); XR players (a controller or hand is another `ControlInput` source; showing where they stand needs a presence message); audience directions (dozens of phones cannot join a mesh in which everyone connects to everyone, so they need another path: the relay, or publish/subscribe on the meeting infrastructure); host election; a QR code for the join link.
 
 ---
 
@@ -244,6 +284,7 @@ src/
   components/  systems/  scenes/{title,main}.ts
   stage/{stage,lighting,spotlights,backdrops}.ts
   input/{control-input,mediapipe,hand-tracking,hand-overlay,hand-synthetic,hand-release,phone,mouse}.ts
+  net/{transport,protocol,session}.ts   # several players in a room (section 3.3)
   audio/{audio,zzfx}.ts
   ui/                   # overlay, release timer, light desk, styles, Geist fonts
 index.html  vite.config.ts  tsconfig.json  package.json
@@ -272,7 +313,8 @@ Dockerfile  docker-compose.yml  dev.sh  CLAUDE.md
 6. MediaPipe → `ControlInput` (desktop + phone camera).
 7. Phone sensors + touch control.
 8. Grab, throw, drop with props.
-9. Later: WebRTC remote (signaling service + QR pairing), WebXR, LiteRT-LM.
+9. Several players in a room (section 3.3): host and clients over Trystero.
+10. Later: WebXR, an AI player and audience directions over the room, LiteRT-LM.
 
 ## 7. Risks
 
@@ -281,6 +323,9 @@ Dockerfile  docker-compose.yml  dev.sh  CLAUDE.md
 - **Blender in Docker on Apple Silicon** runs under x86 emulation and is slow. A local `BLENDER_BIN` is the fallback.
 - **iOS permissions:** camera, DeviceOrientation and audio all need a user gesture, which the Play button provides.
 - **Self-signed certificates:** phones warn once. For the demo, use a real certificate on the server.
+- **Multiplayer on the venue's Wi-Fi:** not yet tested on real devices. Direct connections fail on networks with client isolation, or where devices only tell each other `.local` names that the network does not resolve (browsers hide the LAN address unless the page has camera permission; Quest ↔ laptop is the hard case). Then TURN or the WebSocket relay is needed (section 3.3). Whether a data channel survives entering VR on a Quest 2 is also untested.
+- **Multiplayer needs the internet** to meet (public Nostr relays), also on a LAN.
+- **The host carries everyone:** it simulates up to six ragdolls (measured: 1.7 ms per step at worst for two puppets in contact, on a desktop), and a hidden host tab stops every stage.
 
 ## 8. Verification
 
@@ -291,6 +336,11 @@ Dockerfile  docker-compose.yml  dev.sh  CLAUDE.md
   - the title letters sway and Play/Exit work
   - the puppet follows the mouse, then MediaPipe on desktop and phone
   - a prop can be grabbed, thrown and dropped
+- Several players: one tab with `?room=abc&host`, another device (or tab) with `?room=abc`:
+  - both show two puppets, and each player's input moves that puppet on both
+  - the HUD's `net` line shows the peers and how many use the lossy channel, `rtt` the round trip, `rate` the packets per second and the lost ones
+  - puppets pushed together collide; a backdrop chosen on one device appears on the other; closing a client removes its puppet; hiding the host's tab shows "Bühne pausiert" on the clients
+  - on real devices (iPhone, Quest 2, laptop) on the venue's Wi-Fi: not done yet
 - `docker compose run --rm convert`: all source types produce output, and a second run skips unchanged files.
 - `docker compose up`: `https://<LAN-IP>:5173` (or 4173 for preview) opens on a phone, and the camera and sensors work.
 
@@ -302,6 +352,7 @@ Add one line per change to a decision in this doc: date, what changed, why.
 
 | Date | Change | Reason |
 |---|---|---|
+| 2026-11-14 | Multiplayer (`src/net/`): rooms by `?room=<secret>`, Trystero (Nostr strategy) instead of a signaling service of our own; one host (`&host`) simulates all puppets and props and sends poses, clients send their `ControlInput`; poses over our own lossy data channel; `ControlInput` per puppet, puppets with slots, collision groups per puppet, removable; the backdrop is shared, the curtain is not; replaces the planned "WebRTC remote (display + phone via QR)" | Several players on one stage without running a server; puppets that touch and share props cannot be simulated on every device (the physics is not reproducible); IWSDK has no networking |
 | 2026-11-14 | Hand tracking merged: the two-hand `HandTracker` (cross, rockers, hand bar, overlay, record/replay) with letting go from main: the cross hand's fist grips, held 3 s it lets go; grip is the fist again, not the pinch | Both lines of work changed `src/input/mediapipe.ts`; the fist-as-grip was tuned on a recorded session, and a held fist keeps the let-go gesture |
 | 2026-11-14 | Physics: feet and neck fixed (no joint); cone limits on waist, head, shoulders and wrists; joint friction instead of heavy angular damping; solver 16 × 4 iterations; pulls change the rope's length limit | Strings stretched like rubber and the ragdoll folded and spun in ways a wooden marionette cannot; measured string stretch in play fell from 3 mm to 0.15 mm |
 | 2026-11-14 | MediaPipe: the player's view replaces face-to-face as the default (mirrored picture, hand towards the screen = upstage, cross turns and rolls as the hand is seen to; tipping the hand forward still bows the puppet); the hand is the cross (level palm = level cross); palm size, tilt and finger signals come from the palm's outline in the image instead of MediaPipe's 3D landmarks; a stand-in rest pose at once, the hand's own at its first pause; overlay movable | The user sits in front of the screen with the webcam facing them. A recorded real session showed the 3D landmarks shrinking and flipping when the hand leans, as it does when holding a cross: the puppet jumped downstage on every bow, the tilt moved in steps and the head bar rocked by itself |

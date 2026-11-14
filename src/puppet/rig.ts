@@ -1,7 +1,7 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import { Matrix4, PropertyBinding, Quaternion, Vector3, type Object3D } from "@iwsdk/core";
 import type { RockId, StringId } from "../input/control-input";
-import { GROUP, physics, renderPose, setJointFriction, setJointLimits } from "../systems/rapier-system";
+import { addHook, physics, puppetGroups, removeBody, renderPose, setJointFriction, setJointLimits } from "../systems/rapier-system";
 
 // Ragdoll from a rig description (marionette.ts): one capsule body per bone,
 // joints at the child bone heads, and every frame the skeleton's bones
@@ -110,12 +110,29 @@ export interface RigPart {
 export interface Rig {
   parts: RigPart[];
   byName: Map<string, RigPart>;
+  /** Every body once, in the rig's bone order: the same list on every device (src/net/) */
+  bodies: RAPIER.RigidBody[];
+  dispose(): void;
+}
+
+export interface RigOptions {
+  /**
+   * "replicated": the puppet is simulated on another device (src/net/). Its
+   * bodies are kinematic, without colliders and joints, and are set from the
+   * network; the bones follow them the same way.
+   */
+  mode?: "simulated" | "replicated";
+  /** Collision groups of this puppet (puppetGroups) */
+  groups?: ReturnType<typeof puppetGroups>;
 }
 
 const Y = new Vector3(0, 1, 0);
 
-export function buildRig(root: Object3D, description: RigDescription): Rig {
+export function buildRig(root: Object3D, description: RigDescription, options: RigOptions = {}): Rig {
   const pw = physics.world;
+  const simulated = options.mode !== "replicated";
+  const groups = options.groups ?? puppetGroups(0, false);
+  const bodies: RAPIER.RigidBody[] = [];
   root.updateMatrixWorld(true);
   const toWorld = (v: Vector3) => v.clone().applyMatrix4(root.matrixWorld);
   const sideways = new Vector3(1, 0, 0).transformDirection(root.matrixWorld);
@@ -137,7 +154,7 @@ export function buildRig(root: Object3D, description: RigDescription): Rig {
     const capsule = RAPIER.ColliderDesc.capsule(Math.max(0.0005, axis.length() / 2), spec.radius)
       .setRotation(new Quaternion().setFromUnitVectors(Y, axis.clone().normalize()))
       .setMass(spec.mass)
-      .setCollisionGroups(spec.group === "limb" ? GROUP.limb : GROUP.puppet);
+      .setCollisionGroups(spec.group === "limb" ? groups.limb : groups.body);
 
     // The nearest ancestor that has a body
     let parentName = spec.parent;
@@ -151,8 +168,8 @@ export function buildRig(root: Object3D, description: RigDescription): Rig {
       // to hold together, which a fixed joint between two light bodies would be
       body = parent.body;
       const origin = body.translation();
-      pw.createCollider(capsule.setTranslation(center.x - origin.x, center.y - origin.y, center.z - origin.z), body);
-    } else {
+      if (simulated) pw.createCollider(capsule.setTranslation(center.x - origin.x, center.y - origin.y, center.z - origin.z), body);
+    } else if (simulated) {
       body = pw.createRigidBody(
         RAPIER.RigidBodyDesc.dynamic()
           .setTranslation(center.x, center.y, center.z)
@@ -160,9 +177,13 @@ export function buildRig(root: Object3D, description: RigDescription): Rig {
           .setAngularDamping(ANGULAR_DAMPING),
       );
       pw.createCollider(capsule, body);
+      bodies.push(body);
+    } else {
+      body = pw.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(center.x, center.y, center.z));
+      bodies.push(body);
     }
 
-    if (parent && spec.joint && spec.joint.type !== "fixed") {
+    if (simulated && parent && spec.joint && spec.joint.type !== "fixed") {
       const p = parent.body.translation();
       const anchor1 = { x: head.x - p.x, y: head.y - p.y, z: head.z - p.z };
       const anchor2 = { x: head.x - center.x, y: head.y - center.y, z: head.z - center.z };
@@ -230,7 +251,7 @@ export function buildRig(root: Object3D, description: RigDescription): Rig {
   const boneQ = new Quaternion();
   const parentInverse = new Matrix4();
   const local = new Matrix4();
-  physics.afterSync.push(() => {
+  const removeHook = addHook(physics.afterSync, () => {
     for (const part of parts) {
       renderPose(part.body, p, q);
       p.add(offset.copy(part.restOffset).applyQuaternion(q));
@@ -243,5 +264,10 @@ export function buildRig(root: Object3D, description: RigDescription): Rig {
     }
   });
 
-  return { parts, byName };
+  const dispose = () => {
+    removeHook();
+    for (const body of bodies) removeBody(body); // with their colliders and joints
+    root.removeFromParent();
+  };
+  return { parts, byName, bodies, dispose };
 }

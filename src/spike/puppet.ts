@@ -2,8 +2,9 @@ import { Euler, Plane, Quaternion, Raycaster, Vector2, Vector3, type World } fro
 import { STRING_IDS, controlInput } from "../input/control-input";
 import { loadProps } from "../props/props";
 import { loadMarionette } from "../puppet/marionette";
-import { createPuppet } from "../puppet/puppet";
+import { spawnPuppet, type Puppet } from "../puppet/puppet";
 import type { RigController } from "../puppet/rig";
+import type { SessionOptions } from "../net/session";
 import { physics, stepPhysics } from "../systems/rapier-system";
 import { hudLines } from "./world";
 
@@ -18,18 +19,33 @@ import { hudLines } from "./world";
 const BAR_X = 0.55;
 const BAR_Y: [number, number] = [0.35, 1.0];
 
+/** With a room, the puppets come from the session: one per player (src/net/) */
+export type RoomOptions = Omit<SessionOptions, "hud">;
+
 /** Returns the puppet's cross (for input sources that need its geometry) */
-export async function setupPuppet(world: World) {
-  const { root, description } = await loadMarionette();
-  const puppet = createPuppet(world, root, description);
-  await loadProps(world);
+export async function setupPuppet(world: World, room?: RoomOptions) {
+  const { description } = await loadMarionette();
+  // The local player's puppet: there from the start alone, later in a room
+  // (on a client it comes when the host is there, and has no hands of its own)
+  let puppet: () => Puppet | undefined;
+  if (room) {
+    const session = await (await import("../net/session")).startSession(world, { ...room, hud: hudLines });
+    puppet = session.puppet;
+  } else {
+    const single = await spawnPuppet(world);
+    await loadProps(world);
+    puppet = () => single;
+  }
 
   physics.afterSync.push(() => {
-    for (const hand of puppet.grab.status()) hudLines[hand.side] = `${hand.touching} / ${hand.holding}`;
+    for (const hand of puppet()?.grab?.status() ?? []) hudLines[hand.side] = `${hand.touching} / ${hand.holding}`;
     hudLines.input = controlInput.source;
   });
   // ?debug: handles for headless tests (scripted shakes, string stretch, joint angles)
-  if (new URLSearchParams(location.search).has("debug")) Object.assign(globalThis, { controlInput, puppet, description, physics, stepPhysics });
+  if (new URLSearchParams(location.search).has("debug")) {
+    Object.assign(globalThis, { controlInput, description, physics, stepPhysics, world });
+    Object.defineProperty(globalThis, "puppet", { get: puppet, configurable: true });
+  }
   setupPointerAndPanel(world, description.controller);
   return { controller: description.controller };
 }

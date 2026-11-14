@@ -18,7 +18,7 @@ export type RockId = "hands" | "legs" | "head";
 /** Default rocking range, rad (a bar's own limit_deg in the rig JSON overrides it): further would flip strings over the bar */
 export const MAX_ROCK = 0.6;
 
-export const controlInput = {
+export const createControlInput = () => ({
   // The main bar of the cross; set to its rest position when the puppet is created (strings.ts)
   bar: { position: new Vector3(0, 0.62, 0), rotation: new Quaternion() },
   /**
@@ -41,4 +41,12 @@ export const controlInput = {
   pulls: Object.fromEntries(STRING_IDS.map((id) => [id, 0])) as Record<StringId, number>,
   grip: { left: false, right: false },
   source: "mouse" as ControlSource,
-};
+});
+export type ControlInput = ReturnType<typeof createControlInput>;
+
+/**
+ * The local player's input: what mouse, keys and hand tracking write to. With
+ * several players (src/net/), every other puppet has its own ControlInput,
+ * filled from the network.
+ */
+export const controlInput = createControlInput();

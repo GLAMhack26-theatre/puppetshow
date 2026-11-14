@@ -1,5 +1,5 @@
 import type { World } from "@iwsdk/core";
-import { type Backdrop, currentBackdrop, loadBackdrops, setBackdrop } from "../stage/backdrops";
+import { type Backdrop, currentBackdrop, loadBackdrops, onBackdropChange, setBackdrop } from "../stage/backdrops";
 import { curtainLift } from "../stage/main-curtain";
 import { createSlider, type Slider } from "./backdrop-slider";
 import "./impro.css";
@@ -62,8 +62,9 @@ function fillSlider(world: World, slider: Slider, backdrops: Backdrop[]) {
     // A second click on the chosen one takes it off the stage again
     const backdrop = backdrops[index];
     setBackdrop(world, currentBackdrop() === backdrop ? null : backdrop);
-    markSelected();
   });
+  // Also when another player chose it (src/net/)
+  onBackdropChange(markSelected);
   markSelected();
 }
 

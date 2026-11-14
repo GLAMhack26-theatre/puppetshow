@@ -1,5 +1,6 @@
 import { Mesh, Vector3 } from "@iwsdk/core";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { clone } from "three/examples/jsm/utils/SkeletonUtils.js";
 import marionetteUrl from "../../export/marionette.glb?url";
 import rigData from "../../export/marionette_rig.json";
 import { MAX_ROCK, type RockId, type StringId } from "../input/control-input";
@@ -50,7 +51,19 @@ function joint(data: BoneData["joint"]): RigJoint | undefined {
   return { type: "cone", swing: rad(data.swing ?? 180), twist: rad(data.twist ?? 180) };
 }
 
+/**
+ * A new marionette: its own skeleton, sharing geometry, materials and
+ * textures with every other one. The model (12.7 MB) is downloaded and parsed
+ * once, also when several players each bring a puppet.
+ */
 export async function loadMarionette() {
+  const model = await (template ??= loadTemplate());
+  return { root: clone(model.root), description: model.description };
+}
+
+let template: ReturnType<typeof loadTemplate> | undefined;
+
+async function loadTemplate() {
   const root = (await new GLTFLoader().loadAsync(marionetteUrl)).scene;
   root.traverse((o) => {
     // Dress_Sim is the welded mesh for a later cloth simulation; the skinned Dress is shown

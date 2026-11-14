@@ -1,7 +1,7 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import { Quaternion } from "@iwsdk/core";
-import { controlInput } from "../input/control-input";
-import { GROUP, physics, toQuat, toVec, worldPoint } from "../systems/rapier-system";
+import type { ControlInput } from "../input/control-input";
+import { addHook, physics, puppetGroups, toQuat, toVec, worldPoint } from "../systems/rapier-system";
 import type { Rig } from "./rig";
 
 // Both hands grab: a sensor at each hand's tip; grip while it touches a
@@ -15,29 +15,36 @@ export interface Grabbable {
   name: string;
   body: RAPIER.RigidBody;
   collider: RAPIER.Collider;
+  /** In a hand right now: with several puppets, a second hand must not take it too */
+  held?: boolean;
 }
 
 /** Props register here when they are loaded (props.ts). */
 export const grabbables: Grabbable[] = [];
 
-export function createGrab(rig: Rig) {
+export function createGrab(rig: Rig, input: ControlInput, groups = puppetGroups(0, false)) {
   const pw = physics.world;
   const hands = (["left", "right"] as const).flatMap((side) => {
     const part = rig.byName.get(side === "left" ? "hand.L" : "hand.R");
     if (!part) return [];
     const tip = { x: part.tail.x, y: part.tail.y, z: part.tail.z };
     const sensor = pw.createCollider(
-      RAPIER.ColliderDesc.ball(SENSOR_RADIUS).setTranslation(tip.x, tip.y, tip.z).setSensor(true).setCollisionGroups(GROUP.sensor),
+      RAPIER.ColliderDesc.ball(SENSOR_RADIUS).setTranslation(tip.x, tip.y, tip.z).setSensor(true).setCollisionGroups(groups.sensor),
       part.body,
     );
     return [{ side, body: part.body, tip, sensor, held: null as { joint: RAPIER.ImpulseJoint; item: Grabbable } | null, wasGripping: false }];
   });
 
-  physics.beforeStep.push(() => {
+  const release = (hand: (typeof hands)[number]) => {
+    if (!hand.held) return;
+    hand.held.item.held = false;
+    hand.held = null;
+  };
+  const removeHook = addHook(physics.beforeStep, () => {
     for (const hand of hands) {
-      const gripping = controlInput.grip[hand.side];
+      const gripping = input.grip[hand.side];
       if (gripping && !hand.wasGripping && !hand.held) {
-        const item = grabbables.find((g) => pw.intersectionPair(hand.sensor, g.collider));
+        const item = grabbables.find((g) => !g.held && pw.intersectionPair(hand.sensor, g.collider));
         if (item) {
           // Keep the current relative pose: frame1 = handRot⁻¹ · propRot
           const propRot = toQuat(item.body.rotation());
@@ -50,6 +57,7 @@ export function createGrab(rig: Rig) {
             true,
           );
           hand.held = { joint, item };
+          item.held = true;
         }
       } else if (!gripping && hand.held) {
         pw.removeImpulseJoint(hand.held.joint, true);
@@ -57,13 +65,18 @@ export function createGrab(rig: Rig) {
         const r = worldPoint(hand.body, hand.tip).sub(toVec(hand.body.translation()));
         const velocity = toVec(hand.body.angvel()).cross(r).add(toVec(hand.body.linvel())).multiplyScalar(THROW_BOOST);
         hand.held.item.body.setLinvel(velocity, true);
-        hand.held = null;
+        release(hand);
       }
       hand.wasGripping = gripping;
     }
   });
 
   return {
+    /** The puppet leaves: its hands let go (the joints go with the hands' bodies) */
+    dispose() {
+      removeHook();
+      hands.forEach(release);
+    },
     /** Per hand: the touched prop's name ("-" if none) and whether it is held */
     status: () =>
       hands.map((h) => ({

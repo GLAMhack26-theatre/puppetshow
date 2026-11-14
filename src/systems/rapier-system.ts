@@ -10,17 +10,34 @@ const MAX_STEPS = 4; // after a stalled frame, drop time instead of catching up 
 
 /** Collision groups: membership in the high 16 bits, filter in the low 16. */
 const group = (membership: number, filter: number) => (membership << 16) | filter;
+const STAGE = 0x0002;
+const PROP = 0x0004;
 export const GROUP = {
-  // Puppet parts never collide with each other (the joints hold them), only
-  // with the stage and props
-  puppet: group(0x0001, 0x0006),
-  // Hands and arms skip props: they would push a prop away before the hand
-  // sensor can grab it
-  limb: group(0x0001, 0x0002),
-  stage: group(0x0002, 0xffff),
-  prop: group(0x0004, 0xffff),
-  sensor: group(0x0001, 0x0004), // hand sensors only see props
+  stage: group(STAGE, 0xffff),
+  prop: group(PROP, 0xffff),
 };
+
+/** Puppets on the stage at once: each needs its own membership bit (see puppetGroups) */
+export const MAX_PUPPETS = 6;
+const PUPPET_BIT = 0x0010; // slot 0; the next slots take the bits above
+const ALL_PUPPETS = ((1 << MAX_PUPPETS) - 1) * PUPPET_BIT;
+
+/**
+ * Collision groups of the puppet in `slot`. Its parts never collide with each
+ * other (the joints hold them), only with the stage, props and, with
+ * `contact`, the other puppets: that is why every puppet has its own bit.
+ */
+export function puppetGroups(slot: number, contact: boolean) {
+  const self = PUPPET_BIT << slot;
+  const others = contact ? ALL_PUPPETS & ~self : 0;
+  return {
+    body: group(self, STAGE | PROP | others),
+    // Hands and arms skip props: they would push a prop away before the hand
+    // sensor can grab it
+    limb: group(self, STAGE | others),
+    sensor: group(self, PROP), // hand sensors only see props
+  };
+}
 
 export const physics = {
   world: null as unknown as RAPIER.World,
@@ -85,6 +102,24 @@ export function renderPoint(body: RAPIER.RigidBody, local: RAPIER.Vector, out = 
   return out.set(local.x, local.y, local.z).applyQuaternion(renderQ).add(renderP);
 }
 
+/**
+ * Registers a hook (physics.beforeStep, afterStep, afterSync) and returns the
+ * function that takes it out again: a puppet leaves with its player.
+ */
+export function addHook(list: Array<() => void>, fn: () => void) {
+  list.push(fn);
+  return () => {
+    const index = list.indexOf(fn);
+    if (index >= 0) list.splice(index, 1);
+  };
+}
+
+/** Removes a body with its colliders and joints, and its remembered pose. */
+export function removeBody(body: RAPIER.RigidBody) {
+  previous.delete(body.handle);
+  physics.world.removeRigidBody(body);
+}
+
 /** A mesh driven by a rigid body, through the ECS (PhysicsLink + RapierSystem). */
 export function addLinked(
   world: World,
@@ -95,8 +130,13 @@ export function addLinked(
   const body = physics.world.createRigidBody(bodyDesc);
   const collider = colliderDesc ? physics.world.createCollider(colliderDesc, body) : undefined;
   object.traverse((o) => (o.castShadow = true));
-  world.createTransformEntity(object).addComponent(PhysicsLink, { body: body.handle });
-  return { body, collider };
+  const entity = world.createTransformEntity(object).addComponent(PhysicsLink, { body: body.handle });
+  const remove = () => {
+    entity.destroy();
+    object.removeFromParent();
+    removeBody(body);
+  };
+  return { body, collider, remove };
 }
 
 // Rapier's JS classes only offer limits and motors on one-axis joints, but

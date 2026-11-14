@@ -1,0 +1,12 @@
+/* The room's status line (session.ts): top right under the test links, never in the way of a click */
+#net-status {
+  position: fixed;
+  top: 44px;
+  right: 8px;
+  max-width: 60vw;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: #0009;
+  text-align: right;
+  pointer-events: none;
+}

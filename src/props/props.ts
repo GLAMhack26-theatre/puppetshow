@@ -32,8 +32,21 @@ const PROPS: PropSpec[] = [
   { name: "Bett", url: bedUrl, scale: 1, at: [0.33, -0.15], body: "fixed", collider: "box" },
 ];
 
-export async function loadProps(world: World) {
+/**
+ * The moving props' bodies, in PROPS order whatever loads first: the same
+ * list on every device, which is how their poses are told apart on the
+ * network (src/net/).
+ */
+export const propBodies: RAPIER.RigidBody[] = [];
+const MOVING = PROPS.filter((spec) => spec.body === "dynamic");
+
+/**
+ * @param mode "replicated": another device simulates the props (src/net/);
+ * here they are kinematic and set from the network.
+ */
+export async function loadProps(world: World, mode: "simulated" | "replicated" = "simulated") {
   const loader = new GLTFLoader();
+  const simulated = mode === "simulated";
   await Promise.all(PROPS.map(async (spec) => {
     const model = (await loader.loadAsync(spec.url)).scene;
     model.scale.setScalar(spec.scale);
@@ -49,7 +62,10 @@ export async function loadProps(world: World) {
     holder.name = spec.name;
     holder.add(model);
 
-    const desc = spec.body === "fixed" ? RAPIER.RigidBodyDesc.fixed() : RAPIER.RigidBodyDesc.dynamic();
+    const desc =
+      spec.body === "fixed" ? RAPIER.RigidBodyDesc.fixed()
+      : simulated ? RAPIER.RigidBodyDesc.dynamic()
+      : RAPIER.RigidBodyDesc.kinematicPositionBased();
     desc.setTranslation(spec.at[0], size.y / 2, spec.at[1]);
     if (spec.grabbable) desc.setCcdEnabled(true); // thrown props must not tunnel through the floor
     const collider = (spec.collider === "ball"
@@ -60,6 +76,7 @@ export async function loadProps(world: World) {
       .setCollisionGroups(GROUP.prop);
     const linked = addLinked(world, holder, desc, collider);
     holder.traverse((o) => (o.receiveShadow = true));
-    if (spec.grabbable) grabbables.push({ name: spec.name, body: linked.body, collider: linked.collider! });
+    if (spec.body === "dynamic") propBodies[MOVING.indexOf(spec)] = linked.body;
+    if (spec.grabbable && simulated) grabbables.push({ name: spec.name, body: linked.body, collider: linked.collider! });
   }));
 }
