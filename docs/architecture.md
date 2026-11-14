@@ -15,7 +15,7 @@ The repo is empty apart from the README; this doc defines the setup and architec
 | Physics | **Rapier** (`@dimforge/rapier3d-compat`) as our own system; IWSDK physics stays off (`features.physics: false`) |
 | Gestures | MediaPipe (`@mediapipe/tasks-vision`: HandLandmarker + GestureRecognizer) |
 | Targets | Phone and desktop with a webcam first, the phone running everything itself. WebRTC remote and VR later |
-| Audio | three.js audio (Web Audio, positional) + **ZzFX** (~1 KB) for generated effects; music as `.m4a` |
+| Audio | Web Audio; background music and excerpts **streamed from archive.org** (netlabel releases, `assets/sounds/archive.json`); effects as CC0 samples + **ZzFX** (~1 KB); three.js positional audio for physics sounds. Off at every load, turned on by the speaker button |
 | Tooling | TypeScript + Vite + HTTPS + Docker Compose; the app is served directly by Vite (no Traefik or nginx for now) |
 | Assets | Sources committed in `/assets`, grouped by source; large files on external storage, downloaded by hand into `assets/external/` (git-ignored); the `convert` service turns both automatically into `/public` |
 | Fonts | Geist Serif (titles, 3D letters) + Geist Sans (UI), bundled from the `geist` npm package (OFL) |
@@ -89,6 +89,7 @@ If items 1 or 2 fail, the fallback is our own thin engine with the same split in
 **UI/UX, "game theatre" character**
 - Curtain transitions, ticket- or programme-style buttons, Geist Sans for the UI, Geist Serif for titles.
 - **Debug mode** (`src/ui/debug-mode.ts`): the test links top right, the debug panel at the bottom, and the HUD (landmarks, FPS, physics wireframe) are hidden by default; the camera preview with the hand landmarks always stays visible, as the player's feedback. Shift+D toggles them, `?debug` switches them on; the state is kept in `sessionStorage`, so it survives the test links' reloads within the tab.
+- **Sound** (`src/audio/`, `src/ui/sound-toggle.ts`): a round speaker button at the bottom right, below the camera preview, **off at every page load** (not remembered); its click creates the `AudioContext` (the user gesture iOS needs). Left of it, while music plays, the credit of the track (title · creator · licence), linked to its archive.org item, as the CC BY licences require. Background music is streamed from archive.org, never committed (the NC/ND licences allow playing, not cutting): `assets/sounds/archive.json` lists the playlists and which play uses which (`ragtime` by default and for the curtain, Froschkönig `frogs`, Hänsel `kaleidoscope`, Impro `percussion`); a sign click crossfades to the play's playlist. Its tracks and credits are written by `scripts/index-archive.mjs` from the archive.org metadata API; items without a licence are left out, and an empty playlist falls back to `ragtime`. The audio elements go through Web Audio (archive.org sends CORS headers), because iOS ignores `HTMLMediaElement.volume`.
 - An old-film vignette (darkened, softly burnt-in edges) lies over the 3D view in 2D, under the UI (buttons, HUD, impro menu and slider): a CSS overlay in `index.html` that lets all input through.
 - Without `?test` the page is the play itself: curtain, signs, then the marionette with hand control. Debug buttons top right (debug mode, Shift+D) pick `?test=…`; **impro** (`?test=nocurtain`) skips the main curtain and the signs and goes straight into impro mode; **puppet** is the marionette with the mouse only, **world** the stage alone with an orbit camera.
 
@@ -173,7 +174,7 @@ The converter writes to `/public` (git-ignored) plus `public/manifest.json`. It 
 assets/<source>/        # committed sources (models, sheets, audio, fonts), e.g. assets/digital.skkg.ch/
 assets/external/        # large files from external storage, downloaded by hand (git-ignored)
 blender/  export/  tools/   # marionette: Blender build scripts, exported .glb/.fbx + rig JSON, texture tools
-scripts/fetch-mediapipe-models.sh
+scripts/fetch-mediapipe-models.sh  scripts/index-archive.mjs
 converter/              # Dockerfile (Blender LTS + node + ffmpeg), export.py, convert.mjs
 certs/                  # git-ignored TLS cert/key for Vite (server.https / preview.https)
 src/
@@ -181,8 +182,8 @@ src/
   components/  systems/  scenes/{title,main}.ts
   stage/{stage,lighting,spotlights,backdrops}.ts
   input/{control-input,mediapipe,hand-release,phone,mouse}.ts
-  audio/{audio,zzfx}.ts
-  ui/                   # overlay, release timer, styles, Geist fonts
+  audio/{audio,ambient,zzfx}.ts   # graph + on/off, archive.org playlists
+  ui/                   # overlay, release timer, sound button, debug mode, styles, Geist fonts
 index.html  vite.config.ts  tsconfig.json  package.json
 Dockerfile  docker-compose.yml  dev.sh  CLAUDE.md
 ```
@@ -237,6 +238,7 @@ Add one line per change to a decision in this doc: date, what changed, why.
 
 | Date | Change | Reason |
 |---|---|---|
+| 2026-11-14 | Sound: background music streamed from archive.org netlabel releases (playlist per play, crossfade, credit shown while playing), indexed by `scripts/index-archive.mjs`; speaker button bottom right, off at every load; effects as CC0 samples + ZzFX instead of `.m4a` files | Era-fitting music without storing it; NC/ND licences allow streaming but not cutting; visitors choose whether there is sound |
 | 2026-11-14 | Debug mode: test links, debug panel and HUD hidden unless Shift+D (or `?debug`) is on, kept per tab in `sessionStorage` | The play should show no developer controls; the test links reload the page, so the state must survive them; the hand preview stays, players need it |
 | 2026-11-14 | Presentation mode (`src/presentation/`, Shift+P / button, ESC closes): 3 fullscreen slides (collection objects with turning models, marionette controls, outlook with QR code); one shared renderer for all slide views | Pitch inside the app, with the real models instead of screenshots |
 | 2026-11-14 | Impro menu: round icon buttons at the panels' edges (two per side, with empty Sound and Licht pages) and a golden X replace the text buttons at the bottom | Stage set-up tools sit where their panels open; room for sound and light later |

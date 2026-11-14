@@ -13,6 +13,8 @@ import { StageSystem, isCurtainOpen, loadStage, setCurtain } from "./stage/stage
 import { RapierSystem, initPhysics } from "./systems/rapier-system";
 import { FpsSystem } from "./spike/world";
 import { setupDebugMode } from "./ui/debug-mode";
+import { setAmbientPlay, setupAmbient } from "./audio/ambient";
+import { setupSoundToggle } from "./ui/sound-toggle";
 
 // Without ?test: the play itself. Curtain and signs, then the marionette,
 // led by the hand in front of the camera (the mouse until the camera runs).
@@ -30,6 +32,9 @@ const handControl = !["world", "puppet", "interop"].includes(test);
 // "presentation" button opens the presentation
 setupDebugMode();
 setupPresentation();
+// Sound: off until the speaker button (bottom right) is clicked
+setupAmbient();
+setupSoundToggle();
 
 await initPhysics();
 
@@ -56,11 +61,14 @@ world.registerSystem(SpotlightSystem);
 if (test === "nocurtain") {
   skipMainCurtain();
   startImpro(world);
+  setAmbientPlay("impro");
 } else {
   // First, so the curtain already covers the screen while the stage loads
   await loadMainCurtain(world);
   await loadSigns(world);
   onPlayChosen((play) => play === "impro" && startImpro(world));
+  // Each play has its own music (assets/sounds/archive.json), crossfaded while the curtain rises
+  onPlayChosen(setAmbientPlay);
   // The click on a sign also starts the camera: it is the user gesture
   // camera access needs. Registered here, before the stage and the puppet
   // load: the signs can be clicked long before those are ready.
