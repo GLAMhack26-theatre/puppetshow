@@ -8,7 +8,7 @@ import {
   TextureLoader,
   type World,
 } from "@iwsdk/core";
-import asphaltUrl from "../../assets/textures/clean_asphalt_diff_1k.jpg?url";
+import asphaltUrl from "../../assets/textures/herringbone_parquet_diff_1k.jpg?url";
 
 // The ground around the theatre: a large plane with a tiled asphalt texture,
 // fading out towards its edge so there is no visible horizon line.
