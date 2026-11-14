@@ -1,9 +1,12 @@
 import "./presentation.css";
 import { buildSlides, load3D } from "./slides";
+import { restartPralines } from "./pralines";
+import { playSlideMusic, stopSlideMusic } from "./slide-music";
+import { type Channel, isOn, setOn } from "../audio/audio";
 import { initViews, startViews, stopViews } from "./views";
 
 // Presentation mode for the pitch: Shift+P or the "presentation" button
-// opens 3 fullscreen slides over the running app; ESC (or Shift+P) closes
+// opens 4 fullscreen slides over the running app; ESC (or Shift+P) closes
 // them. Built lazily on the first open; the models load once.
 
 let overlay: HTMLElement | null = null;
@@ -47,10 +50,17 @@ function toggle() {
   else open();
 }
 
+/** The app's sound channels that were on when the presentation opened; turned on again when it closes */
+let silenced: Channel[] = [];
+
 function open() {
   if (!overlay) build();
+  // The app keeps running underneath: its music and effects must not play over the slides
+  silenced = (["music", "effects"] as const).filter(isOn);
+  for (const channel of silenced) setOn(channel, false);
   overlay!.hidden = false;
   show(current);
+  if (current === PRALINES) restartPralines(); // reopened on the box slide
   startViews();
   // A user gesture (key or click), as fullscreen requires; where it isn't
   // available (iPhone Safari) the overlay still covers the window
@@ -60,11 +70,22 @@ function open() {
 function close() {
   overlay!.hidden = true;
   stopViews();
+  stopSlideMusic();
+  for (const channel of silenced) setOn(channel, true);
+  silenced = [];
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
 }
 
+/** Index of the chocolate box slide: its camera flight starts again on every visit */
+const PRALINES = 3;
+
 function show(index: number) {
+  const previous = current;
   current = Math.max(0, Math.min(slides.length - 1, index));
+  if (current === PRALINES && previous !== PRALINES) restartPralines();
+  // The carousel music belongs to slide 4 only
+  if (current === PRALINES && !overlay!.hidden) playSlideMusic();
+  else stopSlideMusic();
   slides.forEach((slide, i) => (slide.hidden = i !== current));
   dots.forEach((dot, i) => dot.setAttribute("aria-current", String(i === current)));
 }
@@ -86,5 +107,5 @@ function build() {
   overlay.append(...slides, nav);
   document.body.append(overlay);
   initViews(overlay);
-  load3D(built.objectViews, built.marionetteView, built.handCanvas).catch((e) => console.warn("Presentation: loading failed", e));
+  load3D(built.objectViews, built.marionetteView, built.handCanvas, built.pralinesView).catch((e) => console.warn("Presentation: loading failed", e));
 }

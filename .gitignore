@@ -35,3 +35,6 @@ hand-recording-*.json
 *.swp
 *.blend1
 .DS_Store
+
+# Local planning notes
+.claude/plans/

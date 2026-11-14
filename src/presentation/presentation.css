@@ -159,6 +159,8 @@
 }
 .presentation .view.failed::after { content: "not available"; }
 .presentation .view.large { aspect-ratio: auto; height: 100%; max-height: 72vh; }
+/* Slide 4: the chocolate box fills everything below the title */
+.presentation .view.stage { flex: 1; min-height: 0; aspect-ratio: auto; border: 0; }
 
 /* Slide 2: the demo hand, bottom right of the puppet; above the 3D canvas */
 .presentation .hand-demo {
