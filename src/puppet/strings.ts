@@ -67,6 +67,7 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
   const wood = new MeshStandardMaterial({ color: 0xc8a171, roughness: 0.8 });
   const size = controller.stickSize;
   const bodies = new Map<string, { body: RAPIER.RigidBody; pivot: Vector3 }>();
+  const objects: Object3D[] = [];
   for (const bar of controller.bars) {
     const pivot = toWorld(bar.pivot);
     const group = new Group();
@@ -78,6 +79,7 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
       mesh.quaternion.setFromUnitVectors(UP, b.clone().sub(a).normalize());
       group.add(mesh);
     }
+    objects.push(group);
     const { body } = addLinked(world, group, RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(pivot.x, pivot.y, pivot.z));
     bodies.set(bar.name, { body, pivot });
   }
@@ -107,16 +109,22 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
     const line = new Line(geometry, material);
     line.frustumCulled = false;
     world.scene.add(line);
+    objects.push(line);
     strings.push({ id: s.id, part, bar: bar.body, anchor, barAnchor, rest, length: rest, joint, line });
   }
 
   const barPosition = main.pivot.clone();
+  const barTarget = new Vector3();
   const barMove = new Vector3();
+  // Extra height of the cross on top of the input: pulls the whole puppet up
+  // out of the way while a scene changes (puppet.ts)
+  let lift = 0;
   const rockQ = new Quaternion();
   const p = new Vector3();
   const q = new Quaternion();
   physics.beforeStep.push(() => {
-    barMove.subVectors(controlInput.bar.position, barPosition).clampLength(0, MAX_BAR_SPEED * STEP);
+    barTarget.copy(controlInput.bar.position).setY(controlInput.bar.position.y + lift);
+    barMove.subVectors(barTarget, barPosition).clampLength(0, MAX_BAR_SPEED * STEP);
     barPosition.add(barMove);
     main.body.setNextKinematicTranslation(barPosition);
     main.body.setNextKinematicRotation(controlInput.bar.rotation);
@@ -161,5 +169,17 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
     }
   });
 
-  return { bar: main.body, strings };
+  return {
+    bar: main.body,
+    strings,
+    /** The cross and the strings, for fading them with the puppet. */
+    objects,
+    materials: [wood, material],
+    /** Raises the cross by `y` metres above where the input holds it (0: back down). */
+    setLift(y: number) {
+      lift = y;
+    },
+    /** Whether the cross has arrived where input and lift want it. */
+    arrived: () => barPosition.distanceTo(barTarget) < 0.005,
+  };
 }

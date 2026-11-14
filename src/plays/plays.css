@@ -2,6 +2,11 @@
    and the golden scene buttons while a play runs (scene-buttons.ts). Same
    paper-theatre look as the impro panels: beige paper, gold, Georgia. */
 
+/* Hidden again after a return to the play choice (the classes set display) */
+.director[hidden] {
+  display: none;
+}
+
 /* ---- Director bar: a paper strip at the top, between the two panels ---- */
 .director {
   position: fixed;

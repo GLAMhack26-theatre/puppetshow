@@ -142,6 +142,11 @@ export function addFollowSpot(world: World, aim: (out: Vector3) => void) {
 
   return {
     light,
+    /** 0 dark … 1 full: the spot goes out with its puppet while a scene changes. */
+    dim(level: number) {
+      light.intensity = INTENSITY * level;
+      beam.visible = BEAM_OPACITY > 0 && level > 0.5;
+    },
     remove() {
       spots.splice(spots.indexOf(spot), 1);
       world.scene.remove(light, light.target, fixture);

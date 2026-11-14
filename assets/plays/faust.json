@@ -1,0 +1,35 @@
+{
+  "name": "Faust",
+  "scenes": [
+    {
+      "name": "Akt 1",
+      "backdrop": null,
+      "props": [
+        {
+          "id": "Becher_48468.21",
+          "x": 0.545,
+          "z": 0.739,
+          "yaw": 1.1
+        }
+      ]
+    },
+    {
+      "name": "Akt 2",
+      "backdrop": "Morschach",
+      "props": [
+        {
+          "id": "Hund_38872.24",
+          "x": 0.119,
+          "z": 0.381,
+          "yaw": 15.7
+        },
+        {
+          "id": "Katze_29404.202",
+          "x": 0.92,
+          "z": 0.443,
+          "yaw": 5.5
+        }
+      ]
+    }
+  ]
+}

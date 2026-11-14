@@ -493,3 +493,8 @@
     --dock-w: 46px;
   }
 }
+
+/* Hidden after a return to the play choice (impro.ts) */
+.impro-panel[hidden] {
+  display: none;
+}

@@ -1,0 +1,63 @@
+/* "Stücke" button bottom left (play-menu.ts): same round dark button with a
+   gold rim as the sound button (sound-toggle.css), on the opposite corner. */
+.play-menu {
+  position: fixed;
+  left: max(8px, env(safe-area-inset-left));
+  bottom: max(10px, env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  color: #f2d58c;
+  background: none;
+  border: 0;
+  font: italic 400 15px/1 Georgia, serif;
+  text-shadow: 0 1px 3px #000, 0 0 8px #000a;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s;
+  z-index: 22;
+}
+.play-menu.shown {
+  opacity: 1;
+  pointer-events: auto;
+}
+.play-menu-icon {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  padding: 7px;
+  box-sizing: border-box;
+  background: radial-gradient(circle at 35% 30%, #4a2e22, #1a0f0b);
+  border: 1.5px solid #d8aa4a;
+  border-radius: 50%;
+  box-shadow: 0 4px 10px #0008;
+  transition: transform 0.15s;
+}
+.play-menu:hover .play-menu-icon {
+  transform: scale(1.08);
+}
+.play-menu:focus-visible {
+  outline: 2px solid #f3e6c8;
+  outline-offset: 3px;
+  border-radius: 22px;
+}
+.play-menu svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.play-menu path {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.play-menu .rod { stroke: #d8aa4a; }
+.play-menu .drape { stroke: #f3e9dccc; }
+.play-menu .tie { stroke: #d8aa4a; }
+/* The debug panel takes the bottom strip while debug mode is on */
+body.debug .play-menu {
+  bottom: 64px;
+}

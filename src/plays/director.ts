@@ -15,7 +15,26 @@ import "./plays.css";
 // "Laden" (or dropping a .json onto the bar) brings such a file back in,
 // replacing the play of the same id until it is saved.
 
+let director: ReturnType<typeof buildDirector> | null = null;
+
+/**
+ * Shows the director bar (built on the first call, shown again after a
+ * return to the play choice, with the list of plays read anew). Returns
+ * `stop` to hide it, and `canLeave`, which asks before unsaved changes are
+ * left behind.
+ */
 export function startDirector(world: World) {
+  if (!director) director = buildDirector(world);
+  const shown = director;
+  shown.bar.hidden = false;
+  void shown.reload();
+  return {
+    stop: () => (shown.bar.hidden = true),
+    canLeave: () => !shown.isDirty() || confirm("Das Stück hat ungespeicherte Änderungen. Trotzdem zur Stückwahl?"),
+  };
+}
+
+function buildDirector(world: World) {
   const bar = element("section", "director");
   bar.setAttribute("aria-label", "Regie");
   const playSelect = element("select", "director-play");
@@ -200,11 +219,15 @@ export function startDirector(world: World) {
   });
 
   render();
-  void (async () => {
+  // Plays read from the files; the chosen one stays as it is (it may hold unsaved changes)
+  const reload = async () => {
     const ids = await listPlays();
-    plays = (await Promise.all(ids.map((id) => loadPlay(id).catch(() => null)))).filter((p): p is Play => !!p);
+    const loaded = (await Promise.all(ids.map((id) => loadPlay(id).catch(() => null)))).filter((p): p is Play => !!p);
+    plays = loaded.map((p) => (p.id === play?.id ? play : p));
+    if (play && !plays.includes(play)) plays.push(play);
     render();
-  })();
+  };
+  return { bar, reload, isDirty: () => dirty };
 }
 
 /** A small paper dialog asking for a name; null if cancelled. */

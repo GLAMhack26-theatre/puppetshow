@@ -31,7 +31,38 @@ import "./impro.css";
 // The last props card is a drop field for IIIF 3D manifests (props/iiif.ts):
 // the object becomes a new card and lands on the stage at once.
 
+let sides: ReturnType<typeof createSide>[] | null = null;
+
+/**
+ * Shows the impro panels (built on the first call, shown again after a
+ * return to the play choice). Returns the function that hides them again.
+ */
 export function startImpro(world: World) {
+  if (!sides) sides = buildImpro(world);
+  const shown = sides;
+  for (const side of shown) {
+    side.panel.hidden = false;
+    side.refresh();
+  }
+  // The buttons appear once the main curtain is out of view
+  let stopped = false;
+  const waitForCurtain = () => {
+    if (stopped) return;
+    if (curtainLift() >= 1) for (const side of shown) side.panel.classList.add("ready");
+    else requestAnimationFrame(waitForCurtain);
+  };
+  waitForCurtain();
+  return () => {
+    stopped = true;
+    for (const side of shown) {
+      side.close();
+      side.panel.classList.remove("ready");
+      side.panel.hidden = true;
+    }
+  };
+}
+
+function buildImpro(world: World) {
   const backdrops = loadBackdrops(); // starts loading while the curtain goes up
   const requisits = loadRequisits();
   enableRequisitDrag(world);
@@ -56,13 +87,7 @@ export function startImpro(world: World) {
   });
   props.loaded();
   fillRequisits(world, props.slider, requisits);
-
-  // The buttons appear once the main curtain is out of view
-  const waitForCurtain = () => {
-    if (curtainLift() >= 1) for (const side of [left, right]) side.panel.classList.add("ready");
-    else requestAnimationFrame(waitForCurtain);
-  };
-  waitForCurtain();
+  return [left, right];
 }
 
 /** Room between the round buttons and the sky's scalloped edge, px. */
@@ -145,6 +170,8 @@ function createSide(side: "left" | "right", pageSpecs: { title: string; icon: st
     /** Called when this side opens (startImpro closes the other side then). */
     onOpen: () => {},
     close: () => current && open(null),
+    /** Lays the dock out again (shown again after being hidden: nothing was measured meanwhile). */
+    refresh: () => open(current),
   };
   for (const p of pages)
     p.button.addEventListener("click", () => {

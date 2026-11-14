@@ -345,6 +345,11 @@ export async function arrangeRequisits(world: World, spots: FloorSpot[]) {
   );
 }
 
+/** True once no prop is being lowered or lifted (a scene preset has arrived). */
+export function requisitsSettled() {
+  return [...placed.values()].every((p) => p.mode !== "lower" && p.mode !== "lift");
+}
+
 /** Lowers the prop onto the stage: onto a preset spot, or else onto a free one. */
 async function placeRequisit(world: World, requisit: Requisit, at?: FloorSpot) {
   const model = await loadModel(requisit);
@@ -505,11 +510,16 @@ export class RequisitSystem extends createSystem({}) {
   }
 }
 
+let dragEnabled = false;
+
 /**
  * Drag placed props across the stage floor. Listens in the capture phase on
  * the canvas' container, so a press on a prop never reaches the orbit camera.
  */
 export function enableRequisitDrag(world: World) {
+  // Impro mode can start again after a return to the play choice
+  if (dragEnabled) return;
+  dragEnabled = true;
   const container = world.renderer.domElement.parentElement!;
   const raycaster = new Raycaster();
   const pointer = new Vector2();

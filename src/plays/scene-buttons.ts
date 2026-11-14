@@ -16,15 +16,26 @@ const CHANGE_PAUSE = 0.6;
 /**
  * Starts the play `id` if assets/plays/<id>.json has scenes; plays without
  * a file run as before (no buttons). `stageReady` resolves once the stage is
- * loaded (props are placed relative to its floor).
+ * loaded (props are placed relative to its floor). Returns the function that
+ * ends it (back to the play choice): the buttons go, the set stays to be
+ * cleared by the caller.
  */
-export async function startPlay(world: World, id: string, stageReady: Promise<unknown>) {
-  const play = await loadPlay(id).catch(() => null);
-  if (!play?.scenes.length) return;
-  await stageReady;
-  await until(() => curtainLift() >= 1);
-  await applyScene(world, play.scenes[0]);
-  showSceneButtons(world, play);
+export function startPlay(world: World, id: string, stageReady: Promise<unknown>) {
+  let stopped = false;
+  let nav: HTMLElement | null = null;
+  void (async () => {
+    const play = await loadPlay(id).catch(() => null);
+    if (!play?.scenes.length) return;
+    await stageReady;
+    await until(() => stopped || curtainLift() >= 1);
+    if (stopped) return;
+    await applyScene(world, play.scenes[0]);
+    if (!stopped) nav = showSceneButtons(world, play);
+  })();
+  return () => {
+    stopped = true;
+    nav?.remove();
+  };
 }
 
 function showSceneButtons(world: World, play: Play) {
@@ -74,6 +85,7 @@ function showSceneButtons(world: World, play: Play) {
   mark();
   document.body.append(nav);
   requestAnimationFrame(() => nav.classList.add("ready"));
+  return nav;
 }
 
 function until(done: () => boolean) {

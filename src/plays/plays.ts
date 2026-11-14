@@ -1,5 +1,6 @@
 import type { World } from "@iwsdk/core";
-import { arrangeRequisits, type FloorSpot, placedRequisits } from "../props/requisits";
+import { hidePuppets, showPuppets } from "../puppet/puppet";
+import { arrangeRequisits, type FloorSpot, placedRequisits, requisitsSettled } from "../props/requisits";
 import { currentBackdrop, loadBackdrops, setBackdrop } from "../stage/backdrops";
 
 // Plays ("Stücke") and their scenes: stage presets built in impro mode
@@ -126,14 +127,35 @@ export function onSceneApplied(listener: () => void) {
   listeners.push(listener);
 }
 
-/** Puts the scene on the stage: backdrop and props, each with its usual animation. */
+/**
+ * Puts the scene on the stage: backdrop and props, each with its usual
+ * animation. The puppet steps aside meanwhile (faded out and pulled up), so
+ * the props come down onto a free stage, and comes back once all have landed.
+ */
 export async function applyScene(world: World, scene: Scene) {
+  const run = ++applying;
+  const hidden = hidePuppets();
   const backdrops = await loadBackdrops();
   const backdrop = scene.backdrop ? backdrops.find((b) => b.id === scene.backdrop) : null;
   if (scene.backdrop && !backdrop) console.warn(`Scene preset: unknown backdrop ${scene.backdrop}`);
   setBackdrop(world, backdrop ?? null);
+  // The props only start down once the puppet is out of their way
+  await hidden;
+  if (run !== applying) return; // another scene was clicked meanwhile
   const arranging = arrangeRequisits(world, scene.props);
   for (const listener of listeners) listener();
   await arranging;
   for (const listener of listeners) listener(); // props that had to load first
+  await until(requisitsSettled);
+  // A scene clicked meanwhile brings the puppet back itself
+  if (run === applying) await showPuppets();
+}
+
+let applying = 0;
+
+function until(done: () => boolean) {
+  return new Promise<void>((resolve) => {
+    const check = () => (done() ? resolve() : requestAnimationFrame(check));
+    check();
+  });
 }

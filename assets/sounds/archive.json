@@ -1,0 +1,355 @@
+{
+  "plays": {
+    "default": "ragtime",
+    "froschkoenig": "frogs",
+    "haensel": "percussion",
+    "impro": "percussion"
+  },
+  "playlists": {
+    "ragtime": {
+      "label": "Frog Legs: Ragtime Era Favorites",
+      "items": [
+        "kzz003"
+      ],
+      "shuffle": true,
+      "tracks": [
+        {
+          "item": "kzz003",
+          "file": "01_-_james_scott_-_frog_legs_rag.mp3",
+          "title": "Frog Legs Rag (1906, piano roll)",
+          "creator": "James Scott",
+          "licence": "CC BY-NC-SA 3.0 US",
+          "url": "https://archive.org/details/kzz003"
+        },
+        {
+          "item": "kzz003",
+          "file": "02_-_percy_wenrich_-_the_smiler.mp3",
+          "title": "The Smiler (1907, Zonophone Concert Band)",
+          "creator": "Percy Wenrich",
+          "licence": "CC BY-NC-SA 3.0 US",
+          "url": "https://archive.org/details/kzz003"
+        },
+        {
+          "item": "kzz003",
+          "file": "03_-_scott_joplin_-_maple_leaf_rag.mp3",
+          "title": "Maple Leaf Rag (1899, Zachary Brewster-Geisz)",
+          "creator": "Scott Joplin",
+          "licence": "CC BY-NC-SA 3.0 US",
+          "url": "https://archive.org/details/kzz003"
+        },
+        {
+          "item": "kzz003",
+          "file": "04_-_scott_joplin_-_the_entertainer.mp3",
+          "title": "The Entertainer (1902, piano roll)",
+          "creator": "Scott Joplin",
+          "licence": "CC BY-NC-SA 3.0 US",
+          "url": "https://archive.org/details/kzz003"
+        },
+        {
+          "item": "kzz003",
+          "file": "05_-_gilbert_and_friedland_-_singapore.mp3",
+          "title": "Singapore (1918, Rector Novelty Orchestra)",
+          "creator": "Gilbert and Friedland",
+          "licence": "CC BY-NC-SA 3.0 US",
+          "url": "https://archive.org/details/kzz003"
+        },
+        {
+          "item": "kzz003",
+          "file": "06_-_moore_and_gardner_-_chinese_blues.mp3",
+          "title": "Chinese Blues (1916, George Gershwin piano roll)",
+          "creator": "Moore and Gardner",
+          "licence": "CC BY-NC-SA 3.0 US",
+          "url": "https://archive.org/details/kzz003"
+        },
+        {
+          "item": "kzz003",
+          "file": "07_-_joe_rosey_-_out_of_the_east.mp3",
+          "title": "Out of the East (1918, Rector Novelty Orchestra)",
+          "creator": "Joe Rosey",
+          "licence": "CC BY-NC-SA 3.0 US",
+          "url": "https://archive.org/details/kzz003"
+        },
+        {
+          "item": "kzz003",
+          "file": "08-_scott_joplin_-_pine-apple-rag.mp3",
+          "title": "Pine Apple Rag",
+          "creator": "Scott Joplin",
+          "licence": "CC BY-NC-SA 3.0 US",
+          "url": "https://archive.org/details/kzz003"
+        },
+        {
+          "item": "kzz003",
+          "file": "09_-_scott_joplin_-_original_rags.mp3",
+          "title": "Original Rags (1900, piano roll)",
+          "creator": "Scott Joplin",
+          "licence": "CC BY-NC-SA 3.0 US",
+          "url": "https://archive.org/details/kzz003"
+        },
+        {
+          "item": "kzz003",
+          "file": "10_-_john_h._glover-kind_-_i_do_like_to_be_beside_the_seaside.mp3",
+          "title": "I Do Like To Be Beside The Seaside (1909, piano roll)",
+          "creator": "John H. Glover-Kind",
+          "licence": "CC BY-NC-SA 3.0 US",
+          "url": "https://archive.org/details/kzz003"
+        }
+      ]
+    },
+    "percussion": {
+      "label": "Um Perto II / Cosmic Partchworks",
+      "items": [
+        "ca364_hls"
+      ],
+      "shuffle": true,
+      "tracks": [
+        {
+          "item": "ca364_hls",
+          "file": "01_Apertura.mp3",
+          "title": "Apertura",
+          "creator": "Humberto Luis Schenone",
+          "licence": "CC BY-NC-ND 3.0",
+          "url": "https://archive.org/details/ca364_hls"
+        },
+        {
+          "item": "ca364_hls",
+          "file": "02_Panamericana.mp3",
+          "title": "Panamericana",
+          "creator": "Humberto Luis Schenone",
+          "licence": "CC BY-NC-ND 3.0",
+          "url": "https://archive.org/details/ca364_hls"
+        },
+        {
+          "item": "ca364_hls",
+          "file": "03_The_Ones_Who_Do_and_the_Ones_Who_Speak_About_1.mp3",
+          "title": "The Ones Who Do & the Ones Who Speak About (patio recording)",
+          "creator": "Humberto Luis Schenone",
+          "licence": "CC BY-NC-ND 3.0",
+          "url": "https://archive.org/details/ca364_hls"
+        },
+        {
+          "item": "ca364_hls",
+          "file": "04_Walk_towards_the_Sunrise.mp3",
+          "title": "Walk towards the Sunrise",
+          "creator": "Humberto Luis Schenone",
+          "licence": "CC BY-NC-ND 3.0",
+          "url": "https://archive.org/details/ca364_hls"
+        },
+        {
+          "item": "ca364_hls",
+          "file": "05_Noon_at_the_Seaside.mp3",
+          "title": "Noon at the Seaside",
+          "creator": "Humberto Luis Schenone",
+          "licence": "CC BY-NC-ND 3.0",
+          "url": "https://archive.org/details/ca364_hls"
+        },
+        {
+          "item": "ca364_hls",
+          "file": "06_Gudumbertos_Speech.mp3",
+          "title": "Gudumberto’s Speech",
+          "creator": "Humberto Luis Schenone",
+          "licence": "CC BY-NC-ND 3.0",
+          "url": "https://archive.org/details/ca364_hls"
+        },
+        {
+          "item": "ca364_hls",
+          "file": "07_Cafe_and_Galleta_on_the_bus.mp3",
+          "title": "Cafe y Galleta on the Bus",
+          "creator": "Humberto Luis Schenone",
+          "licence": "CC BY-NC-ND 3.0",
+          "url": "https://archive.org/details/ca364_hls"
+        },
+        {
+          "item": "ca364_hls",
+          "file": "08_Comparsoide.mp3",
+          "title": "Comparsoide",
+          "creator": "Humberto Luis Schenone",
+          "licence": "CC BY-NC-ND 3.0",
+          "url": "https://archive.org/details/ca364_hls"
+        },
+        {
+          "item": "ca364_hls",
+          "file": "09_Medianoche_en_el_monte.mp3",
+          "title": "Medianoche en el Monte",
+          "creator": "Humberto Luis Schenone",
+          "licence": "CC BY-NC-ND 3.0",
+          "url": "https://archive.org/details/ca364_hls"
+        },
+        {
+          "item": "ca364_hls",
+          "file": "10_Volando_sobre_las_cumbres.mp3",
+          "title": "Volando Sobre Las Cumbres (new double kalimba first intro)",
+          "creator": "Humberto Luis Schenone",
+          "licence": "CC BY-NC-ND 3.0",
+          "url": "https://archive.org/details/ca364_hls"
+        },
+        {
+          "item": "ca364_hls",
+          "file": "11_Asi_Metrico.mp3",
+          "title": "Así Metrico",
+          "creator": "Humberto Luis Schenone",
+          "licence": "CC BY-NC-ND 3.0",
+          "url": "https://archive.org/details/ca364_hls"
+        },
+        {
+          "item": "ca364_hls",
+          "file": "12_cantu_reo_a_laTormenta_que_llega.mp3",
+          "title": "Cantu Reo a La Tormenta Que Llega",
+          "creator": "Humberto Luis Schenone",
+          "licence": "CC BY-NC-ND 3.0",
+          "url": "https://archive.org/details/ca364_hls"
+        },
+        {
+          "item": "ca364_hls",
+          "file": "13_Memory_of_toys.mp3",
+          "title": "Memoria de Juguete",
+          "creator": "Humberto Luis Schenone",
+          "licence": "CC BY-NC-ND 3.0",
+          "url": "https://archive.org/details/ca364_hls"
+        },
+        {
+          "item": "ca364_hls",
+          "file": "14_Sunday_Solo.mp3",
+          "title": "Sunday Solo",
+          "creator": "Humberto Luis Schenone",
+          "licence": "CC BY-NC-ND 3.0",
+          "url": "https://archive.org/details/ca364_hls"
+        },
+        {
+          "item": "ca364_hls",
+          "file": "15_Sunday_Solo2.mp3",
+          "title": "Sunday Solo II",
+          "creator": "Humberto Luis Schenone",
+          "licence": "CC BY-NC-ND 3.0",
+          "url": "https://archive.org/details/ca364_hls"
+        },
+        {
+          "item": "ca364_hls",
+          "file": "16_Fofoca_em_Familia.mp3",
+          "title": "Fofoca em Familia",
+          "creator": "Humberto Luis Schenone",
+          "licence": "CC BY-NC-ND 3.0",
+          "url": "https://archive.org/details/ca364_hls"
+        },
+        {
+          "item": "ca364_hls",
+          "file": "17_Impasses.mp3",
+          "title": "Impasses",
+          "creator": "Humberto Luis Schenone",
+          "licence": "CC BY-NC-ND 3.0",
+          "url": "https://archive.org/details/ca364_hls"
+        },
+        {
+          "item": "ca364_hls",
+          "file": "18_Walk_Towards_The_Sunrise_II.mp3",
+          "title": "Walk towards the Sunrise II (Calling Calling)",
+          "creator": "Humberto Luis Schenone",
+          "licence": "CC BY-NC-ND 3.0",
+          "url": "https://archive.org/details/ca364_hls"
+        }
+      ]
+    },
+    "frogs": {
+      "label": "Bigfrogs",
+      "items": [
+        "Bigfrogs"
+      ],
+      "shuffle": false,
+      "tracks": [
+        {
+          "item": "Bigfrogs",
+          "file": "BigfrogsHiFi.mp3",
+          "title": "Bigfrogs",
+          "creator": "Asaguare",
+          "licence": "CC BY-NC-SA 3.0",
+          "url": "https://archive.org/details/Bigfrogs"
+        }
+      ]
+    }
+  },
+  "excerpts": [
+    {
+      "id": "drums",
+      "label": "Drums",
+      "item": "OdaKlonkEinHausDasKlingt",
+      "start": 9,
+      "end": 48,
+      "file": "OdaKlonk_Ein Haus das klingt.mp3",
+      "title": "Ein Haus das klingt",
+      "creator": "Oda Klonk",
+      "licence": "CC BY-NC-ND 3.0",
+      "url": "https://archive.org/details/OdaKlonkEinHausDasKlingt"
+    },
+    {
+      "id": "announcement",
+      "label": "Announcement",
+      "item": "OdaKlonkEinHausDasKlingt",
+      "start": 46,
+      "end": 51,
+      "file": "OdaKlonk_Ein Haus das klingt.mp3",
+      "title": "Ein Haus das klingt",
+      "creator": "Oda Klonk",
+      "licence": "CC BY-NC-ND 3.0",
+      "url": "https://archive.org/details/OdaKlonkEinHausDasKlingt"
+    },
+    {
+      "id": "children",
+      "label": "Children's voices",
+      "item": "OdaKlonkEinHausDasKlingt",
+      "start": 390,
+      "end": 438,
+      "file": "OdaKlonk_Ein Haus das klingt.mp3",
+      "title": "Ein Haus das klingt",
+      "creator": "Oda Klonk",
+      "licence": "CC BY-NC-ND 3.0",
+      "url": "https://archive.org/details/OdaKlonkEinHausDasKlingt"
+    },
+    {
+      "id": "harp",
+      "label": "Harp",
+      "item": "OdaKlonkEinHausDasKlingt",
+      "start": 466,
+      "end": 488,
+      "file": "OdaKlonk_Ein Haus das klingt.mp3",
+      "title": "Ein Haus das klingt",
+      "creator": "Oda Klonk",
+      "licence": "CC BY-NC-ND 3.0",
+      "url": "https://archive.org/details/OdaKlonkEinHausDasKlingt"
+    },
+    {
+      "id": "classical",
+      "label": "Classical music",
+      "item": "OdaKlonkEinHausDasKlingt",
+      "start": 992,
+      "end": 1067,
+      "file": "OdaKlonk_Ein Haus das klingt.mp3",
+      "title": "Ein Haus das klingt",
+      "creator": "Oda Klonk",
+      "licence": "CC BY-NC-ND 3.0",
+      "url": "https://archive.org/details/OdaKlonkEinHausDasKlingt"
+    },
+    {
+      "id": "drum-kit",
+      "label": "Drum kit",
+      "item": "OdaKlonkEinHausDasKlingt",
+      "start": 1068,
+      "end": 1093,
+      "file": "OdaKlonk_Ein Haus das klingt.mp3",
+      "title": "Ein Haus das klingt",
+      "creator": "Oda Klonk",
+      "licence": "CC BY-NC-ND 3.0",
+      "url": "https://archive.org/details/OdaKlonkEinHausDasKlingt"
+    },
+    {
+      "id": "xylophone",
+      "label": "Xylophone and tin drum",
+      "item": "OdaKlonkEinHausDasKlingt",
+      "start": 1273,
+      "end": 1373,
+      "file": "OdaKlonk_Ein Haus das klingt.mp3",
+      "title": "Ein Haus das klingt",
+      "creator": "Oda Klonk",
+      "licence": "CC BY-NC-ND 3.0",
+      "url": "https://archive.org/details/OdaKlonkEinHausDasKlingt"
+    }
+  ]
+}

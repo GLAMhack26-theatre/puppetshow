@@ -13,7 +13,8 @@ import curtainUrl from "../../assets/stage_parts/Main_Curtain.glb?url";
 // The main curtain from assets/stage_parts/Main_Curtain.glb: a 1×1 quad
 // with a painted curtain. At start it hangs right in front of the camera
 // and covers the whole screen; a click on one of the signs in front of it
-// (signs.ts) raises it out of view.
+// (signs.ts) raises it out of view; the play menu (play-menu.ts) lets it
+// down again for a new choice.
 //
 // It follows the camera every frame (instead of being placed in the stage),
 // so it covers the screen at every aspect ratio, also on phones in portrait
@@ -101,6 +102,22 @@ export function raiseMainCurtain() {
 }
 
 /**
+ * Lets the curtain down again (back to the play choice, play-menu.ts);
+ * resolves once it covers the screen. Needs loadMainCurtain() first.
+ */
+export function lowerMainCurtain() {
+  curtain.raising = false;
+  return new Promise<void>((resolve) => {
+    const check = () => (curtain.raising || curtain.raise <= 0 ? resolve() : requestAnimationFrame(check));
+    check();
+  });
+}
+
+export function isMainCurtainLoaded() {
+  return !!curtain.mesh;
+}
+
+/**
  * Starts with the curtain already out of view (?test=nocurtain, for faster
  * development): nothing is loaded, everything waiting for it goes ahead.
  */
@@ -150,9 +167,11 @@ function place(world: World) {
 
 export class MainCurtainSystem extends createSystem({}) {
   update(delta: number) {
-    if (!curtain.mesh || curtain.raise >= 1) return;
+    if (!curtain.mesh || (curtain.raising && curtain.raise >= 1)) return;
     wobbleTime.value += delta;
-    if (curtain.raising) curtain.raise = Math.min(1, curtain.raise + delta / RAISE_SECONDS);
+    curtain.raise = curtain.raising
+      ? Math.min(1, curtain.raise + delta / RAISE_SECONDS)
+      : Math.max(0, curtain.raise - delta / RAISE_SECONDS);
     place(this.world);
   }
 }
