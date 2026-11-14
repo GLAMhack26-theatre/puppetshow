@@ -124,6 +124,8 @@ export function isMainCurtainLoaded() {
 export function skipMainCurtain() {
   curtain.raising = true;
   curtain.raise = 1;
+  // Already loaded and hanging (entering WebXR from the play choice): gone at once
+  if (curtain.mesh) curtain.mesh.visible = false;
 }
 
 export function isMainCurtainDown() {

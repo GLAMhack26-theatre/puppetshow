@@ -28,7 +28,7 @@ export async function setupPuppet(world: World) {
     hudLines.input = controlInput.source;
   });
   // ?debug: handles for headless tests (scripted shakes, string stretch, joint angles)
-  if (new URLSearchParams(location.search).has("debug")) Object.assign(globalThis, { controlInput, puppet, description, physics, stepPhysics });
+  if (new URLSearchParams(location.search).has("debug")) Object.assign(globalThis, { world, controlInput, puppet, description, physics, stepPhysics });
   setupPointerAndPanel(world, description.controller);
   return { controller: description.controller };
 }

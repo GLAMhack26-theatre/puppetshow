@@ -24,7 +24,7 @@ const ANGULAR_DAMPING = 1; // air drag only: the joints have their own limits an
  * arm swings for 1.7 s instead of 2.6 s, the head wobbles for 1.9 s instead
  * of 4.7 s; at 40 arms and legs stop within a second.
  */
-const JOINT_FRICTION = 10;
+export const JOINT_FRICTION = 10;
 
 export type RigJoint =
   // Swing: how far the bone may lean off its rest direction; twist: turning about its own axis. Rad, ± from the rest pose

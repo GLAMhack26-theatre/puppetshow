@@ -21,6 +21,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "iwer": "^2.8.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.8"
   }

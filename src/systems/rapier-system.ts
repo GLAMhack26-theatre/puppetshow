@@ -119,6 +119,11 @@ export function setJointFriction(joint: RAPIER.ImpulseJoint, axis: RAPIER.JointA
   rawJoints(joint).jointConfigureMotorVelocity(joint.handle, axis, 0, factor);
 }
 
+/** A motor on one axis of any joint that pulls its speed towards `velocity` (rad/s or m/s) */
+export function setJointMotor(joint: RAPIER.ImpulseJoint, axis: RAPIER.JointAxis, velocity: number, factor: number) {
+  rawJoints(joint).jointConfigureMotorVelocity(joint.handle, axis, velocity, factor);
+}
+
 // Solver effort. Rapier's default (4 × 1) leaves the puppet's joints soft: in
 // lively play the strings stretched by 3 mm (25 mm when shaken) and hinges
 // bent 25° off their axis, which reads as rubber strings. Each solver

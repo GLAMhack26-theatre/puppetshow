@@ -131,6 +131,9 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
   // Extra height of the cross on top of the input: pulls the whole puppet up
   // out of the way while a scene changes (puppet.ts)
   let lift = 0;
+  // Extra length on every string: the puppet moves freely under the cross
+  // while the player's body drives it (body-drive.ts)
+  let slack = 0;
   const rockQ = new Quaternion();
   const p = new Vector3();
   const q = new Quaternion();
@@ -188,7 +191,7 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
     // first axis, so its length is that limit: set it instead of recreating
     // the joint (which pulled in 5 mm steps and threw the solver's state away)
     for (const s of strings) {
-      const target = Math.max(0.05, s.rest - PULL_RANGE * controlInput.pulls[s.id]);
+      const target = Math.max(0.05, s.rest - PULL_RANGE * controlInput.pulls[s.id] + slack);
       if (target === s.length) continue;
       const length = s.length + Math.max(-MAX_PULL_SPEED * STEP, Math.min(MAX_PULL_SPEED * STEP, target - s.length));
       setJointLimits(s.joint, RAPIER.JointAxis.LinX, 0, length);
@@ -224,6 +227,10 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
     /** Raises the cross by `y` metres above where the input holds it (0: back down). */
     setLift(y: number) {
       lift = y;
+    },
+    /** Lengthens every string by `length` metres (0: back to the rig's lengths). */
+    setSlack(length: number) {
+      slack = length;
     },
     /** Whether the cross has arrived where input and lift want it. */
     arrived: () => barPosition.distanceTo(barTarget) < 0.005,

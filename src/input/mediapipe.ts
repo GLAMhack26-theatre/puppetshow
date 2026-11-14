@@ -183,6 +183,8 @@ function createSession(options: HandTrackingOptions, panel: HTMLElement) {
   let everAttached = false;
 
   function apply(out: TrackerOutput) {
+    // In WebXR the player's own body drives the puppet (src/xr/): the camera hand stands by
+    if (controlInput.body.active) return;
     controlInput.source = "mediapipe";
     // Until a hand has shown up the cross stays at its rest place
     everAttached ||= out.status !== "none";

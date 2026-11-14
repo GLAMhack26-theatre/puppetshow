@@ -41,4 +41,21 @@ export const controlInput = {
   pulls: Object.fromEntries(STRING_IDS.map((id) => [id, 0])) as Record<StringId, number>,
   grip: { left: false, right: false },
   source: "mouse" as ControlSource,
+  /**
+   * The player's own body as the puppet's (WebXR, src/xr/): world-space
+   * targets for the puppet's eyes and hands. While `active`, the puppet's head
+   * is held on the head target and its hands are drawn to the hand targets
+   * (puppet/body-drive.ts); the cross only tags along above the head.
+   * Rotations are relative to the puppet's rest pose (identity: facing the
+   * audience, +z, arms hanging with the thumbs forward). Plain data, so it can
+   * be sent to other players later.
+   */
+  body: {
+    active: false,
+    head: { position: new Vector3(), rotation: new Quaternion() },
+    hands: {
+      left: { tracked: false, position: new Vector3(), rotation: new Quaternion() },
+      right: { tracked: false, position: new Vector3(), rotation: new Quaternion() },
+    },
+  },
 };
