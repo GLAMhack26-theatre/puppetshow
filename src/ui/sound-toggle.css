@@ -1,12 +1,12 @@
-/* Speaker button and "now playing", bottom right, in the 60 px strip below
-   the camera preview (#preview in index.html: bottom 60px, right 8px) */
+/* Music and effects buttons and "now playing", bottom right, in the 60 px
+   strip below the camera preview (#preview in index.html: bottom 60px, right 8px) */
 #sound {
   position: fixed;
   right: 8px;
   bottom: 10px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   max-width: calc(100vw - 16px);
   z-index: 5;
 }
@@ -33,15 +33,18 @@
   stroke-linejoin: round;
 }
 .sound-button .body { stroke: #f3e9dccc; }
+/* The note heads are lines too, but read better slightly filled */
+.sound-button.music ellipse { fill: #f3e9dc55; }
 .sound-button .waves,
 .sound-button .cross { stroke: #d8aa4a; }
-/* Off (default): struck-through speaker, dimmed */
+/* Off (default): struck through, dimmed */
 .sound-button[aria-pressed="false"] { opacity: 0.75; }
 .sound-button[aria-pressed="false"] .waves,
 .sound-button[aria-pressed="true"] .cross { display: none; }
 
 .sound-credit {
   min-width: 0;
+  margin-right: 2px;
   padding: 5px 10px;
   color: #f3e9dc;
   background: #1a0f0bcc;

@@ -20,6 +20,7 @@ import haenselUrl from "../../assets/stage_parts/Sign_Haensel.glb?url";
 import improUrl from "../../assets/stage_parts/Sign_Impro.glb?url";
 import { listPlays, loadPlay, type Play as PlayFile } from "../plays/plays";
 import { curtainLift, isMainCurtainDown, raiseMainCurtain } from "./main-curtain";
+import { cueSignLanded } from "../audio/cues";
 import "./signs.css";
 
 // Hanging signs in front of the main curtain: the plays to choose from.
@@ -198,6 +199,7 @@ export function onPlayChosen(listener: (play: Play) => void) {
  * first row drops in, with the plays read anew from assets/plays/.
  */
 export function showSigns() {
+  landed.clear();
   chosen = null;
   row = 0;
   leaving = null;
@@ -408,6 +410,7 @@ function turn(to: number) {
   if (chosen || to < 0 || to > lastRow() || to === row) return;
   leaving = { row, at: clock };
   row = to;
+  for (const sign of signs) if (sign.row === to) landed.delete(sign);
   rowStart = clock + AGAIN_DELAY;
   hovered = null;
 }
@@ -468,6 +471,9 @@ function put(mesh: Mesh, x: number, y: number, distance: number, angle: number, 
   mesh.scale.setScalar(scale);
 }
 
+/** Signs of the rows on screen that have already knocked; cleared when a row drops in again */
+const landed = new Set<Sign>();
+
 function place(w: World, delta: number) {
   const camera = w.camera;
   // Layout in units of the sign plane; the shadow plane is scaled by `far`
@@ -495,6 +501,11 @@ function place(w: World, delta: number) {
       age = clock - rowStart - i * STAGGER;
       const t = Math.min(1, age / DROP_SECONDS);
       y = MathUtils.lerp(startY, targetY, easeOutBack(t));
+      // A knock the first time the sign reaches its place, before it overshoots
+      if (!landed.has(sign) && easeOutBack(t) >= 1) {
+        landed.add(sign);
+        cueSignLanded(i);
+      }
     } else if (leaving && sign.row === leaving.row) {
       // Pulled up on its string, slowly at first
       const t = (clock - leaving.at - i * 0.06) / LEAVE_SECONDS;

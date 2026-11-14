@@ -2,6 +2,7 @@ import { Box3, type Material, MathUtils, Mesh, type Object3D, Vector3, createSys
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { catalogueEntry } from "../catalogue";
 import { stageBounds } from "./stage";
+import { cueBackdrop } from "../audio/cues";
 
 // Painted backdrops ("Hintergrund"-Aufsteller) for the impro mode: every
 // assets/stage_parts/Background_*.glb (Unity export: one 1×1 alpha quad)
@@ -136,6 +137,7 @@ const shown = new Set<Backdrop>();
  */
 export function setBackdrop(world: World, backdrop: Backdrop | null) {
   if (current === backdrop) return;
+  cueBackdrop(); // one rustle for the sheet coming down or going up
   if (current) {
     current.target = 0;
     current.rest.z -= OUTGOING_STEP;

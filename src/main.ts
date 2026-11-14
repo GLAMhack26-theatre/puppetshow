@@ -17,6 +17,10 @@ import { RapierSystem, initPhysics } from "./systems/rapier-system";
 import { FpsSystem } from "./spike/world";
 import { setupDebugMode } from "./ui/debug-mode";
 import { setAmbientPlay, setupAmbient } from "./audio/ambient";
+import { playCue, setupExcerpts } from "./audio/excerpts";
+import { isOn, setOn } from "./audio/audio";
+import { setupImpacts } from "./audio/impacts";
+import { setupSfx } from "./audio/sfx";
 import { setupSoundToggle } from "./ui/sound-toggle";
 
 // Without ?test: the play itself. Curtain and signs, then the marionette,
@@ -39,8 +43,11 @@ const handControl = !["world", "puppet", "interop"].includes(test);
 // "presentation" button opens the presentation
 setupDebugMode();
 setupPresentation();
-// Sound: off until the speaker button (bottom right) is clicked
+// Sound: music and effects off until their buttons (bottom right) or a sign are clicked
 setupAmbient();
+setupExcerpts();
+setupSfx();
+setupImpacts();
 setupSoundToggle();
 
 await initPhysics();
@@ -81,7 +88,18 @@ const chosenPlay = (play: string) => {
 const loadChoice = async () => {
   await loadMainCurtain(world);
   await loadSigns(world);
+  // chosenPlay also switches the music to the play's playlist
   onPlayChosen(chosenPlay);
+  // The first sign click turns music and effects on (a user gesture, as their
+  // buttons); later choices (after the "Stücke" button) keep what the visitor
+  // set meanwhile. Every choice plays the drum roll and announcement while the
+  // curtain rises. After chosenPlay, so the music starts with the play's playlist.
+  let soundTurnedOn = false;
+  onPlayChosen(() => {
+    if (!soundTurnedOn) for (const channel of ["music", "effects"] as const) if (!isOn(channel)) setOn(channel, true);
+    soundTurnedOn = true;
+    playCue("curtain");
+  });
   // The click on a sign also starts the camera: it is the user gesture
   // camera access needs. Registered here, before the stage and the puppet
   // load: the signs can be clicked long before those are ready.

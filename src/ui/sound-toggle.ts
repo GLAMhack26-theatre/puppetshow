@@ -1,18 +1,32 @@
-import { nowPlaying, onTrackChange, type Track } from "../audio/ambient";
-import { isSoundOn, onSoundChange, setSoundOn } from "../audio/audio";
+import { nowPlaying, onTrackChange } from "../audio/ambient";
+import { onExcerptChange, playingExcerpt } from "../audio/excerpts";
+import { type Channel, isOn, onChannelChange, setOn } from "../audio/audio";
 import "./sound-toggle.css";
 
-// The speaker button at the bottom right, off at every load, and to its
-// left the credit of the track playing ("now playing"), linked to its
-// archive.org item. The credit is required by the CC BY licences, so it is
-// shown whenever music plays. Below the camera preview (#preview, index.html).
+// Two round buttons at the bottom right, both off at every load: effects in
+// the corner (speaker: excerpts, cues, physics sounds), music left of it
+// (note: the archive.org playlists). Left of them the credit of what plays
+// ("now playing"), linked to its archive.org item; the CC BY licences require
+// it whenever their music plays. Below the camera preview (#preview, index.html).
 
-// Line icon in the style of the presentation icons: cream speaker, gold waves or cross
-const SPEAKER = `<svg viewBox="0 0 32 32" aria-hidden="true">
-  <path class="body" d="M5 12 H10 L17 6 V26 L10 20 H5 Z"/>
-  <path class="waves" d="M21 11.5 A6 6 0 0 1 21 20.5 M24.5 8 A11 11 0 0 1 24.5 24"/>
-  <path class="cross" d="M21 12 L28 20 M28 12 L21 20"/>
-</svg>`;
+// Line icons in the style of the presentation icons: cream drawing, gold waves or cross
+const ICONS: Record<Channel, string> = {
+  music: `<svg viewBox="0 0 32 32" aria-hidden="true">
+    <path class="body" d="M12 23 V8 L24 5 V20"/>
+    <ellipse class="body" cx="9.5" cy="23" rx="3" ry="2.4"/><ellipse class="body" cx="21.5" cy="20" rx="3" ry="2.4"/>
+    <path class="waves" d="M12 12 L24 9"/>
+    <path class="cross" d="M5 5 L27 27"/>
+  </svg>`,
+  effects: `<svg viewBox="0 0 32 32" aria-hidden="true">
+    <path class="body" d="M5 12 H10 L17 6 V26 L10 20 H5 Z"/>
+    <path class="waves" d="M21 11.5 A6 6 0 0 1 21 20.5 M24.5 8 A11 11 0 0 1 24.5 24"/>
+    <path class="cross" d="M21 12 L28 20 M28 12 L21 20"/>
+  </svg>`,
+};
+const TITLES: Record<Channel, [on: string, off: string]> = {
+  music: ["Musik aus", "Musik an"],
+  effects: ["Geräusche aus", "Geräusche an"],
+};
 
 export function setupSoundToggle() {
   const root = Object.assign(document.createElement("div"), { id: "sound" });
@@ -21,29 +35,40 @@ export function setupSoundToggle() {
     target: "_blank",
     rel: "noopener",
   });
-  const button = Object.assign(document.createElement("button"), {
-    type: "button",
-    className: "sound-button",
-    innerHTML: SPEAKER,
-  });
-  root.append(credit, button);
+  root.append(credit);
+
+  const buttons = {} as Record<Channel, HTMLButtonElement>;
+  for (const channel of ["music", "effects"] as const) {
+    const button = Object.assign(document.createElement("button"), {
+      type: "button",
+      className: `sound-button ${channel}`,
+      innerHTML: ICONS[channel],
+    });
+    button.addEventListener("click", () => setOn(channel, !isOn(channel)));
+    buttons[channel] = button;
+    root.append(button);
+  }
   document.body.append(root);
 
-  const showButton = (on: boolean) => {
+  const showButton = (channel: Channel, on: boolean) => {
+    const button = buttons[channel];
     button.setAttribute("aria-pressed", String(on));
-    button.title = button.ariaLabel = on ? "Sound off" : "Sound on";
+    button.title = button.ariaLabel = TITLES[channel][on ? 0 : 1];
   };
-  const showCredit = (track: Track | null) => {
+  // An excerpt playing is credited before the background music
+  const showCredit = () => {
+    const track = playingExcerpt() ?? nowPlaying();
     credit.hidden = !track;
     if (!track) return;
     credit.href = track.url;
     credit.textContent = `${track.title} · ${track.creator} · ${track.licence}`;
-    credit.title = `Now playing on archive.org: ${credit.textContent}`;
+    credit.title = `Läuft gerade, auf archive.org: ${credit.textContent}`;
   };
 
-  button.addEventListener("click", () => setSoundOn(!isSoundOn()));
-  onSoundChange(showButton);
+  onChannelChange(showButton);
   onTrackChange(showCredit);
-  showButton(false);
-  showCredit(nowPlaying());
+  onExcerptChange(showCredit);
+  showButton("music", false);
+  showButton("effects", false);
+  showCredit();
 }

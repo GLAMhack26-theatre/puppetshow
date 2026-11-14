@@ -119,7 +119,9 @@ export function buildRig(root: Object3D, description: RigDescription): Rig {
       RAPIER.ColliderDesc.capsule(Math.max(0.0005, axis.length() / 2), spec.radius)
         .setRotation(new Quaternion().setFromUnitVectors(Y, axis.clone().normalize()))
         .setMass(spec.mass)
-        .setCollisionGroups(spec.group === "limb" ? GROUP.limb : GROUP.puppet),
+        .setCollisionGroups(spec.group === "limb" ? GROUP.limb : GROUP.puppet)
+        // Contact starts drive the wooden clatter (audio/impacts.ts)
+        .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
       body,
     );
 

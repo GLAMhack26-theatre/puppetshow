@@ -1,5 +1,5 @@
 import data from "../../assets/sounds/archive.json";
-import { audio, isSoundOn, onSoundChange } from "./audio";
+import { audio, isOn, onChannelChange } from "./audio";
 
 // Background music streamed from archive.org (assets/sounds/archive.json,
 // tracks filled in by scripts/index-archive.mjs). Nothing is downloaded into
@@ -44,9 +44,9 @@ export function streamUrl(item: string, file: string) {
   return `https://archive.org/download/${item}/${encodeURIComponent(file)}`;
 }
 
-/** The track playing (null while sound is off or nothing loaded). */
+/** The track playing (null while music is off or nothing loaded). */
 export function nowPlaying() {
-  return isSoundOn() ? current : null;
+  return isOn("music") ? current : null;
 }
 
 export function onTrackChange(fn: (track: Track | null) => void) {
@@ -101,7 +101,7 @@ function next() {
   current = order[position++];
   const { element } = decks[active];
   element.src = streamUrl(current.item, current.file);
-  if (isSoundOn()) void element.play().catch(() => {});
+  if (isOn("music")) void element.play().catch(() => {});
   notify();
 }
 
@@ -135,11 +135,12 @@ export function setAmbientPlay(play: string) {
 
 export function setupAmbient() {
   playlist = resolve(DEFAULT);
-  onSoundChange((on) => {
+  onChannelChange((channel, on) => {
+    if (channel !== "music") return;
     const graph = audio()!;
     if (!decks) {
       // First turn-on, inside the click: elements must be started in the gesture
-      decks = createDecks(graph.context, graph.ambientBus);
+      decks = createDecks(graph.context, graph.musicBus);
       decks[active].gain.gain.value = 1;
       next();
       return;
