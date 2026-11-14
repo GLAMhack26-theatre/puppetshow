@@ -1,15 +1,15 @@
 import { World } from "@iwsdk/core";
 import { PhysicsLink } from "./components/physics-link";
-import { addCameraButton, startHandTracking } from "./input/mediapipe";
+import { setupHandTracking, startHandTracking } from "./input/mediapipe";
 import { addLighting } from "./stage/lighting";
 import { MainCurtainSystem, loadMainCurtain, skipMainCurtain } from "./stage/main-curtain";
 import { SignSystem, loadSigns, onPlayChosen } from "./stage/signs";
 import { startImpro } from "./impro/impro";
 import { BackdropSystem } from "./stage/backdrops";
 import { SpotlightSystem } from "./stage/spotlights";
-import { StageSystem, isCurtainOpen, loadStage, setCurtain } from "./stage/stage";
+import { StageSystem, isCurtainOpen, loadStage, setCurtain, stageFloor } from "./stage/stage";
 import { RapierSystem, initPhysics } from "./systems/rapier-system";
-import { FpsSystem } from "./spike/world";
+import { FpsSystem, hudLines } from "./spike/world";
 
 // Without ?test: the play itself. Curtain and signs, then the marionette,
 // led by the hand in front of the camera (the mouse until the camera runs).
@@ -22,6 +22,8 @@ import { FpsSystem } from "./spike/world";
 const test = new URLSearchParams(location.search).get("test") ?? "play";
 /** These tests have no camera control; everything else is the play */
 const handControl = !["world", "puppet", "interop"].includes(test);
+/** Hand control keeps the puppet's body and skirt on the floor, m from its front and back edge */
+const FLOOR_MARGIN = 0.1;
 
 await initPhysics();
 
@@ -69,7 +71,14 @@ switch (test) {
   case "interop":
     (await import("./spike/interop")).setupInterop(world);
     break;
-  default:
-    await (await import("./spike/puppet")).setupPuppet(world);
-    if (handControl) addCameraButton();
+  default: {
+    const { controller } = await (await import("./spike/puppet")).setupPuppet(world);
+    if (handControl)
+      setupHandTracking({
+        controller,
+        depthRange: stageFloor.isEmpty() ? undefined : [stageFloor.min.z + FLOOR_MARGIN, stageFloor.max.z - FLOOR_MARGIN],
+        hud: hudLines,
+        panel: document.getElementById("panel")!,
+      });
+  }
 }

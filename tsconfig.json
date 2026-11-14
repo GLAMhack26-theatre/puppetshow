@@ -11,9 +11,10 @@
     "isolatedModules": true,
     "moduleDetection": "force",
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "strict": true,
     "noFallthroughCasesInSwitch": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src"]
+  "include": ["src", "scripts/*.ts"]
 }

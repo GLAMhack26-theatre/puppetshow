@@ -2,7 +2,7 @@ import { Mesh, Vector3 } from "@iwsdk/core";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import marionetteUrl from "../../export/marionette.glb?url";
 import rigData from "../../export/marionette_rig.json";
-import type { RockId, StringId } from "../input/control-input";
+import { MAX_ROCK, type RockId, type StringId } from "../input/control-input";
 import type { RigDescription, RigJoint } from "./rig";
 
 // The SKKG marionette (README, "Marionette model"): the skinned model from
@@ -20,7 +20,8 @@ interface BoneData {
   head: Vec;
   mass_kg?: number;
   collider?: { radius: number; a: Vec; b: Vec };
-  joint?: { type: string; axis?: "X" | "Y" | "Z"; min?: number; max?: number };
+  /** cone: swing / twist; hinge: axis, min, max (all in degrees); fixed: rigid on the parent */
+  joint?: { type: string; axis?: "X" | "Y" | "Z"; min?: number; max?: number; swing?: number; twist?: number };
 }
 
 interface BarData {
@@ -29,6 +30,8 @@ interface BarData {
   pivot: Vec;
   axis: Vec | null;
   input: RockId | null;
+  limit_deg?: number;
+  detachable?: boolean;
   sticks: { a: Vec; b: Vec }[];
 }
 
@@ -39,12 +42,12 @@ const rad = (deg: number) => (deg * Math.PI) / 180;
 
 function joint(data: BoneData["joint"]): RigJoint | undefined {
   if (!data) return undefined;
+  if (data.type === "fixed") return { type: "fixed" };
   if (data.type === "hinge" && data.axis) {
     return { type: "revolute", axis: AXES[data.axis].clone(), limits: [rad(data.min ?? 0), rad(data.max ?? 0)] };
   }
-  // Cone (swing/twist) limits don't exist for Rapier's spherical joint in JS;
-  // the rig damps them instead
-  return { type: "spherical" };
+  // A cone without numbers is free all round
+  return { type: "cone", swing: rad(data.swing ?? 180), twist: rad(data.twist ?? 180) };
 }
 
 export async function loadMarionette() {
@@ -103,6 +106,9 @@ export async function loadMarionette() {
         pivot: fromBlender(b.pivot),
         axis: b.axis ? fromBlender(b.axis).normalize() : undefined,
         input: b.input ?? undefined,
+        limit: b.limit_deg === undefined ? MAX_ROCK : rad(b.limit_deg),
+        // Rigs exported before the flag existed: the hand bar is the one that comes off
+        detachable: b.detachable ?? b.input === "hands",
         sticks: b.sticks.map((s) => ({ a: fromBlender(s.a), b: fromBlender(s.b) })),
       })),
     },

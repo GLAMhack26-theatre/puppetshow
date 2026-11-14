@@ -27,6 +27,8 @@ export const physics = {
   events: null as unknown as RAPIER.EventQueue,
   /** Before every fixed step: kinematic targets, joint changes */
   beforeStep: [] as Array<() => void>,
+  /** After every fixed step: measurements (debug) */
+  afterStep: [] as Array<() => void>,
   /** Once per frame after the poses were synced: string lines, bones */
   afterSync: [] as Array<() => void>,
   onCollision: [] as Array<(a: number, b: number, started: boolean) => void>,
@@ -97,12 +99,55 @@ export function addLinked(
   return { body, collider };
 }
 
+// Rapier's JS classes only offer limits and motors on one-axis joints, but
+// its joint set takes them for any axis of any joint (UnitImpulseJoint.setLimits
+// calls the same function). That gives what the high-level API lacks: limits
+// on every rotation of a ball joint, and a rope whose length can change.
+interface RawJointSet {
+  jointSetLimits(handle: number, axis: RAPIER.JointAxis, min: number, max: number): void;
+  jointConfigureMotorVelocity(handle: number, axis: RAPIER.JointAxis, targetVel: number, factor: number): void;
+}
+const rawJoints = (joint: RAPIER.ImpulseJoint) => (joint as unknown as { rawSet: RawJointSet }).rawSet;
+
+/** Limit one axis of any joint (rad for angular axes, m for linear ones) */
+export function setJointLimits(joint: RAPIER.ImpulseJoint, axis: RAPIER.JointAxis, min: number, max: number) {
+  rawJoints(joint).jointSetLimits(joint.handle, axis, min, max);
+}
+
+/** Friction on one axis of any joint: a motor that pulls its speed towards 0 */
+export function setJointFriction(joint: RAPIER.ImpulseJoint, axis: RAPIER.JointAxis, factor: number) {
+  rawJoints(joint).jointConfigureMotorVelocity(joint.handle, axis, 0, factor);
+}
+
+// Solver effort. Rapier's default (4 × 1) leaves the puppet's joints soft: in
+// lively play the strings stretched by 3 mm (25 mm when shaken) and hinges
+// bent 25° off their axis, which reads as rubber strings. Each solver
+// iteration is a substep, so more of them also catch a string that snaps taut
+// earlier. Measured on the marionette (headless Chrome, desktop): 16 × 4
+// keeps strings within 0.2 mm in play (3 mm when shaken) and hinges within
+// 2°, for 0.2 ms per step instead of 0.05 ms.
+const SOLVER_ITERATIONS = 16;
+const PGS_ITERATIONS = 4;
+
 /** Rapier's wasm must be ready before any body is created. */
 export async function initPhysics() {
   await RAPIER.init();
   physics.world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
   physics.world.timestep = STEP;
+  physics.world.numSolverIterations = SOLVER_ITERATIONS;
+  physics.world.numInternalPgsIterations = PGS_ITERATIONS;
   physics.events = new RAPIER.EventQueue(true);
+}
+
+/** One fixed step with its hooks; the render loop calls it, and so can a test (deterministic, faster than real time). */
+export function stepPhysics() {
+  rememberPoses();
+  for (const fn of physics.beforeStep) fn();
+  physics.world.step(physics.events);
+  physics.events.drainCollisionEvents((a, b, started) => {
+    for (const fn of physics.onCollision) fn(a, b, started);
+  });
+  for (const fn of physics.afterStep) fn();
 }
 
 export class RapierSystem extends createSystem({ links: { required: [PhysicsLink] } }) {
@@ -113,12 +158,7 @@ export class RapierSystem extends createSystem({ links: { required: [PhysicsLink
     const start = performance.now();
     let steps = 0;
     while (this.accumulator >= STEP) {
-      rememberPoses();
-      for (const fn of physics.beforeStep) fn();
-      physics.world.step(physics.events);
-      physics.events.drainCollisionEvents((a, b, started) => {
-        for (const fn of physics.onCollision) fn(a, b, started);
-      });
+      stepPhysics();
       this.accumulator -= STEP;
       steps++;
     }

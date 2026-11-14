@@ -27,6 +27,9 @@ import { addWall } from "./wall";
 const STAGE_WIDTH = 1.4;
 const CURTAIN_SPEED = 1.2; // open fraction per second
 
+/** The stage floor in world space, set by loadStage: how far the puppet can be moved */
+export const stageFloor = new Box3();
+
 const curtain = {
   mesh: null as Object3D | null,
   top: 0, // y of the top edge, fixed while it rolls up
@@ -105,6 +108,7 @@ export async function loadStage(world: World) {
   await addWall(world, root);
 
   groundBox.setFromObject(ground);
+  stageFloor.copy(groundBox);
   const size = groundBox.getSize(new Vector3());
   const center = groundBox.getCenter(new Vector3());
   stageBounds.scale = root.scale.x;

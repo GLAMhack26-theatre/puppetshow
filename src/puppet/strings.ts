@@ -13,8 +13,8 @@ import {
   type Object3D,
   type World,
 } from "@iwsdk/core";
-import { MAX_ROCK, STRING_IDS, controlInput, type RockId, type StringId } from "../input/control-input";
-import { STEP, addLinked, physics, renderPoint } from "../systems/rapier-system";
+import { STRING_IDS, controlInput, type RockId, type StringId } from "../input/control-input";
+import { STEP, addLinked, physics, renderPoint, setJointLimits } from "../systems/rapier-system";
 import type { Rig, RigController, RigPart, RigString } from "./rig";
 
 // The control cross (Spielkreuz) and the strings, rebuilt from the real SKKG
@@ -23,11 +23,16 @@ import type { Rig, RigController, RigPart, RigString } from "./rig";
 // main bar's long axis. Every bar is a kinematic body; each string is a rope
 // joint (maximum distance, rest length from the rig) from the eye on its bar
 // to the socket on the puppet. The puppeteer's moves come from ControlInput:
-// the main bar's pose (tilting it bows or turns the puppet), the two rocking
-// angles, and per-string pulls on top (plucking a single string).
+// the main bar's pose (tilting it bows or turns the puppet), the rocking
+// angles, the hand bar taken off the cross and moved freely, and per-string
+// pulls on top (plucking a single string).
 
 const PULL_RANGE = 0.12; // m: a full pull shortens a string by this much (puppet: 0.35 m)
+const MAX_PULL_SPEED = 1; // m/s: a string is drawn in, not teleported (a slider jump would otherwise leave it 12 cm too long for a step)
 const MAX_BAR_SPEED = 1.5; // m/s: the bar follows the input without teleporting
+const MAX_BAR_TURN = 5; // rad/s: the same for its rotation (a noisy source would otherwise whip the strings)
+const REATTACH = 0.08; // s: time constant of a bar that was let go easing back onto its seat (the magnet pulls it in)
+const MAX_LEASH = 0.3; // m: how far a detached bar may leave its seat (its strings are 0.48 m)
 const MAX_ROCK_SPEED = 6; // rad/s: rocking follows the input smoothly
 const SEGMENTS = 12; // points per drawn string
 const SAG = 0.5; // drawn sag per metre of slack
@@ -50,7 +55,13 @@ interface RockingBar {
   axis: Vector3;
   /** Pivot relative to the main bar's pivot, in the main bar's frame */
   offset: Vector3;
+  limit: number;
   angle: number;
+  /** Can be taken off the cross; while it is not seated it has its own pose (world) */
+  detachable: boolean;
+  seated: boolean;
+  freePosition: Vector3;
+  freeRotation: Quaternion;
 }
 
 const vec = (v: Vector3): RAPIER.Vector => ({ x: v.x, y: v.y, z: v.z });
@@ -88,7 +99,7 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
     .filter((b) => b.parent && b.axis && b.input)
     .map((b) => {
       const { body, pivot } = bodies.get(b.name)!;
-      return { body, input: b.input!, axis: dirToWorld(b.axis!), offset: pivot.clone().sub(main.pivot), angle: 0 };
+      return { body, input: b.input!, axis: dirToWorld(b.axis!), offset: pivot.clone().sub(main.pivot), limit: b.limit, angle: 0, detachable: b.detachable, seated: true, freePosition: pivot.clone(), freeRotation: new Quaternion() };
     });
 
   const strings: PuppetString[] = [];
@@ -111,34 +122,69 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
   }
 
   const barPosition = main.pivot.clone();
+  const barRotation = new Quaternion();
   const barMove = new Vector3();
   const rockQ = new Quaternion();
   const p = new Vector3();
   const q = new Quaternion();
+  const handBar = controlInput.handBar;
+  handBar.detached = false;
   physics.beforeStep.push(() => {
     barMove.subVectors(controlInput.bar.position, barPosition).clampLength(0, MAX_BAR_SPEED * STEP);
     barPosition.add(barMove);
+    barRotation.rotateTowards(controlInput.bar.rotation, MAX_BAR_TURN * STEP);
     main.body.setNextKinematicTranslation(barPosition);
-    main.body.setNextKinematicRotation(controlInput.bar.rotation);
+    main.body.setNextKinematicRotation(barRotation);
 
     // Rocking bars ride on the main bar: pivot follows its pose, and they turn
     // about their axis (in the main bar's frame) on top of its rotation
     for (const r of rocking) {
-      const target = Math.max(-MAX_ROCK, Math.min(MAX_ROCK, controlInput.rock[r.input]));
+      // ?? 0: a rig may name a rocker this build has no input for yet
+      const target = Math.max(-r.limit, Math.min(r.limit, controlInput.rock[r.input] ?? 0));
       r.angle += Math.max(-MAX_ROCK_SPEED * STEP, Math.min(MAX_ROCK_SPEED * STEP, target - r.angle));
-      p.copy(r.offset).applyQuaternion(controlInput.bar.rotation).add(barPosition);
-      q.copy(controlInput.bar.rotation).multiply(rockQ.setFromAxisAngle(r.axis, r.angle));
+      p.copy(r.offset).applyQuaternion(barRotation).add(barPosition);
+      q.copy(barRotation).multiply(rockQ.setFromAxisAngle(r.axis, r.angle));
+      if (r.detachable) {
+        // p, q: its seat on the cross. Taken off, it follows ControlInput.handBar
+        // instead (speed-capped like the main bar, and on a leash so the strings
+        // stay sane); let go, it is pulled back until it sits again.
+        if (handBar.detached) {
+          r.seated = false;
+          barMove.subVectors(handBar.position, r.freePosition).clampLength(0, MAX_BAR_SPEED * STEP);
+          r.freePosition.add(barMove).sub(p).clampLength(0, MAX_LEASH).add(p);
+          r.freeRotation.rotateTowards(handBar.rotation, MAX_BAR_TURN * STEP);
+        } else if (!r.seated) {
+          const pull = 1 - Math.exp(-STEP / REATTACH);
+          r.freePosition.lerp(p, pull);
+          r.freeRotation.slerp(q, pull);
+          r.seated = r.freePosition.distanceTo(p) < 0.002 && r.freeRotation.angleTo(q) < 0.03;
+        }
+        if (r.seated) {
+          r.freePosition.copy(p);
+          r.freeRotation.copy(q);
+        } else {
+          p.copy(r.freePosition);
+          q.copy(r.freeRotation);
+        }
+        // Where the bar is now: a source that takes it off starts from here
+        if (!handBar.detached) {
+          handBar.position.copy(p);
+          handBar.rotation.copy(q);
+        }
+      }
       r.body.setNextKinematicTranslation(p);
       r.body.setNextKinematicRotation(q);
     }
 
-    // Rapier's rope joint has no length setter in JS: recreate it when the
-    // pull changed noticeably (a few joints per frame at most)
+    // A pull shortens the rope. A rope joint is a distance limit on the joint's
+    // first axis, so its length is that limit: set it instead of recreating
+    // the joint (which pulled in 5 mm steps and threw the solver's state away)
     for (const s of strings) {
-      const length = Math.max(0.05, s.rest - PULL_RANGE * controlInput.pulls[s.id]);
-      if (Math.abs(length - s.length) < 0.005) continue;
-      pw.removeImpulseJoint(s.joint, true);
-      s.joint = pw.createImpulseJoint(RAPIER.JointData.rope(length, s.barAnchor, s.anchor), s.bar, s.part.body, true);
+      const target = Math.max(0.05, s.rest - PULL_RANGE * controlInput.pulls[s.id]);
+      if (target === s.length) continue;
+      const length = s.length + Math.max(-MAX_PULL_SPEED * STEP, Math.min(MAX_PULL_SPEED * STEP, target - s.length));
+      setJointLimits(s.joint, RAPIER.JointAxis.LinX, 0, length);
+      s.part.body.wakeUp(); // a resting puppet sleeps, and a limit alone does not wake it
       s.length = length;
     }
   });

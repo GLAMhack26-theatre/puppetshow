@@ -1,8 +1,9 @@
 """Checks that the Dress mesh is usable for GPU cloth simulation. Run inside Blender.
 
 Reports: topology (non-manifold / loose / boundary loops), edge-length spread for
-simulated vs pinned regions, degenerate faces, and whether any cloth vertex starts
-inside (or too close to) a body collider in the current pose.
+simulated vs pinned regions, degenerate faces, folds (neighbouring faces facing each
+other), faces of the dress cutting through each other, and whether any cloth vertex
+starts inside (or too close to) a body collider in the current pose.
 """
 import bpy
 import bmesh
@@ -67,6 +68,13 @@ def validate(name="Dress", evaluated=True, margin=0.0005):
     rep["min_face_area_mm2"] = round(min(f.calc_area() for f in bm.faces) * 1e6, 3)
     rep["flipped_neighbour_faces"] = sum(1 for e in bm.edges if e.is_manifold and
                                          e.link_faces[0].normal.dot(e.link_faces[1].normal) < -0.5)
+    # faces cutting through each other (e.g. a sleeve through the bodice); the fold count
+    # above only sees neighbours. Faces sharing a vertex always touch: not counted
+    bm.faces.ensure_lookup_table()
+    own = BVHTree.FromBMesh(bm)
+    rep["self_intersecting_face_pairs"] = sum(
+        1 for a, b in own.overlap(own)
+        if a < b and not {v.index for v in bm.faces[a].verts} & {v.index for v in bm.faces[b].verts})
     trees = [(n, BVHTree.FromObject(bpy.data.objects[n], dg)) for n in COLLIDERS if n in bpy.data.objects]
     inside, inside_pinned, close, mind = collections.Counter(), collections.Counter(), 0, 1.0
     for v in bm.verts:
