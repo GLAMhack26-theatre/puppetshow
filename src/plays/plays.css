@@ -1,0 +1,270 @@
+/* Plays with scene presets: the director bar in impro mode (director.ts)
+   and the golden scene buttons while a play runs (scene-buttons.ts). Same
+   paper-theatre look as the impro panels: beige paper, gold, Georgia. */
+
+/* Hidden again after a return to the play choice (the classes set display) */
+.director[hidden] {
+  display: none;
+}
+
+/* ---- Director bar: a paper strip at the top, between the two panels ---- */
+.director {
+  position: fixed;
+  top: max(8px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100vw - 140px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 10px;
+  color: #3b2f1e;
+  background: #e3d2b0;
+  border-radius: 4px;
+  box-shadow:
+    0 6px 14px #0007,
+    inset 0 0 0 3px #ecdcbc,
+    inset 0 0 0 4px #c4ad82;
+  font: 13px/1.2 Georgia, serif;
+  z-index: 21;
+}
+.director-label {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #8a6a3a;
+}
+.director select,
+.director button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.director-play {
+  max-width: 180px;
+  padding: 3px 6px;
+  background: #f1e4c8;
+  border: 1px solid #c4ad82;
+  border-radius: 3px;
+}
+.director-scenes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.director-scenes:empty {
+  display: none;
+}
+.director-scene,
+.director-add,
+.director-remove {
+  padding: 3px 9px;
+  background: #f1e4c8;
+  border: 1px solid #c4ad82;
+  border-radius: 999px;
+}
+.director-scene[aria-pressed="true"] {
+  background: radial-gradient(circle at 35% 30%, #f2d58c, #d8aa4a 60%, #a97c2c);
+  border-color: #a97c2c;
+}
+.director-add {
+  border-style: dashed;
+}
+.director-save {
+  padding: 4px 12px;
+  color: #f3e9dc !important;
+  background: #6b2a1e;
+  border: 1px solid #d8aa4a;
+  border-radius: 4px;
+}
+.director-save:hover:not(:disabled) {
+  background: #823526;
+}
+.director-file {
+  padding: 3px 9px;
+  background: none;
+  border: 1px solid #c4ad82;
+  border-radius: 4px;
+}
+.director-file:hover:not(:disabled) {
+  background: #f1e4c8;
+}
+/* A play file dragged over the bar */
+.director.dragover {
+  box-shadow:
+    0 6px 14px #0007,
+    0 0 0 3px #d8aa4a,
+    inset 0 0 0 3px #ecdcbc,
+    inset 0 0 0 4px #c4ad82;
+}
+.director-remove {
+  padding: 1px 8px;
+  font-size: 16px !important;
+  line-height: 1.1;
+}
+.director button:disabled,
+.director select:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.director-status {
+  font-size: 11px;
+  font-style: italic;
+  color: #7a6446;
+}
+.director-status:empty {
+  display: none;
+}
+.director-status[data-kind="ok"] {
+  color: #3f6b2a;
+}
+.director-status[data-kind="warn"] {
+  color: #8a2a1e;
+}
+
+/* Name dialog: beige paper with a gold frame */
+.director-ask {
+  width: min(340px, calc(100vw - 32px));
+  padding: 22px 24px 18px;
+  color: #3b2f1e;
+  background: radial-gradient(120% 90% at 50% 40%, #f1e4c8 0%, #e3d2b0 70%, #d4bf96 100%);
+  border: 2.5px solid #d8aa4a;
+  border-radius: 6px;
+  box-shadow: 0 12px 30px #000a;
+  font: 15px/1.4 Georgia, serif;
+}
+.director-ask::backdrop {
+  background: rgb(18 10 6 / 0.55);
+}
+.director-ask h2 {
+  margin: 0 0 12px;
+  font: 400 22px/1.15 Georgia, serif;
+  color: #6b2a1e;
+}
+.director-ask input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 7px 9px;
+  color: inherit;
+  background: #fbf4e4;
+  border: 1px solid #c4ad82;
+  border-radius: 4px;
+  font: inherit;
+}
+.director-ask-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+.director-ask button {
+  padding: 7px 14px;
+  border-radius: 5px;
+  font: 600 14px/1 Georgia, serif;
+  cursor: pointer;
+}
+.director-ask-cancel {
+  color: #3b2f1e;
+  background: none;
+  border: 1px solid #c4ad82;
+}
+.director-ask-ok {
+  color: #f3e9dc;
+  background: #6b2a1e;
+  border: 1px solid #d8aa4a;
+}
+
+/* ---- Scene buttons: golden medallions down the left edge ---- */
+.scene-buttons {
+  position: fixed;
+  left: max(14px, env(safe-area-inset-left));
+  top: 50%;
+  transform: translate(-12px, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  opacity: 0;
+  transition: opacity 0.5s, transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+  z-index: 20;
+}
+.scene-buttons.ready {
+  opacity: 1;
+  transform: translate(0, -50%);
+}
+.scene-buttons-title {
+  margin: 0 0 2px;
+  color: #f2d58c;
+  font: italic 400 16px/1.1 Georgia, serif;
+  text-shadow: 0 1px 3px #000, 0 0 10px #000a;
+}
+.scene-button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  color: #f3e6c8;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.scene-button-number {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  color: #3b2f1e;
+  background: radial-gradient(circle at 35% 30%, #f2d58c, #d8aa4a 60%, #a97c2c);
+  border: 2px solid #f3e6c8;
+  border-radius: 50%;
+  box-shadow: 0 4px 10px #0009;
+  font: 700 20px/1 Georgia, serif;
+  transition: transform 0.15s, box-shadow 0.2s;
+}
+.scene-button-label {
+  max-width: 160px;
+  font: 400 15px/1.15 Georgia, serif;
+  text-shadow: 0 1px 3px #000, 0 0 8px #000c;
+  opacity: 0.8;
+  transition: opacity 0.2s;
+}
+.scene-button:hover .scene-button-number {
+  transform: scale(1.08);
+}
+.scene-button:hover .scene-button-label,
+.scene-button[aria-pressed="true"] .scene-button-label {
+  opacity: 1;
+}
+.scene-button[aria-pressed="true"] .scene-button-number {
+  box-shadow: 0 4px 10px #0009, 0 0 0 3px #d8aa4a, 0 0 18px #f2d58c99;
+}
+.scene-button:focus-visible {
+  outline: none;
+}
+.scene-button:focus-visible .scene-button-number {
+  outline: 2px solid #f3e6c8;
+  outline-offset: 3px;
+}
+/* While the curtain is down for a change, the other buttons wait */
+.scene-buttons.changing .scene-button {
+  cursor: progress;
+}
+@media (max-width: 600px) {
+  .scene-button-number {
+    width: 38px;
+    height: 38px;
+    font-size: 17px;
+  }
+  .scene-button-label {
+    max-width: 110px;
+    font-size: 13px;
+  }
+  .director {
+    max-width: calc(100vw - 110px);
+    font-size: 12px;
+  }
+}

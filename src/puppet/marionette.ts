@@ -13,6 +13,29 @@ import type { RigDescription, RigJoint } from "./rig";
 
 /** Light parts get at least this fraction of the heaviest part's mass (head 61 g vs hand 0.8 g) */
 const MASS_FLOOR = 0.05;
+/**
+ * Lead in the hands and feet, as real marionettes carry it, far beyond their
+ * wooden weight (hands 0.8 g → 12 g, feet 14 g → 40 g): the weight at the end
+ * of a limb is what keeps its string taut and lets it swing on like a weight
+ * on a line (measured: an arm let go swings for 2.9 s instead of 1.6 s, the
+ * elbow bends 6° instead of 8° while the hand bar rocks).
+ *
+ * Only the ratios count. Scaling every mass alike changes nothing (measured
+ * at ×0.2 and ×5: peak speeds within 3 %; gravity, damping and joint friction
+ * do not depend on mass). The parts between a weight and the body are raised
+ * with it: a heavy hand on a 2.6 g forearm let the elbow bend 35° past its
+ * limit when shaken (5° with them, as without any lead).
+ *
+ * kg, at least: [part, mass]
+ */
+const WEIGHTS: [RegExp, number][] = [
+  [/^hand\./, 0.012],
+  [/^(forearm|upper_arm)\./, 0.005],
+  [/^foot\./, 0.04],
+  [/^shin\./, 0.014],
+  [/^thigh\./, 0.012],
+];
+const weight = (name: string) => WEIGHTS.find(([part]) => part.test(name))?.[1] ?? 0;
 const LIMBS = /^(upper_arm|forearm|hand)\./;
 
 type Vec = number[];
@@ -95,7 +118,7 @@ async function loadTemplate() {
             a: fromBlender(b.collider.a),
             b: fromBlender(b.collider.b),
             radius: b.collider.radius,
-            mass: Math.max(b.mass_kg ?? 0, MASS_FLOOR * heaviest),
+            mass: Math.max(b.mass_kg ?? 0, weight(name), MASS_FLOOR * heaviest),
             joint: joint(b.joint),
             group: LIMBS.test(name) ? ("limb" as const) : ("body" as const),
           }]

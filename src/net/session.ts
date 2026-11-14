@@ -1,7 +1,6 @@
 import type RAPIER from "@dimforge/rapier3d-compat";
 import type { World } from "@iwsdk/core";
 import { controlInput, createControlInput, type ControlInput } from "../input/control-input";
-import { loadProps, propBodies } from "../props/props";
 import { spawnPuppet, type Puppet } from "../puppet/puppet";
 import { currentBackdrop, loadBackdrops, onBackdropChange, setBackdrop } from "../stage/backdrops";
 import { MAX_PUPPETS, STEP, addHook, physics } from "../systems/rapier-system";
@@ -28,6 +27,10 @@ import "./status.css";
 // runs every puppet from its player's ControlInput and sends the poses of all
 // bodies. The other devices (?room=<id>) send their input and show the poses
 // they receive, a moment late, blended between two snapshots.
+//
+// Shared besides the puppets: the backdrop. Props (props/requisits.ts) and
+// scene presets (plays/) are not: each device sets its own, and only the
+// host's props are in the physics the puppets live in.
 
 /** The host sends poses every this many physics steps (60 Hz): 30 times a second */
 const SNAPSHOT_EVERY = 2;
@@ -184,7 +187,7 @@ function createStatus() {
 }
 
 /**
- * Joins the room and puts the players' puppets and the props on the stage. On
+ * Joins the room and puts the players' puppets on the stage. On
  * the host it resolves when its own puppet stands; on a client as soon as the
  * room is joined (its puppet comes when the host is there).
  */
@@ -263,7 +266,6 @@ async function runHost(world: World, transport: Transport, selfId: string, optio
     sendRoster();
   };
 
-  await loadProps(world);
   await add(selfId, controlInput);
   transport.onPeerJoin((id) => {
     void add(id, createControlInput());
@@ -301,7 +303,6 @@ async function runHost(world: World, transport: Transport, selfId: string, optio
     for (const player of players.values()) {
       if (player.puppet) transport.sendFast(encodePoses(PACKET.puppet, player.slot, step, player.puppet.bodies));
     }
-    if (propBodies.length) transport.sendFast(encodePoses(PACKET.props, 0, step, propBodies));
   });
 
   return {
@@ -325,12 +326,9 @@ interface Remote {
 
 async function runClient(world: World, transport: Transport, selfId: string, status: (text: string) => void) {
   const remotes = new Map<string, Remote>();
-  const propsBuffer = new PoseBuffer();
   const clock = new HostClock();
   let hostId: string | undefined;
   let lastPose = 0;
-
-  await loadProps(world, "replicated");
 
   const remove = (id: string) => {
     remotes.get(id)?.puppet?.dispose();
@@ -355,7 +353,6 @@ async function runClient(world: World, transport: Transport, selfId: string, sta
       // A new host counts its steps from 0: forget the old one's time
       hostId = from;
       clock.reset();
-      propsBuffer.clear();
       for (const remote of remotes.values()) remote.buffer.clear();
     }
     for (const [id, remote] of remotes) if (message.slots[id] !== remote.slot) remove(id);
@@ -371,12 +368,11 @@ async function runClient(world: World, transport: Transport, selfId: string, sta
   });
 
   transport.onFast((packet, from) => {
-    if (from !== hostId || (packet[0] !== PACKET.puppet && packet[0] !== PACKET.props)) return;
+    if (from !== hostId || packet[0] !== PACKET.puppet) return;
     const { id, step } = poseHeader(packet);
     const time = step * STEP;
     clock.observe(time);
     lastPose = seconds();
-    if (packet[0] === PACKET.props) return propsBuffer.push(time, packet);
     for (const remote of remotes.values()) if (remote.slot === id) remote.buffer.push(time, packet);
   });
 
@@ -388,7 +384,6 @@ async function runClient(world: World, transport: Transport, selfId: string, sta
     for (const remote of remotes.values()) {
       if (remote.puppet) applyPoses(remote.puppet.bodies, poses, remote.buffer.sample(time, poses));
     }
-    applyPoses(propBodies, poses, propsBuffer.sample(time, poses));
   });
 
   // Every frame: our input to the host, and whether the stage is alive
@@ -408,7 +403,7 @@ async function runClient(world: World, transport: Transport, selfId: string, sta
     puppet: () => remotes.get(selfId)?.puppet,
     puppets: () => [...remotes.values()].sort((a, b) => a.slot - b.slot).map((r) => r.puppet),
     players: () => remotes.size,
-    lost: () => [...remotes.values()].reduce((sum, remote) => sum + remote.buffer.lost, propsBuffer.lost),
+    lost: () => [...remotes.values()].reduce((sum, remote) => sum + remote.buffer.lost, 0),
     pingTarget: () => hostId,
   };
 }

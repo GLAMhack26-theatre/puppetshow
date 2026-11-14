@@ -33,6 +33,8 @@ import { HandTracker, TUNING, quatFromTilt, type HandFrame, type TrackerOutput }
 //   ?replay=synthetic  play the built-in synthetic session instead of the camera
 //   ?replay=<url>      play a recorded session (the JSON from ?record)
 // Keys: M mirror, N take the current hand pose as the new rest pose.
+// Sliders (remembered): the player's own corrections of the cross's pitch and
+// height (HandTracker.pitchTrim, heightTrim).
 
 export interface HandTrackingOptions {
   /** The cross of the puppet being played: limits of its rocking bars, and what the overlay draws */
@@ -48,6 +50,8 @@ export interface HandTrackingOptions {
 const MAX_RECORDING = 5 * 60 * 30; // frames: about five minutes
 /** Without a frame for this long the hand counts as gone (stalled camera or inference) */
 const STALE_MS = 300;
+/** How much of the hand's push against the back string goes sideways on the stage (the rest draws the string back) */
+const HOOK_SIDEWAYS = 0.3;
 
 const params = new URLSearchParams(location.search);
 /** Until setupHandTracking() passes the page's HUD (camera errors can come first) */
@@ -129,11 +133,12 @@ function startReleaseLoop() {
   tick();
 }
 
-/** The cross stays where it is (nothing writes the bar any more); hands open, bars level, the hand bar goes back */
+/** The cross stays where it is (nothing writes the bar any more); hands open, bars level, the hand bar goes back, the back string is let go */
 function letGo() {
   controlInput.grip.left = controlInput.grip.right = false;
   controlInput.rock.legs = controlInput.rock.head = controlInput.rock.hands = 0;
   controlInput.handBar.detached = false;
+  controlInput.hook.id = null; // the engine eases the back string out
 }
 
 // --- tracker → ControlInput --------------------------------------------------
@@ -150,7 +155,25 @@ function createSession(options: HandTrackingOptions, panel: HTMLElement) {
   const limits = { legs: limit("legs"), head: limit("head"), hands: limit("hands") };
   const mainBar = bars.find((b) => !b.parent);
   const handBar = bars.find((b) => b.detachable);
-  if (mainBar && handBar) tracker.frontTip = handBar.pivot.clone().sub(mainBar.pivot).toArray();
+  const headBar = bars.find((b) => b.input === "head");
+  if (mainBar) {
+    // Front is +z: the main bar's rear end is its stick end with the smallest z
+    const rear = mainBar.pivot.z - Math.min(...mainBar.sticks.flatMap((s) => [s.a.z, s.b.z]));
+    const fromPivot = (v: Vector3) => v.clone().sub(mainBar.pivot).toArray();
+    tracker.geometry = {
+      rear,
+      handBar: handBar ? fromPivot(handBar.pivot) : tracker.geometry.handBar,
+      headBar: headBar ? fromPivot(headBar.pivot) : tracker.geometry.headBar,
+      backEye: [0, 0, -rear], // the back string leaves the cross at its rear end
+    };
+    tracker.restHeight = mainBar.pivot.y;
+  }
+  tracker.headLimit = limits.head;
+  // The player's corrections. Pitch: for a camera that looks at the hand from
+  // above or below, or a hand held tilted because it tracks better that way.
+  // Height: when the puppet hangs in the air or sags with the hand at rest.
+  addTrimSlider(panel, "Kreuz heben", "hand-height-trim", 20, "cm", (cm) => (tracker.heightTrim = cm / 100));
+  addTrimSlider(panel, "Kreuz neigen", "hand-pitch-trim", 45, "°", (degrees) => (tracker.pitchTrim = (degrees * Math.PI) / 180));
 
   let mirrorAllowed = true;
   const setMirror = (on: boolean) => {
@@ -207,6 +230,18 @@ function createSession(options: HandTrackingOptions, panel: HTMLElement) {
       bar.rotation.copy(turn.fromArray(quatFromTilt(out.handBar))).multiply(grab.rotation);
     }
     bar.detached = wasDetached = detached;
+
+    // The second hand against the back string: pushed sideways, where the hand is along it
+    const hook = controlInput.hook;
+    hook.id = out.hook.active ? "back" : null;
+    if (out.hook.active) {
+      hook.along = out.hook.along;
+      // The camera only sees the hand go sideways. On the stage the string is
+      // drawn back with it (upstage, away from the puppet's back) and only a
+      // little to the side: a push straight sideways swung and rolled the
+      // puppet (44° for 10 cm), drawn back the same push is a clean bow
+      hook.offset.set(HOOK_SIDEWAYS * out.hook.push, 0, -Math.abs(out.hook.push));
+    }
   }
 
   /** What the overlay says while no hand is connected */
@@ -236,13 +271,50 @@ function createSession(options: HandTrackingOptions, panel: HTMLElement) {
       sample = cross ? { fist: out.grip, wristY: cross.landmarks[0].y } : null;
       sampleAt = performance.now();
       if (release.state.phase === "attached") apply(out);
-      hud.hand = `${release.state.phase}: ${out.status}${out.second ? " + 2" : ""}${out.handBar.detached ? " frei" : ""}`;
+      hud.hand = `${release.state.phase}: ${out.status}${out.second ? " + 2" : ""}${out.handBar.detached ? " Handkreuz" : ""}${out.headBar.held ? " Kopfkreuz" : ""}${out.hook.active ? " Rückenfaden" : ""}`;
       const recNote = recording ? `Aufnahme ${recording.frames.length}` : undefined;
       overlay.draw(video, aspect, out, { mirror: tracker.mirror, note: releaseNote() ?? recNote ?? note });
     },
   };
 }
 type Session = ReturnType<typeof createSession>;
+
+/**
+ * A slider for one of the player's own corrections (± max around 0, whole
+ * units), remembered across visits; a double click puts it back to 0, like
+ * the overlay's place.
+ */
+function addTrimSlider(panel: HTMLElement, text: string, key: string, max: number, unit: string, apply: (value: number) => void) {
+  let stored = 0;
+  try {
+    stored = Number(localStorage.getItem(key)) || 0;
+  } catch {
+    // No storage (private mode): starts at 0
+  }
+  stored = Math.max(-max, Math.min(max, stored));
+  const label = document.createElement("label");
+  const slider = Object.assign(document.createElement("input"), { type: "range", min: String(-max), max: String(max), step: "1", value: String(stored) });
+  const shown = document.createElement("span");
+  const set = (value: number) => {
+    apply(value);
+    shown.textContent = `${value > 0 ? "+" : ""}${value}${unit === "°" ? "" : " "}${unit}`;
+  };
+  set(stored);
+  slider.addEventListener("input", () => {
+    set(Number(slider.value));
+    try {
+      localStorage.setItem(key, slider.value);
+    } catch {
+      // Not remembered then
+    }
+  });
+  label.addEventListener("dblclick", () => {
+    slider.value = "0";
+    slider.dispatchEvent(new Event("input"));
+  });
+  label.append(text, slider, shown);
+  panel.prepend(label);
+}
 
 /** Five decimals are far below landmark noise and keep recordings small */
 const round = (v: number) => Math.round(v * 1e5) / 1e5;

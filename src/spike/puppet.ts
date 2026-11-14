@@ -1,6 +1,5 @@
 import { Euler, Plane, Quaternion, Raycaster, Vector2, Vector3, type World } from "@iwsdk/core";
 import { STRING_IDS, controlInput } from "../input/control-input";
-import { loadProps } from "../props/props";
 import { loadMarionette } from "../puppet/marionette";
 import { spawnPuppet, type Puppet } from "../puppet/puppet";
 import type { RigController } from "../puppet/rig";
@@ -8,16 +7,26 @@ import type { SessionOptions } from "../net/session";
 import { physics, stepPhysics } from "../systems/rapier-system";
 import { hudLines } from "./world";
 
-// The SKKG marionette (src/puppet/) on its control cross with 9 strings,
-// and the SKKG props. Pointer moves the cross, wheel rolls it, Shift+wheel
-// pitches it (bow); Q / E rock the leg bar (walk), A / D the hand bar, Y / X
-// the head bar (or the rocker sliders); H takes the hand bar off the cross:
-// pointer and wheel then move and turn it instead, H again lets it snap back;
-// string sliders pluck single strings; F / G (or the buttons) grip left / right.
+// The SKKG marionette (src/puppet/) on its control cross with 9 strings
+// (props come from the impro panel and scene presets). Pointer moves the
+// cross, wheel rolls it, Shift+wheel pitches it (bow); Q / E rock the leg bar
+// (walk), A / D the hand bar, Y / X the head bar (or the rocker sliders); H
+// takes the hand bar off the cross: pointer and wheel then move and turn it
+// instead, H again lets it snap back; B (held) pushes against the back string,
+// as the other hand or arm would; string sliders pluck single strings; F / G
+// (or the buttons) grip left / right; "Fadenlänge" sets how much longer than
+// the rig's the strings are.
 
 /** Where the pointer can move the bar (real scale: puppet 0.35 m) */
 const BAR_X = 0.55;
 const BAR_Y: [number, number] = [0.35, 1.0];
+
+/** B: how far the back string is pushed, m, and where on it (0 eye … 1 socket) */
+const HOOK_PUSH = 0.1;
+const HOOK_ALONG = 0.5;
+/** Range of the string length slider, m on top of the rig's strings */
+const MAX_STRING_EXTRA = 0.4;
+const STRING_KEY = "string-extra";
 
 /** With a room, the puppets come from the session: one per player (src/net/) */
 export type RoomOptions = Omit<SessionOptions, "hud">;
@@ -33,7 +42,6 @@ export async function setupPuppet(world: World, room?: RoomOptions) {
     puppet = session.puppet;
   } else {
     const single = await spawnPuppet(world);
-    await loadProps(world);
     puppet = () => single;
   }
 
@@ -105,7 +113,46 @@ function setupPointerAndPanel(world: World, controller: RigController) {
     hudLines.handbar = handBar.detached ? "frei (H)" : "am Kreuz (H)";
   });
 
+  // B: the other hand pushes against the back string (ControlInput.hook), which lifts the puppet's seat
+  const pushBack = (on: boolean) => (e: KeyboardEvent) => {
+    if (e.key !== "b" || e.repeat || controlInput.source !== "mouse") return;
+    controlInput.hook.id = on ? "back" : null;
+    controlInput.hook.along = HOOK_ALONG;
+    // Drawn back (upstage) and only a little sideways, as the MediaPipe source does: straight sideways the puppet swings round and rolls
+    controlInput.hook.offset.set(0.3 * HOOK_PUSH, 0, -HOOK_PUSH);
+  };
+  addEventListener("keydown", pushBack(true));
+  addEventListener("keyup", pushBack(false));
+
   const panel = document.getElementById("panel")!;
+  {
+    // How long the strings are: the cross hangs that much higher, the puppet stands the same
+    const label = document.createElement("label");
+    // Remembered: a matter of taste and of the stage picture
+    try {
+      const stored = localStorage.getItem(STRING_KEY);
+      if (stored !== null && Number.isFinite(Number(stored))) controlInput.stringExtra = Math.max(0, Math.min(MAX_STRING_EXTRA, Number(stored)));
+    } catch {
+      // No storage (private mode): the default length
+    }
+    const slider = Object.assign(document.createElement("input"), {
+      type: "range", min: "0", max: String(MAX_STRING_EXTRA), step: "0.01", value: String(controlInput.stringExtra),
+    });
+    const value = document.createElement("span");
+    const show = () => (value.textContent = `+${Math.round(controlInput.stringExtra * 100)} cm`);
+    show();
+    slider.addEventListener("input", () => {
+      controlInput.stringExtra = Number(slider.value);
+      show();
+      try {
+        localStorage.setItem(STRING_KEY, slider.value);
+      } catch {
+        // Not remembered then
+      }
+    });
+    label.append("Fadenlänge", slider, value);
+    panel.append(label);
+  }
   // Rocking bars: slider, or hold a key (released: back to level). Y and Z: the same key on QWERTZ and QWERTY keyboards
   const rockers = [["legs", "Beine (Q/E)", ["q"], "e"], ["hands", "Hände (A/D)", ["a"], "d"], ["head", "Kopf (Y/X)", ["y", "z"], "x"]] as const;
   for (const [rock, text, plusKeys, minus] of rockers) {

@@ -19,7 +19,7 @@ export interface Grabbable {
   held?: boolean;
 }
 
-/** Props register here when they are loaded (props.ts). */
+/** Small props register here when they stand on the stage (props/requisits.ts). */
 export const grabbables: Grabbable[] = [];
 
 export function createGrab(rig: Rig, input: ControlInput, groups = puppetGroups(0, false)) {

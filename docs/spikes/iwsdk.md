@@ -41,7 +41,7 @@ Bundle size (`npm run build`, gzip; IWSDK `1.1.0-rc.2`, Rapier `0.21`, Vite 8):
 
 ## Findings so far
 
-- **`super-three`:** IWSDK uses `three@npm:super-three@0.185.0` plus `@types/three@0.185`. `three/examples/jsm` add-ons (`OrbitControls`, `FontLoader`, `TextGeometry`) resolve and type-check against it. The package doesn't ship `examples/fonts`, so the spike font comes from `scripts/fetch-spike-font.sh`.
+- **`super-three`:** IWSDK uses `three@npm:super-three@0.185.0` plus `@types/three@0.185`. `three/examples/jsm` add-ons (`OrbitControls`, `FontLoader`, `TextGeometry`) resolve and type-check against it. The package doesn't ship `examples/fonts`; the spike font (helvetiker, fetched by a script) was dropped later, and the interop test now hangs plain blocks.
 - **API:** `tsc` passed on the first try. `World.create` options, `world.scene/camera/renderer`, `createSystem`, `createComponent`, `entity.object3D`, `getValue` and the three.js re-exports from `@iwsdk/core` all match what we assumed.
 - **IWSDK version:** npm installed `1.1.0-rc.2`, a release candidate. Pin it or switch to the stable `1.0.x` before phase 1.
 

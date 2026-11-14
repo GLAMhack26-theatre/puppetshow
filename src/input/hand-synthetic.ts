@@ -1,4 +1,4 @@
-import { projectCross, type HandFrame, type Point } from "./hand-tracking.ts";
+import { HandTracker, type HandFrame, type Point } from "./hand-tracking.ts";
 
 // A synthetic hand: a simple articulated hand model posed in front of a
 // pinhole camera, reported the way MediaPipe reports a hand. No camera is
@@ -136,7 +136,8 @@ export interface Recording {
 /**
  * A scripted session at 30 fps with jitter: one hand attaches, moves, tilts,
  * reaches forward, walks the leg bar, tilts the head bar and grips; then a
- * second hand takes the hand bar, moves and turns it and lets it go.
+ * second hand takes the hand bar, moves and turns it and lets it go, takes the
+ * head bar and turns it, and at last pushes against the back string.
  */
 export function demoRecording(): Recording {
   const noise = gaussian(7);
@@ -144,49 +145,52 @@ export function demoRecording(): Recording {
   const ramp = (t: number, from: number, to: number) => Math.max(0, Math.min(1, (t - from) / (to - from)));
   const pulse = (t: number, from: number, to: number) => Math.sin(Math.PI * ramp(t, from, to)); // 0 → 1 → 0
   const wave = (t: number, from: number, to: number, cycles: number) => (t > from && t < to ? Math.sin(2 * Math.PI * cycles * ramp(t, from, to)) : 0);
-  for (let i = 0; i < 30 * 30; i++) {
+  // Cross hand: the player's right hand, on the image's left, held as a hand
+  // holds a cross in front of a screen (palm level, fingers leaning towards the camera)
+  const crossAt = (t: number): SyntheticHand => ({
+    hand: "right",
+    x: 0.34 + 0.1 * wave(t, 2, 5, 1),
+    y: 0.45 - 0.08 * pulse(t, 2, 5),
+    distance: 0.6 - 0.14 * pulse(t, 11, 14),
+    roll: 0.4 * wave(t, 5, 8, 1),
+    pitch: 0.8 + 0.4 * wave(t, 8, 11, 1),
+    index: Math.max(0, wave(t, 14, 17, 2)) * 0.5 + pulse(t, 20, 22),
+    middle: Math.max(0, -wave(t, 14, 17, 2)) * 0.5 + pulse(t, 20, 22),
+    ring: 0.5 * pulse(t, 17, 18.5) + pulse(t, 20, 22),
+    pinky: 0.5 * pulse(t, 17, 18.5) + pulse(t, 20, 22),
+    thumb: 0.9 * pulse(t, 18.5, 20) + 0.6 * pulse(t, 20, 22),
+  });
+  // Where the tracker puts the bars' handles and the back string for this hand
+  // (it rests from 22 s on): a dry run tells. They are in the mirrored picture,
+  // the synthetic hands are placed in the raw camera image.
+  const dry = new HandTracker();
+  let layout = dry.update(0, [], CAMERA.aspect);
+  for (let i = 10; i < 22.5 * 30; i++) layout = dry.update((i / 30) * 1000, [synthesize(crossAt(i / 30))], CAMERA.aspect);
+  const raw = (p: { x: number; y: number }) => ({ x: 1 - p.x / CAMERA.aspect, y: p.y });
+  // Where a pinching hand has to be for its fingers to be at a point
+  const pinching = synthesize({ hand: "left", x: 0, y: 0, distance: 0.6, pinch: 1 }).image;
+  const fingers = { x: (pinching[4].x + pinching[8].x) / 2, y: (pinching[4].y + pinching[8].y) / 2 };
+  const at = (handle: { x: number; y: number }) => ({ x: raw(handle).x - fingers.x + 0.01, y: handle.y - fingers.y + 0.01 });
+  const [handBar, headBar] = [at(layout.handBar.magnet), at(layout.headBar.handle)];
+  const string = { x: raw({ x: layout.hook.line.x, y: 0 }).x, y: Math.min(0.85, layout.hook.line.top + 1.5 * layout.gizmo.unit) };
+
+  for (let i = 0; i < 44 * 30; i++) {
     const t = i / 30;
     const hands: HandFrame[] = [];
-    // Cross hand: the player's right hand, on the image's left
-    const cross: SyntheticHand = {
-      hand: "right",
-      x: 0.34 + 0.1 * wave(t, 2, 5, 1),
-      y: 0.45 - 0.08 * pulse(t, 2, 5),
-      distance: 0.6 - 0.14 * pulse(t, 11, 14),
-      roll: 0.4 * wave(t, 5, 8, 1),
-      pitch: 0.45 * wave(t, 8, 11, 1),
-      index: Math.max(0, wave(t, 14, 17, 2)) * 0.8 + pulse(t, 20, 22),
-      middle: Math.max(0, -wave(t, 14, 17, 2)) * 0.8 + pulse(t, 20, 22),
-      ring: 0.8 * pulse(t, 17, 18.5) + pulse(t, 20, 22),
-      pinky: 0.8 * pulse(t, 17, 18.5) + pulse(t, 20, 22),
-      thumb: 0.9 * pulse(t, 18.5, 20) + 0.6 * pulse(t, 20, 22),
-    };
-    if (t > 0.3) hands.push(synthesize(cross, CAMERA, noise));
-    // Second hand: comes in at 22 s, pinches at the magnet point, carries the bar away and lets go
+    if (t > 0.3) hands.push(synthesize(crossAt(t), CAMERA, noise));
+    let second: SyntheticHand | undefined;
     if (t > 22 && t < 29.5) {
-      // Where the tracker draws the magnet for a level cross with this hand on the left …
-      const palm = 0.09 * (CAMERA.focal / 0.6); // image heights: palm length at 0.6 m
-      const tip = projectCross([0, 0, 0.1395], { pitch: 0, yaw: 0, roll: 0 }, 1);
-      const magnet = { x: cross.x + (tip.x * palm) / CAMERA.aspect, y: cross.y - 0.06 + tip.y * palm };
-      // … and where this hand has to be for its pinching fingers to be there
-      const pinching = synthesize({ hand: "left", x: 0, y: 0, distance: 0.6, pinch: 1 }).image;
-      const fingers = { x: (pinching[4].x + pinching[8].x) / 2, y: (pinching[4].y + pinching[8].y) / 2 };
+      // Pinches at the hand bar's handle, carries the bar away, turns it and lets go
       const carry = pulse(t, 24, 28);
-      hands.unshift(
-        synthesize(
-          {
-            hand: "left",
-            x: magnet.x - fingers.x + 0.02 + 0.12 * carry,
-            y: magnet.y - fingers.y + 0.02 - 0.12 * carry,
-            distance: 0.6,
-            roll: 0.5 * wave(t, 25, 27, 1),
-            pinch: ramp(t, 23, 23.5) - ramp(t, 28, 28.5),
-          },
-          CAMERA,
-          noise,
-        ),
-      );
+      second = { hand: "left", x: handBar.x + 0.12 * carry, y: handBar.y - 0.12 * carry, distance: 0.6, roll: 0.5 * wave(t, 25, 27, 1), pinch: ramp(t, 23, 23.5) - ramp(t, 28, 28.5) };
+    } else if (t > 30 && t < 36.5) {
+      // Pinches at the head bar's handle and turns the hand one way and the other
+      second = { hand: "left", x: headBar.x, y: headBar.y, distance: 0.6, roll: 0.5 * wave(t, 32, 35, 1), pinch: ramp(t, 31, 31.5) - ramp(t, 35, 35.5) };
+    } else if (t > 37 && t < 43.5) {
+      // Open, below the cross hand: moves in from the side against the back string, pushes it and draws back
+      second = { hand: "left", x: string.x + 0.22 - 0.27 * pulse(t, 38, 42.5), y: string.y, distance: 0.6 };
     }
+    if (second) hands.unshift(synthesize(second, CAMERA, noise));
     frames.push({ t: t * 1000, hands });
   }
   return { version: 1, aspect: CAMERA.aspect, frames };

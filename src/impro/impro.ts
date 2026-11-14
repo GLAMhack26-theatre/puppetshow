@@ -1,64 +1,233 @@
 import type { World } from "@iwsdk/core";
+import { manifestFromDrop, manifestFromFile, parseManifest } from "../props/iiif";
+import {
+  addIiifRequisit,
+  enableRequisitDrag,
+  isPlaced,
+  loadRequisits,
+  type Requisit,
+  toggleRequisit,
+} from "../props/requisits";
 import { type Backdrop, currentBackdrop, loadBackdrops, onBackdropChange, setBackdrop } from "../stage/backdrops";
+import { scaleCaption } from "../catalogue";
 import { curtainLift } from "../stage/main-curtain";
+import { onSceneApplied } from "../plays/plays";
 import { createSlider, type Slider } from "./backdrop-slider";
+import { infoHandler } from "./source-info";
+import { soundIcon } from "./sound-icons";
+import { isOn, setOn } from "../audio/audio";
+import {
+  EXCERPTS,
+  type Excerpt,
+  isExcerptPlaying,
+  onExcerptChange,
+  preloadExcerpts,
+  toggleExcerpt,
+} from "../audio/excerpts";
+import iconBackground from "../../assets/ui/icon-background.png";
+import iconLight from "../../assets/ui/icon-light.png";
+import iconRequisites from "../../assets/ui/icon-requisites.png";
+import iconSound from "../../assets/ui/icon-sound.png";
 import "./impro.css";
 
-// Impro mode (the "Impro" sign): the visitor first builds their own stage
-// set. A menu offers "Bühnenbild"; it slides in a panel from the right
-// listing the painted backdrops as paper cards on a night sky
-// (backdrop-slider.ts). A click puts that backdrop at the back of the stage.
-// Props come later.
+// Impro mode (the "Impro" sign): the visitor builds their own stage set.
+// Each side of the screen has a night-sky panel (backdrop-slider.ts) with
+// two pages, picked by round icon buttons that ride along at the panel's
+// scalloped edge: on the right "Hintergrund" (the painted backdrops as paper
+// cards) and "Licht", on the left "Requisiten" (the props, the slider
+// mirrored, props/requisits.ts) and "Sound" (archive.org excerpts,
+// audio/excerpts.ts). Light is an empty sky for now. A golden X under the buttons closes the panel. A click puts the backdrop at the back of the stage
+// or lowers the prop onto it; placed props are dragged around on the floor.
+// The last props card is a drop field for IIIF 3D manifests (props/iiif.ts):
+// the object becomes a new card and lands on the stage at once.
 
+let sides: ReturnType<typeof createSide>[] | null = null;
+
+/**
+ * Shows the impro panels (built on the first call, shown again after a
+ * return to the play choice). Returns the function that hides them again.
+ */
 export function startImpro(world: World) {
-  const backdrops = loadBackdrops(); // starts loading while the curtain goes up
-
-  const menu = element("nav", "impro-menu");
-  const setButton = element("button", "impro-menu-item", "Bühnenbild");
-  setButton.type = "button";
-  menu.append(setButton);
-
-  const panel = element("aside", "impro-panel");
-  panel.setAttribute("aria-label", "Bühnenbild");
-  panel.inert = true;
-  const slider = createSlider();
-  const header = element("header", "impro-panel-header");
-  const close = element("button", "impro-panel-close", "×");
-  close.type = "button";
-  close.setAttribute("aria-label", "Schliessen");
-  header.append(element("h2", "", "Hintergrund"), close);
-  const loading = element("p", "impro-loading", "Lädt …");
-  panel.append(slider.root, header, loading);
-  document.body.append(menu, panel);
-
-  const setOpen = (open: boolean) => {
-    panel.classList.toggle("open", open);
-    panel.inert = !open;
-    if (open) slider.layout();
-    setButton.setAttribute("aria-expanded", String(open));
-  };
-  setButton.addEventListener("click", () => setOpen(!panel.classList.contains("open")));
-  close.addEventListener("click", () => setOpen(false));
-
-  backdrops.then((all) => {
-    loading.remove();
-    fillSlider(world, slider, all);
-  });
-
-  // The menu appears once the main curtain is out of view
+  if (!sides) sides = buildImpro(world);
+  const shown = sides;
+  for (const side of shown) {
+    side.panel.hidden = false;
+    side.refresh();
+  }
+  // The buttons appear once the main curtain is out of view
+  let stopped = false;
   const waitForCurtain = () => {
-    if (curtainLift() >= 1) menu.classList.add("visible");
+    if (stopped) return;
+    if (curtainLift() >= 1) for (const side of shown) side.panel.classList.add("ready");
     else requestAnimationFrame(waitForCurtain);
   };
   waitForCurtain();
+  return () => {
+    stopped = true;
+    for (const side of shown) {
+      side.close();
+      side.panel.classList.remove("ready");
+      side.panel.hidden = true;
+    }
+  };
 }
 
-function fillSlider(world: World, slider: Slider, backdrops: Backdrop[]) {
-  const markSelected = () => {
-    const current = currentBackdrop();
-    slider.setSelected(current ? backdrops.indexOf(current) : null);
+function buildImpro(world: World) {
+  const backdrops = loadBackdrops(); // starts loading while the curtain goes up
+  const requisits = loadRequisits();
+  enableRequisitDrag(world);
+
+  const left = createSide("left", [
+    { title: "Requisiten", icon: iconRequisites },
+    { title: "Sound", icon: iconSound },
+  ]);
+  const right = createSide("right", [
+    { title: "Hintergrund", icon: iconBackground },
+    { title: "Licht", icon: iconLight },
+  ]);
+  // Only one side is open at a time, so the stage stays visible in the middle
+  left.onOpen = right.close;
+  right.onOpen = left.close;
+  const [props, sound] = left.pages;
+  const [set] = right.pages;
+  sound.loaded();
+  fillSounds(sound.slider);
+  // Opening the Sound page loads the start of every excerpt, so a click plays sooner
+  sound.button.addEventListener("click", preloadExcerpts);
+
+  backdrops.then((all) => {
+    set.loaded();
+    fillBackdrops(world, set.slider, all);
+  });
+  props.loaded();
+  fillRequisits(world, props.slider, requisits);
+  return [left, right];
+}
+
+/** Room between the round buttons and the sky's scalloped edge, px. */
+const DOCK_GAP = 30;
+
+/**
+ * One side of the screen: a sky panel with one slider per page, and the dock
+ * (a round button per page, the X below) that is part of the panel, so it
+ * slides with it. Closed, the panel moves out just far enough that the dock
+ * stays at the screen edge (impro.css, --dock-x).
+ */
+function createSide(side: "left" | "right", pageSpecs: { title: string; icon: string }[]) {
+  const panel = element("aside", `impro-panel ${side}`);
+  const header = element("header", "impro-panel-header");
+  const heading = element("h2");
+  header.append(heading);
+  const dock = element("nav", "impro-dock");
+  const close = element("button", "impro-dock-close", "×");
+  close.type = "button";
+  close.setAttribute("aria-label", "Schliessen");
+
+  const pages = pageSpecs.map((spec) => {
+    const slider = createSlider({ mirror: side === "left" });
+    const page = element("section", "impro-page");
+    page.hidden = true;
+    const loading = element("p", "impro-loading", "Lädt …");
+    page.append(slider.root, loading);
+    const button = element("button", "impro-dock-button");
+    button.type = "button";
+    button.title = spec.title;
+    button.setAttribute("aria-label", spec.title);
+    button.setAttribute("aria-pressed", "false");
+    const icon = element("img");
+    icon.src = spec.icon;
+    icon.alt = "";
+    icon.draggable = false;
+    button.append(icon);
+    dock.append(button);
+    return {
+      ...spec,
+      slider,
+      page,
+      button,
+      /** Removes the loading note, or replaces it with a message. */
+      loaded(message?: string) {
+        if (message) loading.textContent = message;
+        else loading.remove();
+      },
+    };
+  });
+  dock.append(close);
+  panel.append(...pages.map((p) => p.page), header, dock);
+  document.body.append(panel);
+  // The light page has no content yet: the bare sky (the sound page is filled by startImpro)
+  for (const p of pages.filter((p) => p.title === "Licht")) {
+    p.slider.setItems([], () => {});
+    p.loaded();
+  }
+
+  let current: (typeof pages)[number] | null = null;
+  const open = (page: (typeof pages)[number] | null) => {
+    current = page;
+    panel.classList.toggle("open", !!page);
+    for (const p of pages) {
+      p.page.hidden = p !== (page ?? pages[0]);
+      p.button.setAttribute("aria-pressed", String(p === page));
+    }
+    // The sky's edge comes in as far on every page (same panel width); the
+    // dock sits just in front of it
+    const shown = page ?? pages[0];
+    shown.slider.layout();
+    const edge = shown.slider.innerEdge();
+    if (edge) panel.style.setProperty("--dock-x", `${edge - DOCK_GAP}px`);
+    heading.textContent = page?.title ?? "";
+    for (const p of pages) p.page.inert = !page;
   };
-  slider.setItems(backdrops, (index) => {
+  const handle = {
+    panel,
+    pages,
+    /** Called when this side opens (startImpro closes the other side then). */
+    onOpen: () => {},
+    close: () => current && open(null),
+    /** Lays the dock out again (shown again after being hidden: nothing was measured meanwhile). */
+    refresh: () => open(current),
+  };
+  for (const p of pages)
+    p.button.addEventListener("click", () => {
+      if (current === p) return open(null);
+      handle.onOpen();
+      open(p);
+    });
+  close.addEventListener("click", () => open(null));
+  addEventListener("resize", () => open(current));
+  open(null);
+
+  return handle;
+}
+
+/** The archive.org excerpts (audio/excerpts.ts): a click plays one, a second click stops it. */
+function fillSounds(slider: Slider) {
+  const markSelected = () => slider.setSelected((i) => isExcerptPlaying(EXCERPTS[i].id));
+  const length = (e: Excerpt) => {
+    const s = Math.round(e.end - e.start);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  };
+  slider.setItems(
+    EXCERPTS.map((e) => ({
+      label: e.label,
+      thumbnail: soundIcon(e.icon),
+      caption: `${e.creator} · ${length(e)}`,
+      onInfo: infoHandler(e.url),
+    })),
+    (index) => {
+      // A card click is a user gesture: it may turn the effects on, as their button does
+      if (!isOn("effects")) setOn("effects", true);
+      toggleExcerpt(EXCERPTS[index].id);
+    },
+  );
+  onExcerptChange(markSelected);
+  markSelected();
+}
+
+function fillBackdrops(world: World, slider: Slider, backdrops: Backdrop[]) {
+  const markSelected = () => slider.setSelected((i) => backdrops[i] === currentBackdrop());
+  const items = backdrops.map((b) => ({ ...b, onInfo: infoHandler(b.source) }));
+  slider.setItems(items, (index) => {
     // A second click on the chosen one takes it off the stage again
     const backdrop = backdrops[index];
     setBackdrop(world, currentBackdrop() === backdrop ? null : backdrop);
@@ -66,7 +235,73 @@ function fillSlider(world: World, slider: Slider, backdrops: Backdrop[]) {
   // Also when another player chose it (src/net/)
   onBackdropChange(markSelected);
   markSelected();
+  onSceneApplied(markSelected); // a scene preset from the director bar
 }
+
+function fillRequisits(world: World, slider: Slider, requisits: Requisit[]) {
+  const markSelected = () => slider.setSelected((i) => i < requisits.length && isPlaced(requisits[i]));
+  const place = async (requisit: Requisit) => {
+    // A second click lifts it off the stage again
+    const placing = toggleRequisit(world, requisit);
+    markSelected(); // at once when lifting off
+    await placing;
+    markSelected(); // after loading when placing
+  };
+  const dropIndex = requisits.length;
+  const hint = "Manifest hierher ziehen oder klicken";
+
+  // The IIIF drop field: a manifest turns into a new card before it, and its object lands on the stage
+  const addManifest = async (read: Promise<{ json: unknown; base: string }>) => {
+    slider.setCaption(dropIndex, "Lädt …");
+    try {
+      const { json, base } = await read;
+      const requisit = addIiifRequisit(parseManifest(json, base));
+      fillRequisits(world, slider, requisits); // requisits now holds the new one
+      if (!isPlaced(requisit)) await place(requisit);
+    } catch (error) {
+      console.warn("IIIF manifest", error);
+      slider.setCaption(dropIndex, error instanceof Error ? error.message : "Fehler beim Laden");
+    }
+  };
+  const picker = document.createElement("input");
+  picker.type = "file";
+  picker.accept = ".json,application/json,application/ld+json";
+  picker.addEventListener("change", () => {
+    const file = picker.files?.[0];
+    if (file) void addManifest(manifestFromFile(file));
+    picker.value = "";
+  });
+
+  const items = [
+    ...requisits.map((r) => ({
+      label: r.label,
+      thumbnail: r.thumbnail,
+      caption: scaleCaption(r.scale),
+      onInfo: infoHandler(r.source),
+    })),
+    { label: "IIIF-Objekt", thumbnail: "", caption: hint, drop: (data: DataTransfer) => void addManifest(manifestFromDrop(data)) },
+  ];
+  slider.setItems(items, (index) => {
+    if (index === dropIndex) picker.click();
+    else void place(requisits[index]);
+  });
+  // Thumbnails without a picture of their own are rendered one after another
+  requisits.forEach((requisit, i) => {
+    requisit.onThumbnail = (url) => slider.setThumbnail(i, url);
+    // Models larger than the stage allows are scaled down once loaded
+    requisit.onScale = (scale) => slider.setCaption(i, scaleCaption(scale));
+  });
+  markSelected();
+  // Filled again for every IIIF object: only the newest list reacts to scene presets
+  sceneMark = markSelected;
+  if (!sceneListener) {
+    sceneListener = true;
+    onSceneApplied(() => sceneMark());
+  }
+}
+
+let sceneMark = () => {};
+let sceneListener = false;
 
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text = "") {
   const el = document.createElement(tag);

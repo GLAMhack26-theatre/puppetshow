@@ -1,0 +1,275 @@
+/* Presentation mode: fullscreen slides in the theatre look of the impro UI
+   (impro.css: Georgia, cream on dark brown). The 3D views are drawn by one
+   transparent canvas above the slides (views.ts), so the slide content
+   leaves their placeholders empty. */
+
+/* Geist (assets/fonts/, SIL Open Font License, see OFL.txt): Geist Sans for
+   titles, Geist Serif for all other text. Geist Serif has a single weight,
+   so bold item titles use Geist Sans instead of a faked bold serif. */
+@font-face {
+  font-family: "Geist";
+  src: url("../../assets/fonts/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Serif";
+  src: url("../../assets/fonts/GeistSerif-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+
+.presentation {
+  --sans: "Geist", system-ui, sans-serif;
+  --serif: "Geist Serif", Georgia, serif;
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  color: #f3e9dc;
+  background: radial-gradient(ellipse at 50% 30%, #3a2219 0%, #1a0f0b 70%);
+  font: 18px/1.45 var(--serif);
+  overflow: hidden;
+}
+.presentation h1,
+.presentation .gestures b {
+  font-family: var(--sans);
+}
+.presentation[hidden] { display: none; }
+
+/* The 3D canvas lies under the slide content: text and panels are
+   always drawn over the models. The slides themselves have no background;
+   only .presentation (behind the canvas) has one. */
+.presentation-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.presentation .slide {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  padding: 4vh 4vw 9vh;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+.presentation .slide[hidden] { display: none; }
+
+.presentation h1 {
+  margin: 0 0 3vh;
+  font-size: clamp(28px, 4.5vh, 52px);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-bottom: 1px solid #f3e9dc33;
+  padding-bottom: 1.5vh;
+}
+
+.presentation .columns {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4vw;
+  align-items: center;
+}
+
+/* Slide 1: two scattered collages (slides.ts, scatter()): photos as prints
+   lying on a table, models floating freely */
+/* Sizes in container units (cqw / cqh of the collage area): an item never
+   exceeds about 30 % of the area's height, whatever the screen's shape, so
+   the slide always fits without scrolling */
+.presentation .scatter {
+  position: relative;
+  align-self: stretch;
+  min-height: 0;
+  container-type: size;
+}
+.presentation .scatter figure {
+  position: absolute;
+  /* left / top are the item's centre (slides.ts) */
+  transform: translate(-50%, -50%) rotate(var(--angle, 0deg));
+}
+
+/* The frame wraps the image; the image is scaled down to fit both caps,
+   never cropped, whatever its aspect ratio */
+.presentation .print {
+  width: fit-content;
+  background: #f6efe2;
+  padding: 0.6vw;
+  border-radius: 2px;
+  box-shadow: 0 0.6vh 2vh rgb(0 0 0 / 0.55);
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+.presentation .print:hover {
+  transform: translate(-50%, -50%) rotate(0deg) scale(1.08);
+  z-index: 20 !important;
+  box-shadow: 0 1.2vh 3.5vh rgb(0 0 0 / 0.6);
+}
+.presentation .print img {
+  width: auto;
+  height: auto;
+  max-width: min(calc(var(--size) * 1cqw), 32cqh);
+  /* With its frame a print stays within twice EDGE_Y (slides.ts) */
+  max-height: 27cqh;
+  aspect-ratio: auto;
+  object-fit: contain;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.presentation .float { width: min(calc(var(--size) * 1cqw), 30cqh); }
+
+/* The marionette in the centre: larger caps than the other objects (slides.ts, FEATURED_SIZE) */
+.presentation .print.featured img { max-width: min(calc(var(--size) * 1cqw), 52cqh); max-height: 44cqh; }
+/* Portrait frame for the tall puppet: more height for the same width */
+.presentation .float.featured { width: min(calc(var(--size) * 1cqw), 40cqh); }
+.presentation .float.featured .view { aspect-ratio: 3 / 4; }
+
+.presentation .float .view {
+  background: none;
+  border: 0;
+}
+.presentation figure { margin: 0; }
+.presentation figure img,
+.presentation .view {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 6px;
+  border: 1px solid #f3e9dc22;
+  display: block;
+}
+.presentation figure img { background: #2a1a14; }
+/* 3D frames stay transparent: the model is drawn underneath them */
+.presentation .view { background: none; }
+.presentation figure img { object-fit: cover; }
+
+.presentation .view { position: relative; }
+.presentation .view:not(.loaded)::after {
+  content: "loading…";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  opacity: 0.6;
+}
+.presentation .view.failed::after { content: "not available"; }
+.presentation .view.large { aspect-ratio: auto; height: 100%; max-height: 72vh; }
+/* Slide 4: the chocolate box fills everything below the title */
+.presentation .view.stage { flex: 1; min-height: 0; aspect-ratio: auto; border: 0; }
+
+/* Slide 2: the demo hand, bottom right of the puppet; above the 3D canvas */
+.presentation .hand-demo {
+  position: absolute;
+  right: 2%;
+  bottom: 2%;
+  width: 34%;
+  aspect-ratio: 4 / 3;
+  z-index: 3;
+  background: rgb(18 10 6 / 0.75);
+  border: 1px solid #f3e9dc33;
+  border-radius: 6px;
+}
+
+/* Slides 2 and 3: text column */
+.presentation .text ul { padding-left: 1.2em; margin: 0; }
+.presentation .text li { margin: 0.9vh 0; font-size: clamp(16px, 2.4vh, 26px); }
+.presentation .text p { font-size: clamp(16px, 2.4vh, 26px); margin: 0 0 1.5vh; }
+.presentation .text .note { opacity: 0.7; font-size: clamp(14px, 2vh, 20px); }
+
+/* Slide 2: few words, large */
+.presentation .text .lead { font-size: clamp(22px, 3.6vh, 40px); margin-bottom: 4vh; }
+.presentation .gestures { list-style: none; padding: 0 !important; margin-bottom: 4vh !important; }
+.presentation .gestures li { display: flex; align-items: center; gap: 0.6em; margin: 2vh 0 !important; font-size: clamp(20px, 3vh, 34px) !important; }
+/* Gesture icons: the demo's MediaPipe hand skeleton as a fine line drawing
+   (hand-demo.ts, handIcon): cream bones, gold joints and hints */
+.presentation .gestures span { flex: none; width: 3.4em; height: 3.6em; }
+.presentation .hand-icon {
+  width: 100%;
+  height: 100%;
+  color: #f3e9dccc;
+  --point: #d4a73a;
+}
+.presentation .hand-icon .bones { stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
+.presentation .hand-icon .joints { fill: var(--point); }
+.presentation .hand-icon .hint { fill: none; stroke: var(--point); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.presentation .hand-icon .touch { stroke-width: 2.2; }
+/* Title, and the description on its own line below it */
+.presentation .gestures b { display: block; }
+.presentation .gestures small {
+  display: block;
+  font-size: 0.78em;
+  opacity: 0.75;
+}
+.presentation .legend { display: flex; flex-wrap: wrap; gap: 0.4em 1.2em; align-items: center; font-size: clamp(14px, 2vh, 20px) !important; }
+.presentation .legend i {
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  border-radius: 50%;
+  background: var(--c);
+  margin-right: -0.8em;
+}
+
+/* Slide 3: outlook icons (icons.ts), same look as the hand icons */
+.presentation .line-icon { width: 100%; height: 100%; }
+.presentation .line-icon g {
+  fill: none;
+  stroke-width: 3.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.presentation .line-icon .line { stroke: #f3e9dccc; }
+.presentation .line-icon .accent { stroke: #d4a73a; }
+
+/* Slide 3: a faint vertical rule between the two columns */
+.presentation .columns.split > :last-child {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  border-left: 1px solid #f3e9dc26;
+  padding-left: 4vw;
+  margin-left: -2vw; /* the rule sits in the middle of the column gap */
+}
+
+/* Slide 3 */
+.presentation .qr { text-align: center; }
+.presentation .qr img {
+  width: min(48vh, 90%);
+  background: #fff;
+  padding: 2vh;
+  border-radius: 8px;
+}
+/* The only text under the QR code */
+.presentation .qr .url { opacity: 0.85; font-size: clamp(16px, 2.6vh, 28px); margin: 2.5vh 0 0; }
+
+.presentation-dots {
+  position: absolute;
+  left: 50%;
+  bottom: 3vh;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  z-index: 3;
+}
+.presentation-dots button {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid #f3e9dc99;
+  background: transparent;
+  cursor: pointer;
+}
+.presentation-dots button[aria-current="true"] { background: #f3e9dc; }
+
+@media (max-width: 800px) {
+  /* Narrow screens: the two halves stacked, still without scrolling */
+  .presentation .columns { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+}

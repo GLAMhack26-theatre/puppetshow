@@ -21,6 +21,8 @@ export const GROUP = {
 export const MAX_PUPPETS = 6;
 const PUPPET_BIT = 0x0010; // slot 0; the next slots take the bits above
 const ALL_PUPPETS = ((1 << MAX_PUPPETS) - 1) * PUPPET_BIT;
+/** Membership bits, to tell what a collider belongs to (audio/impacts.ts): any puppet, the stage, a prop */
+export const MEMBER = { puppet: ALL_PUPPETS, stage: STAGE, prop: PROP };
 
 /**
  * Collision groups of the puppet in `slot`. Its parts never collide with each

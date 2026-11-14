@@ -154,7 +154,9 @@ export function buildRig(root: Object3D, description: RigDescription, options: R
     const capsule = RAPIER.ColliderDesc.capsule(Math.max(0.0005, axis.length() / 2), spec.radius)
       .setRotation(new Quaternion().setFromUnitVectors(Y, axis.clone().normalize()))
       .setMass(spec.mass)
-      .setCollisionGroups(spec.group === "limb" ? groups.limb : groups.body);
+      .setCollisionGroups(spec.group === "limb" ? groups.limb : groups.body)
+      // Contact starts drive the wooden clatter (audio/impacts.ts)
+      .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
 
     // The nearest ancestor that has a body
     let parentName = spec.parent;

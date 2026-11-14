@@ -4,8 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "sounds": "sh scripts/unpack-sounds.sh || echo \"sound effects not unpacked (needs sh and unzip): only ZzFX will play\"",
+    "predev": "npm run sounds --silent",
     "dev": "vite",
+    "predev:https": "npm run sounds --silent",
     "dev:https": "vite --mode https --host",
+    "prebuild": "npm run sounds --silent",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },
@@ -13,7 +17,8 @@
     "@dimforge/rapier3d-compat": "^0.21.0",
     "@iwsdk/core": "^1.1.0-rc.2",
     "@mediapipe/tasks-vision": "^1.2.3",
-    "trystero": "0.27.0"
+    "trystero": "0.27.0",
+    "zzfx": "^1.4.0"
   },
   "devDependencies": {
     "@vitejs/plugin-basic-ssl": "^2.3.0",

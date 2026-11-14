@@ -2,6 +2,7 @@ import RAPIER from "@dimforge/rapier3d-compat";
 import {
   AudioListener,
   Bone,
+  BoxGeometry,
   CylinderGeometry,
   Mesh,
   MeshStandardMaterial,
@@ -14,15 +15,14 @@ import {
   Vector3,
   type World,
 } from "@iwsdk/core";
-import { FontLoader } from "three/examples/jsm/loaders/FontLoader.js";
-import { TextGeometry } from "three/examples/jsm/geometries/TextGeometry.js";
 import { GROUP, addLinked, physics, puppetGroups, renderPose } from "../systems/rapier-system";
 import { hudLines } from "./world";
 
 // T4: plain three.js next to the ECS.
 // - a SkinnedMesh whose bones follow a chain of Rapier bodies
-// - two TextGeometry letters hanging on rope joints (the title screen idea);
-//   tap pushes "S" into "K"
+// - two blocks hanging on rope joints (the title screen idea, letters there);
+//   tap pushes the left one into the right one. Plain boxes since the spike
+//   font (helvetiker) was dropped; TextGeometry itself was confirmed in T4
 // - their collision plays a knock through PositionalAudio (audio unlocked by
 //   the first tap; the knock is generated here, ZzFX comes in phase 4)
 
@@ -32,7 +32,7 @@ export async function setupInterop(world: World) {
   const listener = new AudioListener();
   world.camera.add(listener);
   addSkinnedChain(world);
-  await addLetters(world, listener);
+  addLetters(world, listener);
 }
 
 function addSkinnedChain(world: World) {
@@ -96,17 +96,13 @@ function addSkinnedChain(world: World) {
   });
 }
 
-async function addLetters(world: World, listener: AudioListener) {
+function addLetters(world: World, listener: AudioListener) {
   const pw = physics.world;
-  // scripts/fetch-spike-font.sh: super-three doesn't ship examples/fonts
-  const font = await new FontLoader().loadAsync("/fonts/helvetiker_bold.typeface.json");
   const material = new MeshStandardMaterial({ color: 0xe8c872, metalness: 0.2, roughness: 0.5 });
 
-  const letter = (char: string, x: number) => {
-    const geometry = new TextGeometry(char, { font, size: 0.28, depth: 0.06, curveSegments: 6 });
-    geometry.center();
-    geometry.computeBoundingBox();
-    const size = geometry.boundingBox!.getSize(new Vector3());
+  const letter = (x: number) => {
+    const size = new Vector3(0.2, 0.28, 0.06); // about the size of a title letter
+    const geometry = new BoxGeometry(size.x, size.y, size.z);
     const mesh = new Mesh(geometry, material);
     const { body, collider } = addLinked(
       world,
@@ -125,8 +121,8 @@ async function addLetters(world: World, listener: AudioListener) {
     return { mesh, body, collider: collider! };
   };
 
-  const s = letter("S", 0.25);
-  const k = letter("K", 0.5);
+  const s = letter(0.25);
+  const k = letter(0.5);
 
   const knock = new PositionalAudio(listener);
   knock.setBuffer(makeKnock(listener.context));
