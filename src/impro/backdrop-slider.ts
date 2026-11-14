@@ -59,6 +59,11 @@ export interface Slider {
   setSelected(isSelected: (index: number) => boolean): void;
   /** Re-measures the panel (on open and on resize). */
   layout(): void;
+  /**
+   * How far the sky's scalloped edge stands in from the panel's inner side
+   * at its middle (where it comes furthest in), in px; 0 before layout.
+   */
+  innerEdge(): number;
 }
 
 export function createSlider({ mirror = false } = {}): Slider {
@@ -275,6 +280,7 @@ export function createSlider({ mirror = false } = {}): Slider {
   return {
     root,
     layout,
+    innerEdge: () => (W && H ? edgeX(0) : 0),
     setItems(items, onPick) {
       for (const card of cards) card.remove();
       dropCard = null;

@@ -1,34 +1,5 @@
-/* Impro mode UI: menu button and the backdrop panel (paper-theatre slider). */
-
-.impro-menu {
-  position: fixed;
-  left: 50%;
-  bottom: max(12px, env(safe-area-inset-bottom));
-  transform: translate(-50%, 12px);
-  display: flex;
-  gap: 8px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.4s, transform 0.4s;
-  z-index: 10;
-}
-.impro-menu.visible {
-  opacity: 1;
-  transform: translate(-50%, 0);
-  pointer-events: auto;
-}
-.impro-menu-item {
-  color: #f3e9dc;
-  background: #2a1a14e6;
-  border: 1px solid #f3e9dc55;
-  border-radius: 6px;
-  padding: 8px 14px;
-  font: 600 14px/1 Georgia, serif;
-  cursor: pointer;
-}
-.impro-menu-item[aria-expanded="true"] {
-  background: #6b2a1ee6;
-}
+/* Impro mode UI: the sky panels on both sides (paper-theatre slider) with
+   their dock of round buttons. */
 
 /* Slides in from the right. Wide enough for the curve of cards: a quarter
    of the screen on desktop, but at least 240px so phones get usable cards. */
@@ -39,7 +10,10 @@
   bottom: 0;
   width: clamp(240px, 25vw, 420px);
   color: #f3e6c8;
-  transform: translateX(105%);
+  /* Closed, it moves out only so far that the dock stays at the screen edge:
+     the dock's outer side is --dock-x in from the panel's inner side */
+  --dock-w: 56px;
+  transform: translateX(calc(100% - var(--dock-x, 0px) - 10px));
   transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
   /* Only the sky (clipped) and the header take clicks; the transparent part
      left of the scalloped edge lets clicks through to the stage */
@@ -64,14 +38,6 @@
   margin: 0;
   font: 400 18px/1.1 Georgia, serif;
   letter-spacing: 0.02em;
-}
-.impro-panel-close {
-  color: inherit;
-  background: none;
-  border: 0;
-  font-size: 24px;
-  line-height: 1;
-  cursor: pointer;
 }
 .impro-loading {
   position: absolute;
@@ -332,7 +298,7 @@
 .impro-panel.left {
   left: 0;
   right: auto;
-  transform: translateX(-105%);
+  transform: translateX(calc(-100% + var(--dock-x, 0px) + 10px));
 }
 .impro-panel.left.open {
   transform: translateX(0);
@@ -441,4 +407,89 @@
 }
 .fake-popup-close:hover {
   background: #823526;
+}
+
+/* ---- Dock: round icon buttons per page and the golden X, at the sky's
+   scalloped edge (impro.ts sets --dock-x from the slider's layout) ---- */
+.impro-page {
+  position: absolute;
+  inset: 0;
+}
+.impro-dock {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--dock-x, 0px) - var(--dock-w));
+  width: var(--dock-w);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  transform: translateY(-50%);
+  opacity: 0;
+  transition: opacity 0.4s;
+  z-index: 3;
+}
+.impro-panel.left .impro-dock {
+  left: auto;
+  right: calc(var(--dock-x, 0px) - var(--dock-w));
+}
+/* Shown once the main curtain is up */
+.impro-panel.ready .impro-dock {
+  opacity: 1;
+  pointer-events: auto;
+}
+.impro-dock-button {
+  width: var(--dock-w);
+  height: var(--dock-w);
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 50%;
+  box-shadow: 0 4px 10px #0008;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.impro-dock-button img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.impro-dock-button:hover {
+  transform: scale(1.08);
+}
+.impro-dock-button[aria-pressed="true"] {
+  box-shadow: 0 4px 10px #0008, 0 0 0 3px #d8aa4a;
+}
+.impro-dock-button:focus-visible,
+.impro-dock-close:focus-visible {
+  outline: 2px solid #f3e6c8;
+  outline-offset: 3px;
+}
+/* Golden, without a background; only there while the panel is open */
+.impro-dock-close {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  color: #d8aa4a;
+  background: none;
+  border: 0;
+  font: 400 40px/1 Georgia, serif;
+  text-shadow: 0 1px 2px #0009, 0 0 8px #000a;
+  cursor: pointer;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.3s, transform 0.15s, visibility 0.3s;
+}
+.impro-panel.open .impro-dock-close {
+  visibility: visible;
+  opacity: 1;
+}
+.impro-dock-close:hover {
+  color: #f2d58c;
+  transform: scale(1.12);
+}
+@media (max-width: 600px) {
+  .impro-panel {
+    --dock-w: 46px;
+  }
 }

@@ -13,13 +13,19 @@ import { scaleCaption } from "../catalogue";
 import { curtainLift } from "../stage/main-curtain";
 import { createSlider, type Slider } from "./backdrop-slider";
 import { infoHandler } from "./source-info";
+import iconBackground from "../../assets/ui/icon-background.png";
+import iconLight from "../../assets/ui/icon-light.png";
+import iconRequisites from "../../assets/ui/icon-requisites.png";
+import iconSound from "../../assets/ui/icon-sound.png";
 import "./impro.css";
 
 // Impro mode (the "Impro" sign): the visitor builds their own stage set.
-// The menu offers "Bühnenbild", a panel from the right listing the painted
-// backdrops as paper cards on a night sky (backdrop-slider.ts), and
-// "Requisiten", the same slider mirrored on the left listing the props
-// (props/requisits.ts). A click puts the backdrop at the back of the stage
+// Each side of the screen has a night-sky panel (backdrop-slider.ts) with
+// two pages, picked by round icon buttons that ride along at the panel's
+// scalloped edge: on the right "Hintergrund" (the painted backdrops as paper
+// cards) and "Licht", on the left "Requisiten" (the props, the slider
+// mirrored, props/requisits.ts) and "Sound". Light and sound are empty skies
+// for now. A golden X under the buttons closes the panel. A click puts the backdrop at the back of the stage
 // or lowers the prop onto it; placed props are dragged around on the floor.
 // The last props card is a drop field for IIIF 3D manifests (props/iiif.ts):
 // the object becomes a new card and lands on the stage at once.
@@ -29,10 +35,19 @@ export function startImpro(world: World) {
   const requisits = loadRequisits();
   enableRequisitDrag(world);
 
-  const menu = element("nav", "impro-menu");
-  const set = createPanel(menu, "Bühnenbild", "Hintergrund", "right");
-  const props = createPanel(menu, "Requisiten", "Requisiten", "left");
-  document.body.append(menu);
+  const left = createSide("left", [
+    { title: "Requisiten", icon: iconRequisites },
+    { title: "Sound", icon: iconSound },
+  ]);
+  const right = createSide("right", [
+    { title: "Hintergrund", icon: iconBackground },
+    { title: "Licht", icon: iconLight },
+  ]);
+  // Only one side is open at a time, so the stage stays visible in the middle
+  left.onOpen = right.close;
+  right.onOpen = left.close;
+  const [props] = left.pages;
+  const [set] = right.pages;
 
   backdrops.then((all) => {
     set.loaded();
@@ -41,51 +56,106 @@ export function startImpro(world: World) {
   props.loaded();
   fillRequisits(world, props.slider, requisits);
 
-  // The menu appears once the main curtain is out of view
+  // The buttons appear once the main curtain is out of view
   const waitForCurtain = () => {
-    if (curtainLift() >= 1) menu.classList.add("visible");
+    if (curtainLift() >= 1) for (const side of [left, right]) side.panel.classList.add("ready");
     else requestAnimationFrame(waitForCurtain);
   };
   waitForCurtain();
 }
 
-/** A menu button and the slider panel it opens on one side of the screen. */
-function createPanel(menu: HTMLElement, buttonText: string, title: string, side: "left" | "right") {
-  const button = element("button", "impro-menu-item", buttonText);
-  button.type = "button";
-  button.setAttribute("aria-expanded", "false");
-  menu.append(button);
+/** Room between the round buttons and the sky's scalloped edge, px. */
+const DOCK_GAP = 30;
 
+/**
+ * One side of the screen: a sky panel with one slider per page, and the dock
+ * (a round button per page, the X below) that is part of the panel, so it
+ * slides with it. Closed, the panel moves out just far enough that the dock
+ * stays at the screen edge (impro.css, --dock-x).
+ */
+function createSide(side: "left" | "right", pageSpecs: { title: string; icon: string }[]) {
   const panel = element("aside", `impro-panel ${side}`);
-  panel.setAttribute("aria-label", title);
-  panel.inert = true;
-  const slider = createSlider({ mirror: side === "left" });
   const header = element("header", "impro-panel-header");
-  const close = element("button", "impro-panel-close", "×");
+  const heading = element("h2");
+  header.append(heading);
+  const dock = element("nav", "impro-dock");
+  const close = element("button", "impro-dock-close", "×");
   close.type = "button";
   close.setAttribute("aria-label", "Schliessen");
-  header.append(element("h2", "", title), close);
-  const loading = element("p", "impro-loading", "Lädt …");
-  panel.append(slider.root, header, loading);
+
+  const pages = pageSpecs.map((spec) => {
+    const slider = createSlider({ mirror: side === "left" });
+    const page = element("section", "impro-page");
+    page.hidden = true;
+    const loading = element("p", "impro-loading", "Lädt …");
+    page.append(slider.root, loading);
+    const button = element("button", "impro-dock-button");
+    button.type = "button";
+    button.title = spec.title;
+    button.setAttribute("aria-label", spec.title);
+    button.setAttribute("aria-pressed", "false");
+    const icon = element("img");
+    icon.src = spec.icon;
+    icon.alt = "";
+    icon.draggable = false;
+    button.append(icon);
+    dock.append(button);
+    return {
+      ...spec,
+      slider,
+      page,
+      button,
+      /** Removes the loading note, or replaces it with a message. */
+      loaded(message?: string) {
+        if (message) loading.textContent = message;
+        else loading.remove();
+      },
+    };
+  });
+  dock.append(close);
+  panel.append(...pages.map((p) => p.page), header, dock);
   document.body.append(panel);
+  // The second pages (light, sound) have no content yet: the bare sky
+  for (const p of pages.slice(1)) {
+    p.slider.setItems([], () => {});
+    p.loaded();
+  }
 
-  const setOpen = (open: boolean) => {
-    panel.classList.toggle("open", open);
-    panel.inert = !open;
-    if (open) slider.layout();
-    button.setAttribute("aria-expanded", String(open));
+  let current: (typeof pages)[number] | null = null;
+  const open = (page: (typeof pages)[number] | null) => {
+    current = page;
+    panel.classList.toggle("open", !!page);
+    for (const p of pages) {
+      p.page.hidden = p !== (page ?? pages[0]);
+      p.button.setAttribute("aria-pressed", String(p === page));
+    }
+    // The sky's edge comes in as far on every page (same panel width); the
+    // dock sits just in front of it
+    const shown = page ?? pages[0];
+    shown.slider.layout();
+    const edge = shown.slider.innerEdge();
+    if (edge) panel.style.setProperty("--dock-x", `${edge - DOCK_GAP}px`);
+    heading.textContent = page?.title ?? "";
+    for (const p of pages) p.page.inert = !page;
   };
-  button.addEventListener("click", () => setOpen(!panel.classList.contains("open")));
-  close.addEventListener("click", () => setOpen(false));
+  const handle = {
+    panel,
+    pages,
+    /** Called when this side opens (startImpro closes the other side then). */
+    onOpen: () => {},
+    close: () => current && open(null),
+  };
+  for (const p of pages)
+    p.button.addEventListener("click", () => {
+      if (current === p) return open(null);
+      handle.onOpen();
+      open(p);
+    });
+  close.addEventListener("click", () => open(null));
+  addEventListener("resize", () => open(current));
+  open(null);
 
-  return {
-    slider,
-    /** Removes the loading note, or replaces it with a message. */
-    loaded(message?: string) {
-      if (message) loading.textContent = message;
-      else loading.remove();
-    },
-  };
+  return handle;
 }
 
 function fillBackdrops(world: World, slider: Slider, backdrops: Backdrop[]) {
