@@ -12,17 +12,27 @@
       #tests a, #panel button { color: inherit; background: #0009; padding: 6px 8px; border-radius: 6px; text-decoration: none; border: 0; font: inherit; }
       #panel { position: fixed; bottom: 8px; left: 8px; right: 8px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
       #panel label { display: flex; gap: 4px; align-items: center; background: #0009; padding: 4px 8px; border-radius: 6px; }
+      /* Old-film vignette over the 3D view (canvas, curtain), under the UI:
+         right after #app and without z-index, so every later positioned
+         element (buttons, HUD, impro menu and slider) paints over it */
+      #vignette {
+        position: fixed; inset: 0; pointer-events: none;
+        background: radial-gradient(ellipse 75% 70% at 50% 50%, transparent 55%, rgb(18 10 6 / 0.35) 78%, rgb(10 5 3 / 0.85) 100%);
+        box-shadow: inset 0 0 6vmin 2vmin rgb(10 5 3 / 0.7);
+      }
       #preview { position: fixed; bottom: 60px; right: 8px; width: 160px; height: 120px; border-radius: 6px; background: #0009; }
     </style>
   </head>
   <body>
     <div id="app"></div>
+    <div id="vignette"></div>
     <div id="hud"></div>
     <nav id="tests">
       <a href="?test=world">world</a>
       <a href="?test=puppet">puppet</a>
       <a href="?test=mediapipe">mediapipe</a>
       <a href="?test=interop">interop</a>
+      <a href="?test=nocurtain">impro</a>
     </nav>
     <div id="panel"></div>
     <script type="module" src="/src/main.ts"></script>

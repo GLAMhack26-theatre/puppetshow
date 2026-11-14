@@ -100,6 +100,15 @@ export function raiseMainCurtain() {
   curtain.raising = true;
 }
 
+/**
+ * Starts with the curtain already out of view (?test=nocurtain, for faster
+ * development): nothing is loaded, everything waiting for it goes ahead.
+ */
+export function skipMainCurtain() {
+  curtain.raising = true;
+  curtain.raise = 1;
+}
+
 export function isMainCurtainDown() {
   return !curtain.raising;
 }
