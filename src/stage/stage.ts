@@ -140,6 +140,11 @@ export function isCurtainOpen() {
   return curtain.target === 1;
 }
 
+/** How far the curtain is rolled up right now: 0 closed … 1 open. */
+export function curtainOpenness() {
+  return curtain.open;
+}
+
 // The curtain rolls up around its top edge (scale y towards 0) instead of
 // sliding up, which would show it above the stage front
 function applyCurtain() {

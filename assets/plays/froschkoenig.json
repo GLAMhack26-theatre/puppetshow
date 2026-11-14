@@ -1,0 +1,83 @@
+{
+  "name": "Der Froschkönig",
+  "scenes": [
+    {
+      "name": "Am Brunnen",
+      "backdrop": "Seelandschaft",
+      "props": [
+        {
+          "id": "Kugel_38896.3",
+          "x": 0.68,
+          "z": 0.62,
+          "yaw": 0
+        }
+      ]
+    },
+    {
+      "name": "Im Schloss",
+      "backdrop": "Inside_Castle",
+      "props": [
+        {
+          "id": "Stuhl_25210.6",
+          "x": 0.25,
+          "z": 0.45,
+          "yaw": 15
+        },
+        {
+          "id": "Becher_48468.21",
+          "x": 0.72,
+          "z": 0.55,
+          "yaw": 0
+        },
+        {
+          "id": "Kugel_38896.3",
+          "x": 0.62,
+          "z": 0.7,
+          "yaw": 0
+        }
+      ]
+    },
+    {
+      "name": "Im Schlafgemach",
+      "backdrop": "Inside_Castle",
+      "props": [
+        {
+          "id": "Laterne_kuenstlich",
+          "x": 0.831,
+          "z": 0.515,
+          "yaw": -9.3
+        },
+        {
+          "id": "Truhe_46955",
+          "x": 0.617,
+          "z": 0.384,
+          "yaw": 16.1
+        }
+      ]
+    },
+    {
+      "name": "Akt 1",
+      "backdrop": "Inside_Castle",
+      "props": [
+        {
+          "id": "Kugel_38896.3",
+          "x": 0.43,
+          "z": 0.761,
+          "yaw": -12.3
+        },
+        {
+          "id": "Becher_48468.21",
+          "x": 0.102,
+          "z": 0.178,
+          "yaw": 7.2
+        },
+        {
+          "id": "Bett_44012",
+          "x": 0.374,
+          "z": 0.384,
+          "yaw": -2.8
+        }
+      ]
+    }
+  ]
+}

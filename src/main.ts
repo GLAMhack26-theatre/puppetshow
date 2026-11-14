@@ -5,6 +5,8 @@ import { addLighting } from "./stage/lighting";
 import { MainCurtainSystem, loadMainCurtain, skipMainCurtain } from "./stage/main-curtain";
 import { SignSystem, loadSigns, onPlayChosen } from "./stage/signs";
 import { startImpro } from "./impro/impro";
+import { startDirector } from "./plays/director";
+import { startPlay } from "./plays/scene-buttons";
 import { BackdropSystem } from "./stage/backdrops";
 import { RequisitSystem } from "./props/requisits";
 import { SpotlightSystem } from "./stage/spotlights";
@@ -16,6 +18,8 @@ import { FpsSystem } from "./spike/world";
 // led by the hand in front of the camera (the mouse until the camera runs).
 // ?test=nocurtain is the same without the main curtain and the signs,
 // straight into impro mode, for faster development (the "impro" debug button).
+// &play=<id> with nocurtain starts that play's scenes (assets/plays/)
+// instead of impro mode. In impro mode the director bar builds the scenes.
 // Phase 0 spike tests (docs/spikes/iwsdk.md; src/spike/ is removed once the
 // spike is done): ?test=world (orbit camera, no puppet), ?test=puppet (mouse
 // only, no camera), ?test=interop.
@@ -46,20 +50,31 @@ world.registerSystem(BackdropSystem);
 world.registerSystem(RequisitSystem);
 world.registerSystem(SpotlightSystem);
 
+// Scene presets place props relative to the stage floor: they wait for it
+let stageLoaded = () => {};
+const stageReady = new Promise<void>((resolve) => (stageLoaded = resolve));
+const chosenPlay = (play: string) => {
+  if (play === "impro") {
+    startImpro(world);
+    startDirector(world);
+  } else void startPlay(world, play, stageReady);
+};
+
 if (test === "nocurtain") {
   skipMainCurtain();
-  startImpro(world);
+  chosenPlay(new URLSearchParams(location.search).get("play") ?? "impro");
 } else {
   // First, so the curtain already covers the screen while the stage loads
   await loadMainCurtain(world);
   await loadSigns(world);
-  onPlayChosen((play) => play === "impro" && startImpro(world));
+  onPlayChosen(chosenPlay);
   // The click on a sign also starts the camera: it is the user gesture
   // camera access needs. Registered here, before the stage and the puppet
   // load: the signs can be clicked long before those are ready.
   if (handControl) onPlayChosen(() => void startHandTracking());
 }
 await loadStage(world);
+stageLoaded();
 addLighting(world);
 // Spike: V (Vorhang) toggles the curtain (later: closed on the title, opens on Play)
 addEventListener("keydown", (e) => e.key === "v" && setCurtain(!isCurtainOpen()));

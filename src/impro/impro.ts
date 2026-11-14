@@ -11,6 +11,7 @@ import {
 import { type Backdrop, currentBackdrop, loadBackdrops, setBackdrop } from "../stage/backdrops";
 import { scaleCaption } from "../catalogue";
 import { curtainLift } from "../stage/main-curtain";
+import { onSceneApplied } from "../plays/plays";
 import { createSlider, type Slider } from "./backdrop-slider";
 import { infoHandler } from "./source-info";
 import iconBackground from "../../assets/ui/icon-background.png";
@@ -168,6 +169,7 @@ function fillBackdrops(world: World, slider: Slider, backdrops: Backdrop[]) {
     markSelected();
   });
   markSelected();
+  onSceneApplied(markSelected); // a scene preset from the director bar
 }
 
 function fillRequisits(world: World, slider: Slider, requisits: Requisit[]) {
@@ -224,7 +226,16 @@ function fillRequisits(world: World, slider: Slider, requisits: Requisit[]) {
     requisit.onScale = (scale) => slider.setCaption(i, scaleCaption(scale));
   });
   markSelected();
+  // Filled again for every IIIF object: only the newest list reacts to scene presets
+  sceneMark = markSelected;
+  if (!sceneListener) {
+    sceneListener = true;
+    onSceneApplied(() => sceneMark());
+  }
 }
+
+let sceneMark = () => {};
+let sceneListener = false;
 
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text = "") {
   const el = document.createElement(tag);

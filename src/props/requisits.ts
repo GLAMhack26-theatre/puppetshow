@@ -117,6 +117,8 @@ interface Placed {
   localBox: Box3;
   /** "lower" 0→1, "lift" 1→0, "drag" follows the pointer, "rest" is dynamic. */
   mode: "lower" | "lift" | "drag" | "rest";
+  /** Set while it is lifted to be moved: lowered here instead of removed (scene presets). */
+  next?: { x: number; z: number; yaw: number };
   t: number;
   x: number;
   z: number;
@@ -249,23 +251,109 @@ function loadModel(requisit: Requisit): Promise<Model> {
 
 export function isPlaced(requisit: Requisit) {
   const p = placed.get(requisit);
-  return !!p && p.mode !== "lift";
+  return !!p && (p.mode !== "lift" || !!p.next);
 }
 
 /** Lowers the prop onto a free spot, or lifts it off again if it stands there. */
 export async function toggleRequisit(world: World, requisit: Requisit) {
   const existing = placed.get(requisit);
   if (existing) {
-    if (existing.mode === "lift") existing.mode = "lower";
-    else liftOff(existing);
+    if (existing.mode === "lift") {
+      existing.mode = "lower";
+      existing.next = undefined;
+    } else liftOff(existing);
     return;
   }
+  await placeRequisit(world, requisit);
+}
+
+/**
+ * A spot on the stage floor as stored in scene presets: x 0 (left edge) … 1
+ * (right edge), z 0 (back edge) … 1 (front edge), yaw in degrees. Relative
+ * to the floor, so presets survive a rescaled stage model.
+ */
+export interface FloorSpot {
+  id: string;
+  x: number;
+  z: number;
+  yaw: number;
+}
+
+/** The props standing on the stage now (not those being lifted off), in floor coordinates. */
+export function placedRequisits(): FloorSpot[] {
+  const half = stageBounds.width / 2;
+  const depth = stageBounds.frontZ - stageBounds.backZ || 1;
+  const round = (n: number, digits: number) => Math.round(n * 10 ** digits) / 10 ** digits;
+  return [...placed.values()]
+    .filter((p) => p.mode !== "lift" || p.next)
+    .map((p) => {
+      // Where it is headed when it is being moved or lowered, else where it stands
+      const at = p.next ?? (p.mode === "rest" ? { ...p.body.translation(), yaw: yawOf(p.body.rotation()) } : p);
+      return {
+        id: p.requisit.id,
+        x: round((at.x - (stageBounds.centerX - half)) / (2 * half || 1), 3),
+        z: round((at.z - stageBounds.backZ) / depth, 3),
+        yaw: round((at.yaw * 180) / Math.PI, 1),
+      };
+    });
+}
+
+/** Floor coordinates (FloorSpot) to a world spot for a prop of this footprint. */
+function fromFloor(spot: FloorSpot, radius: number) {
+  const half = stageBounds.width / 2;
+  const b = floor(radius);
+  const x = stageBounds.centerX - half + spot.x * 2 * half;
+  const z = stageBounds.backZ + spot.z * (stageBounds.frontZ - stageBounds.backZ);
+  return {
+    x: Math.min(b.maxX, Math.max(b.minX, x)),
+    z: Math.min(b.maxZ, Math.max(b.minZ, z)),
+    yaw: (spot.yaw * Math.PI) / 180,
+  };
+}
+
+/**
+ * Sets the stage to exactly these props (a scene preset): others are lifted
+ * off, missing ones lowered onto their spots, and those standing elsewhere
+ * go up and come down again at their new spot. Unknown ids are skipped.
+ */
+export async function arrangeRequisits(world: World, spots: FloorSpot[]) {
+  const all = loadRequisits();
+  const wanted = new Map<Requisit, FloorSpot>();
+  for (const spot of spots) {
+    const requisit = all.find((r) => r.id === spot.id);
+    if (requisit) wanted.set(requisit, spot);
+    else console.warn(`Scene preset: unknown prop ${spot.id}`);
+  }
+  for (const p of placed.values()) {
+    if (!wanted.has(p.requisit) && (p.mode !== "lift" || p.next)) {
+      p.next = undefined;
+      if (p.mode !== "lift") liftOff(p);
+    }
+  }
+  await Promise.all(
+    [...wanted].map(async ([requisit, spot]) => {
+      const p = placed.get(requisit);
+      if (!p) return placeRequisit(world, requisit, spot);
+      const target = fromFloor(spot, p.radius);
+      const at = p.body.translation();
+      const yawNow = p.mode === "rest" ? yawOf(p.body.rotation()) : p.yaw;
+      // Close enough (it may only have been nudged): leave it standing
+      if (p.mode !== "lift" && Math.hypot(at.x - target.x, at.z - target.z) < 0.01 && Math.abs(yawNow - target.yaw) < 0.05) return;
+      p.next = target;
+      if (p.mode !== "lift") liftOff(p);
+    }),
+  );
+}
+
+/** Lowers the prop onto the stage: onto a preset spot, or else onto a free one. */
+async function placeRequisit(world: World, requisit: Requisit, at?: FloorSpot) {
   const model = await loadModel(requisit);
   if (placed.has(requisit)) return; // clicked twice while loading
   const { size } = model;
   const radius = Math.hypot(size.x, size.z) / 2;
-  const spot = freeSpot(radius);
-  const yaw = (Math.random() - 0.5) * 0.6; // a little askew, like set down by hand
+  const target = at ? fromFloor(at, radius) : null;
+  const spot = target ? new Vector2(target.x, target.z) : freeSpot(radius);
+  const yaw = target ? target.yaw : (Math.random() - 0.5) * 0.6; // a little askew, like set down by hand
 
   const holder = new Group();
   holder.name = requisit.id;
@@ -391,7 +479,16 @@ export class RequisitSystem extends createSystem({}) {
         if (p.mode === "lower" && p.t === 1) {
           p.mode = "rest";
           setDynamic(p);
-        } else if (p.mode === "lift" && p.t === 0) remove(p);
+        } else if (p.mode === "lift" && p.t === 0) {
+          if (p.next) {
+            // Moved by a scene preset: comes down again at its new spot
+            ({ x: p.x, z: p.z, yaw: p.yaw } = p.next);
+            p.next = undefined;
+            p.body.setTranslation({ x: p.x, y: p.halfHeight + DROP, z: p.z }, true);
+            p.body.setRotation(yawQuat(p.yaw), true);
+            p.mode = "lower";
+          } else remove(p);
+        }
       } else if (p.mode === "drag") {
         p.body.setNextKinematicTranslation({ x: p.x, y: p.halfHeight + DRAG_LIFT, z: p.z });
       } else if (p.body.translation().y < -FELL_OFF) {
