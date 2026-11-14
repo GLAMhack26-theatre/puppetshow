@@ -13,20 +13,30 @@ export const STRING_IDS = [
 ] as const;
 export type StringId = (typeof STRING_IDS)[number];
 export type ControlSource = "mouse" | "mediapipe" | "phone" | "remote-phone" | "xr-3dof" | "xr-6dof";
-/** The cross's two rocking bars (export/marionette_rig.json, controller.bars[].input) */
-export type RockId = "hands" | "legs";
-/** Rocking range, rad: further would flip strings over the bar */
+/** The cross's rocking bars (export/marionette_rig.json, controller.bars[].input) */
+export type RockId = "hands" | "legs" | "head";
+/** Default rocking range, rad (a bar's own limit_deg in the rig JSON overrides it): further would flip strings over the bar */
 export const MAX_ROCK = 0.6;
 
 export const controlInput = {
   // The main bar of the cross; set to its rest position when the puppet is created (strings.ts)
   bar: { position: new Vector3(0, 0.62, 0), rotation: new Quaternion() },
   /**
-   * Rocking angle of the hand bar and the leg bar, rad (±MAX_ROCK), about the
-   * main bar's long axis; + lifts the puppet's left (.L) string. Rocking the
-   * leg bar walks, rocking the hand bar lifts one hand and lowers the other.
+   * Rocking angle of the hand bar, the leg bar and the head bar, rad (clamped
+   * to each bar's limit), about the main bar's long axis; + lifts the puppet's
+   * left (.L) string. Rocking the leg bar walks, rocking the hand bar lifts one
+   * hand and lowers the other, rocking the head bar tilts the head.
    */
-  rock: { hands: 0, legs: 0 } as Record<RockId, number>,
+  rock: { hands: 0, legs: 0, head: 0 } as Record<RockId, number>,
+  /**
+   * The hand bar sits on the front tip of the main bar like on a magnet and
+   * can be taken off. While `detached`, the source writes its world pose here
+   * and the bar leaves the cross (its strings stay on it, so the puppet's
+   * hands follow); otherwise the engine keeps the pose at where the bar sits
+   * (strings.ts), so that a source taking it off starts from there. When it
+   * is let go, the engine eases it back onto the magnet.
+   */
+  handBar: { detached: false, position: new Vector3(), rotation: new Quaternion() },
   /** 0…1 per string: how far it is pulled up, on top of the cross (plucking a single string) */
   pulls: Object.fromEntries(STRING_IDS.map((id) => [id, 0])) as Record<StringId, number>,
   grip: { left: false, right: false },

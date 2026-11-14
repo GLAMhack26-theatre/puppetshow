@@ -10,12 +10,14 @@ All dimensions are authored as fractions of the total height H (hat top to
 sole) and measured on the orthographic front/side reference photos.
 Real object size (SKKG catalogue): 35 x 14 x 7.5 cm  ->  H = 0.35 m.
 
-Rest pose: arms hanging down, as a marionette rests on its strings. The arm and
-sleeve geometry is generated along X (simple lofts) and immediately rotated into
-the hanging pose, which then becomes the rest pose of the rig and the export.
+Rest pose: arms hanging down, as a marionette rests on its strings. The wooden arms
+are generated along X (simple lofts) and turned down in two steps: first spread out a
+bit, the pose the dress sleeves are lofted in, then down to the hanging pose, where the
+sleeves are lofted again around them. That becomes the rest pose of the rig and the export.
 
-Controller: the real SKKG 9-string cross (main bar, shoulder crossbar, head bar
-below it, a rocking leg bar in the middle and a rocking hand bar at the front).
+Controller: the real SKKG 9-string cross (main bar, shoulder crossbar, a hinged head
+bar below it, a rocking leg bar in the middle and a rocking, detachable hand bar at
+the front).
 
 Conventions: Z up, the puppet faces -Y, character left = +X (".L" bones).
 """
@@ -713,6 +715,94 @@ SLEEVE_BANDS = (0.193, 0.250, 0.306)
 EDGE = 0.011   # target edge length (H units) ~ 3.9 mm on the real 35 cm puppet
 
 
+ARM_SPREAD_DEG = 45     # the sleeves are lofted around arms spread this far below horizontal
+SLEEVE_FAN = 12         # rings between the armhole and the first gathered band
+SLEEVE_GAP = 0.0026     # H: a sleeve wall stays this far off the bodice / skirt (0.9 mm)
+SLEEVE_CAP_DEG = 40     # how steeply the sleeve cap rises out of the armhole's top edge
+
+
+def sleeve_rings(side, lp, psi, psi_u, ends, arm_deg, xs, rprof, clear):
+    """Rings of one sleeve after its armhole loop `lp`, around an arm turned `arm_deg` down
+    from horizontal about the shoulder joint. Returns (rings, squash): rings as (M, 3) arrays
+    in H units, one per arm coordinate in `xs`; squash = how far each ring's body side had to
+    move out to stay clear of the body.
+
+    Every ring is an ellipse between an outer and an inner point in the arm's plane of motion.
+    The first SLEEVE_FAN rings fan out of the armhole: their outer points run over the sleeve
+    cap, their inner points only the short way under the arm. A plain tube rotated about the
+    shoulder joint would have to fold its underside into the body instead (the armpit folds
+    this replaces). Past the fan the rings sit on the arm; `clear` keeps their body side off
+    the body, so a sleeve hanging against it is flattened there instead of running through."""
+    th = math.radians(arm_deg)
+    J = np.array((SHOULDER[0], SHOULDER[2])); ay = SHOULDER[1]
+    d = np.array((math.cos(th), -math.sin(th)))                  # along the arm
+    n = np.array((math.sin(th), math.cos(th)))                   # across: the sleeve's outer side
+    L = lp.copy(); L[:, 0] *= side                               # work on the left arm, mirror back
+    A, B = (np.array((abs(e[0]), e[2])) for e in ends)           # armhole top / bottom, (x, z)
+    rad = lambda s: float(rprof(min(max(SHOULDER[0] + s, SLEEVE_R[0][0]), SLEEVE_R[-1][0])))
+    outer = lambda s: J + s * d + rad(s) * n
+
+    def inner(s):
+        q = J + s * d - rad(s) * n
+        return np.array((max(q[0], clear(q[1])), q[1])), max(0.0, clear(q[1]) - q[0])
+
+    def hermite(p0, t0, p1, t1, count=80):
+        u = np.linspace(0, 1, count)[:, None]
+        return ((2 * u ** 3 - 3 * u ** 2 + 1) * p0 + (u ** 3 - 2 * u ** 2 + u) * t0
+                + (-2 * u ** 3 + 3 * u ** 2) * p1 + (u ** 3 - u ** 2) * t1)
+
+    def resample(pts, steps):
+        # by arc length; the first rings closer together, where the armhole's corners still
+        # have to turn into the round sleeve
+        acc = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(pts, axis=0), axis=1))])
+        w = np.array(([0.5, 0.7, 0.85] + [1.0] * steps)[:steps])
+        at = np.concatenate([[0], np.cumsum(w)]) / w.sum() * acc[-1]
+        return np.stack([np.interp(at, acc, pts[:, k]) for k in (0, 1)], axis=1)
+
+    # the two rails of the fan: over the cap to the sleeve's outer side / down under the arm
+    s_fan = xs[SLEEVE_FAN - 1] - SHOULDER[0]
+    cap = math.radians(SLEEVE_CAP_DEG)
+    span = np.linalg.norm(outer(0.0) - A)
+    rail_o = np.concatenate([hermite(A, np.array((math.cos(cap), math.sin(cap))) * span, outer(0.0), d * span),
+                             [outer(s) for s in np.linspace(0, s_fan, 60)[1:]]])
+    end, _ = inner(s_fan)
+    rail_i = hermite(B, end - B, end, d * np.linalg.norm(end - B))
+    rail_i[1:, 0] = np.maximum(rail_i[1:, 0], [clear(z) for z in rail_i[1:, 1]])
+    rail_o, rail_i = resample(rail_o, SLEEVE_FAN), resample(rail_i, SLEEVE_FAN)
+
+    def frame(o, i):
+        v = o - i; a = np.linalg.norm(v) / 2; e = v / (2 * a)
+        return (o + i) / 2, e, a, np.array((e[1], -e[0]))        # centre, axis, half length, normal
+
+    # the armhole in its own frame: carried along and blended into the ellipse over 4 rings
+    c0, e0, a0, n0 = frame(A, B)
+    y0 = (L[:, 1].max() + L[:, 1].min()) / 2; b0 = (L[:, 1].max() - L[:, 1].min()) / 2
+    hu = (L[:, [0, 2]] - c0) @ e0; hv = L[:, 1] - y0; hw = (L[:, [0, 2]] - c0) @ n0
+    rings, squash = [], []
+    for i, xa in enumerate(xs, start=1):
+        if i <= SLEEVE_FAN:
+            o, q = rail_o[i], rail_i[i]; sq = 0.0
+        else:
+            o = outer(xa - SHOULDER[0]); q, sq = inner(xa - SHOULDER[0])
+        c, e, a, nn = frame(o, q)
+        r0 = rad(xa - SHOULDER[0])
+        bl = smoothstep(0, 5, i); k = smoothstep(0, 4, i)
+        puff = smoothstep(0.024, 0.034, r0)
+        pts = []
+        for m in range(len(L)):
+            ps = psi[m] * (1 - bl) + psi_u[m] * bl
+            # gathers of the puffs; smooth on the body side, where the sleeve lies against the body
+            wr = 1 + puff * smoothstep(-0.6, 0.2, math.sin(ps)) * (
+                0.07 * math.sin(6 * ps + 40 * xa) + 0.04 * math.sin(11 * ps - 25 * xa + 1.3))
+            ell = c + a * wr * math.sin(ps) * e
+            hole = c + a / a0 * hu[m] * e + (1 - k) * hw[m] * nn
+            xz = hole * (1 - k) + ell * k
+            y = (y0 + hv[m] * (1 + (r0 / b0 - 1) * k)) * (1 - k) + (ay + r0 * wr * math.cos(ps)) * k
+            pts.append((side * xz[0], y, xz[1]))
+        rings.append(np.array(pts)); squash.append(sq)
+    return rings, squash
+
+
 def build_dress(M, coll):
     bod = Profile(["a", "bf", "bb"], BODICE)
     skt = Profile(["a", "bf", "bb"], SKIRT)
@@ -829,7 +919,22 @@ def build_dress(M, coll):
             fmat.append(mat)
             fregion.append("skirt" if r < waist_r else "bodice")
 
-    # ---- sleeves, welded to the armhole boundary loops
+    # ---- sleeves, welded to the armhole boundary loops. They are lofted around the arms in
+    # the spread pose, where the armpit and the sleeve cap come out clean; the same rings
+    # lofted around the hanging arms are kept for sleeves_to_rest()
+    pel = Profile(["a", "bf", "bb"], TORSO_PELVIS)
+
+    def sleeve_clear(z):
+        """Smallest |x| for a sleeve wall at height z: just off the fitted bodice; below the
+        waist off a skirt pressed onto the hip (settle_dress dents the skirt in under the arm)."""
+        waist = bod("a", WAIST_Z) + SLEEVE_GAP
+        if z >= WAIST_Z:
+            return bod("a", min(z, BODICE[-3][0])) + SLEEVE_GAP
+        if z < TORSO_PELVIS[0][0]:
+            return 0.0
+        k = smoothstep(WAIST_Z - 0.02, WAIST_Z, z)
+        return (pel("a", z) + 0.0046 + SLEEVE_GAP) * (1 - k) + waist * k
+
     sleeve_info = {}
     for side, (j0, j1) in holes.items():
         loop = [vid(rh0, j) for j in range(j0, j1)] + [vid(r, j1) for r in range(rh0, rh1)] + \
@@ -842,50 +947,46 @@ def build_dress(M, coll):
         psi = np.unwrap(np.arctan2(lp[:, 2] - az, lp[:, 1] - ay))
         direction = 1 if psi[-1] > psi[0] else -1
         psi_u = psi[0] + direction * 2 * math.pi * np.arange(Mloop) / Mloop
-        x_start = float(np.max(np.abs(lp[:, 0]))) + 0.008
         rprof = pchip([s[0] for s in SLEEVE_R], [s[1] for s in SLEEVE_R])
-        xs_ = [x_start]
+        # ring stations as arm coordinates (the x of an arm stretched out sideways): the first
+        # puff fans out of the armhole, then finer steps around the gathered bands and the cuff
+        x_start = float(np.max(np.abs(lp[:, 0]))) + 0.008
+        xs_ = list(np.linspace(x_start, SLEEVE_BANDS[0] - 0.0055, SLEEVE_FAN + 1)[1:])
         while xs_[-1] < SLEEVE_R[-1][0] - 1e-6:
-            # finer steps around the gathered bands and the cuff
             near = min(abs(xs_[-1] - b) for b in SLEEVE_BANDS + (0.345,))
             xs_.append(min(xs_[-1] + (0.0055 if near < 0.012 else 0.0085), SLEEVE_R[-1][0]))
+        jc = (j0 + j1) // 2
+        ends = (np.array(verts[vid(rh1, jc)]), np.array(verts[vid(rh0, jc)]))    # armhole top, bottom
+        spread, _ = sleeve_rings(side, lp, psi, psi_u, ends, ARM_SPREAD_DEG, xs_, rprof, sleeve_clear)
+        rest, squash = sleeve_rings(side, lp, psi, psi_u, ends, ARM_HANG_DEG, xs_, rprof, sleeve_clear)
         ring_ids = [loop]
-        sl_rows = [lp]
-        for i, xa in enumerate(xs_):
-            bl = smoothstep(0, 4, i + 1)                 # blend from hole shape to circle
-            r0 = float(rprof(xa))
-            pts = []
-            for m in range(Mloop):
-                ps = psi[m] * (1 - bl) + psi_u[m] * bl
-                puff = smoothstep(0.024, 0.034, r0)
-                wr = 1 + 0.07 * puff * math.sin(6 * ps + 40 * xa) + 0.04 * puff * math.sin(11 * ps - 25 * xa + 1.3)
-                circ = np.array((side * xa, ay + r0 * wr * math.cos(ps), az + r0 * wr * math.sin(ps)))
-                hole_pt = lp[m] + np.array((side * (xa - abs(lp[m][0])), 0, 0))
-                c = smoothstep(0, 3, i + 1)
-                pts.append(hole_pt * (1 - c) + circ * c)
-            ids = list(range(len(verts), len(verts) + Mloop))
+        for pts in spread:
+            ring_ids.append(list(range(len(verts), len(verts) + Mloop)))
             verts.extend(tuple(p) for p in pts)
-            ring_ids.append(ids); sl_rows.append(np.array(pts))
-        # u along circumference (metres/tile), v along the sleeve
+        sl_rows = [lp] + spread
+        xn = [2 * xs_[0] - xs_[1]] + xs_                  # arm coordinate per ring (ring 0: the armhole)
+        # u along the circumference (metres/tile), v along the sleeve (mean ring distance)
+        vs = np.concatenate([[0], np.cumsum([np.linalg.norm(sl_rows[i + 1] - sl_rows[i], axis=1).mean()
+                                             for i in range(len(sl_rows) - 1)])])
         for i in range(len(ring_ids) - 1):
             A, B = ring_ids[i], ring_ids[i + 1]
-            xa = (abs(sl_rows[i][:, 0].mean()) + abs(sl_rows[i + 1][:, 0].mean())) / 2
+            xa = (xn[i] + xn[i + 1]) / 2
             for m in range(Mloop):
                 m1 = (m + 1) % Mloop
                 faces.append((A[m], A[m1], B[m1], B[m]) if side > 0 else (A[m], B[m], B[m1], A[m1]))
                 circ = 2 * math.pi * float(rprof(min(max(xa, 0.1), 0.358)))
                 u0, u1 = m / Mloop * circ / TILE, (m + 1) / Mloop * circ / TILE
-                v0, v1 = (i * 0.007) / TILE, ((i + 1) * 0.007) / TILE
+                v0, v1 = vs[i] / TILE, vs[i + 1] / TILE
                 fuv.append([(u0, v0), (u1, v0), (u1, v1), (u0, v1)] if side > 0
                            else [(u0, v0), (u0, v1), (u1, v1), (u1, v0)])
                 fmat.append(1 if any(abs(xa - b) < 0.0065 for b in SLEEVE_BANDS) else 0)
                 fregion.append("sleeve")
-        sleeve_info[side] = (ring_ids, [0.0] + [abs(x) for x in xs_])
+        sleeve_info[side] = {"rings": ring_ids, "xs": [0.0] + xs_, "rest": [lp] + rest,
+                             "squash": [0.0] + squash, "psi": psi_u}
 
     ob = make_mesh_object("Dress", verts, faces, coll, fuv, fmat)
-    # orientation: outward from the body axis
-    fix_normals(ob, outward_from=lambda c: Vector((0, 0, c.z)) if abs(c.x) < 0.1 * H
-                else Vector((c.x, SHOULDER[1] * H, SHOULDER[2] * H)))
+    # orientation: outward from the body axis (the bodice and skirt decide the sign)
+    fix_normals(ob, outward_from=lambda c: Vector((0, 0, c.z)))
     set_mats(ob, [M["satin"], M["velvet"]])
 
     # ---- pin weights (1 = follows the skeleton, 0 = fully simulated)
@@ -897,16 +998,24 @@ def build_dress(M, coll):
             else:
                 k = waist_r - r                              # rows below the waist
                 pin[vid(r, j)] = (1.0, 0.5, 0.15)[k] if k < 3 else 0.0
-    for side, (ring_ids, xs_) in sleeve_info.items():
-        for i, ids in enumerate(ring_ids):
-            xa = xs_[i] if i else 0.0
+    for side, info in sleeve_info.items():
+        for i, ids in enumerate(info["rings"]):
+            xa = info["xs"][i]
             w = (1.0, 0.3)[i] if i < 2 else 0.0             # armhole seam
             for b in SLEEVE_BANDS:                           # elastic bands (softer at the elbow)
                 peak = 0.4 if abs(b - ELBOW_X) < 0.01 else 1.0
                 w = max(w, peak * (1.0 - abs(xa - b) / 0.009))
             w = max(w, 1.0 - abs(xa - 0.345) / 0.007)        # gathered cuff
-            for vi in ids:
-                pin[vi] = max(pin[vi], min(1.0, w))
+            for m, vi in enumerate(ids):
+                wv = w
+                if i:
+                    # under the arm the rings bunch up (short edges) and the cloth is trapped
+                    # between arm and body: it follows the skeleton there
+                    gap = float(np.linalg.norm(info["rest"][i][m] - info["rest"][i - 1][m]))
+                    wv = max(wv, 1.0 - smoothstep(0.004, 0.009, gap) if i <= SLEEVE_FAN else 0.0,
+                             smoothstep(0.0, 0.004, info["squash"][i])
+                             * smoothstep(0.35, 0.8, -math.sin(info["psi"][m])))
+                pin[vi] = max(pin[vi], min(1.0, wv))
     vg = ob.vertex_groups.new(name="pin")
     for i, w in enumerate(pin):
         if w > 0:
@@ -956,9 +1065,11 @@ CTRL_Z = 1.75   # controller height in H units at rest (~26 cm above the hat)
 # the controller bones; the rocking bars pivot about an axis along the main bar.
 #   main bar 16 cm (front-back) .. rear-end eye: back string
 #   shoulder crossbar 11 cm, fixed, 2.5 cm from the rear end: shoulder strings
-#   head bar ~9 cm, fixed, on a post below the shoulder cross: head strings
+#   head bar ~9 cm, hinged at its centre on a post below the shoulder cross, rocks
+#     up to 45 deg: head strings
 #   leg bar 12 cm on a 5 cm post, pin 3.5 cm down, rocks: knee strings
-#   hand bar 15 cm on a pivot screw at the front tip, rocks: hand strings
+#   hand bar 15 cm on a pivot at the front tip, rocks; it only clings there (like a
+#     magnet), so the second hand can take it off and move it freely: hand strings
 # Estimates (not measured): head bar width and drop, hand bar pivot at its centre.
 # ---------------------------------------------------------------------------
 STICK = 0.009
@@ -972,18 +1083,24 @@ HEAD_HALF, SHOULDER_HALF, LEG_HALF, HAND_HALF = 0.045, 0.055, 0.06, 0.075
 LEG_PIN_DROP, LEG_POST = 0.035, 0.05
 LEG_PIVOT = (0.0, Y_LEG - STICK, CZ - LEG_PIN_DROP)     # the bar sits in front of its post
 HAND_PIVOT = (0.0, Y_FRONT - STICK / 2, CZ)             # the bar sits in front of the tip
+HEADBAR_PIVOT = (0.0, Y_SHOULDER, CZ - HEAD_DROP)       # hinge at the bar's centre, on its post
+ROCK_LIMIT_DEG = 34.4                                    # leg / hand bar: further would flip strings over the bar
+HEADBAR_LIMIT_DEG = 45.0
 EYE = STICK / 2                                          # eyes on the underside of the sticks
 
-CROSS_BARS = [  # name, parent, pivot (metres), rocking axis or None, ControlInput.rock key
-    ("CTRL_bar", None, (0.0, Y_SHOULDER, CZ), None, None),
-    ("CTRL_legbar", "CTRL_bar", LEG_PIVOT, (0.0, -1.0, 0.0), "legs"),
-    ("CTRL_handbar", "CTRL_bar", HAND_PIVOT, (0.0, -1.0, 0.0), "hands"),
+CROSS_BARS = [  # name, parent, pivot (metres), rocking axis or None, ControlInput.rock key,
+    #               rocking limit (+- degrees) or None, detachable
+    ("CTRL_bar", None, (0.0, Y_SHOULDER, CZ), None, None, None, False),
+    ("CTRL_headbar", "CTRL_bar", HEADBAR_PIVOT, (0.0, -1.0, 0.0), "head", HEADBAR_LIMIT_DEG, False),
+    ("CTRL_legbar", "CTRL_bar", LEG_PIVOT, (0.0, -1.0, 0.0), "legs", ROCK_LIMIT_DEG, False),
+    ("CTRL_handbar", "CTRL_bar", HAND_PIVOT, (0.0, -1.0, 0.0), "hands", ROCK_LIMIT_DEG, True),
 ]
+ROCKING_BARS = [b[0] for b in CROSS_BARS if b[3]]
 CROSS_STICKS = [  # bar, a, b (metres): drawn as 9 mm square sticks
     ("CTRL_bar", (0, Y_REAR, CZ), (0, Y_FRONT, CZ)),
     ("CTRL_bar", (-SHOULDER_HALF, Y_SHOULDER, CZ), (SHOULDER_HALF, Y_SHOULDER, CZ)),
     ("CTRL_bar", (0, Y_SHOULDER, CZ), (0, Y_SHOULDER, CZ - HEAD_DROP)),
-    ("CTRL_bar", (-HEAD_HALF, Y_SHOULDER, CZ - HEAD_DROP), (HEAD_HALF, Y_SHOULDER, CZ - HEAD_DROP)),
+    ("CTRL_headbar", (-HEAD_HALF, Y_SHOULDER, CZ - HEAD_DROP), (HEAD_HALF, Y_SHOULDER, CZ - HEAD_DROP)),
     ("CTRL_bar", (0, Y_LEG, CZ), (0, Y_LEG, CZ - LEG_POST)),
     ("CTRL_legbar", (-LEG_HALF, LEG_PIVOT[1], LEG_PIVOT[2]), (LEG_HALF, LEG_PIVOT[1], LEG_PIVOT[2])),
     ("CTRL_handbar", (-HAND_HALF, HAND_PIVOT[1], CZ), (HAND_HALF, HAND_PIVOT[1], CZ)),
@@ -993,8 +1110,8 @@ STRING_TOP = {
     "string_back": ("CTRL_bar", (0.0, Y_REAR, CZ - EYE)),
     "string_shoulder.L": ("CTRL_bar", (SHOULDER_HALF, Y_SHOULDER, CZ - EYE)),
     "string_shoulder.R": ("CTRL_bar", (-SHOULDER_HALF, Y_SHOULDER, CZ - EYE)),
-    "string_head.L": ("CTRL_bar", (HEAD_HALF, Y_SHOULDER, CZ - HEAD_DROP - EYE)),
-    "string_head.R": ("CTRL_bar", (-HEAD_HALF, Y_SHOULDER, CZ - HEAD_DROP - EYE)),
+    "string_head.L": ("CTRL_headbar", (HEAD_HALF, Y_SHOULDER, CZ - HEAD_DROP - EYE)),
+    "string_head.R": ("CTRL_headbar", (-HEAD_HALF, Y_SHOULDER, CZ - HEAD_DROP - EYE)),
     "string_knee.L": ("CTRL_legbar", (LEG_HALF, LEG_PIVOT[1], LEG_PIVOT[2] - EYE)),
     "string_knee.R": ("CTRL_legbar", (-LEG_HALF, LEG_PIVOT[1], LEG_PIVOT[2] - EYE)),
     "string_hand.L": ("CTRL_handbar", (HAND_HALF, HAND_PIVOT[1], CZ - EYE)),
@@ -1039,16 +1156,17 @@ def build_armature(coll):
     return ob
 
 
-def rest_pose_arms_down(rig, meshes):
-    """Turn the generated horizontal arms down into the hanging rest pose: pose the upper
-    arms, bake the deformation into every skinned mesh, then make that pose the rest pose."""
+def pose_arms(rig, meshes, deg):
+    """Turn the upper arms `deg` further down, bake that into the rigid arm meshes and make
+    it the rig's rest pose. The dress is not deformed here: its sleeves are lofted for the
+    pose (build_dress / sleeves_to_rest), a skinned rotation would fold them."""
     bpy.context.view_layer.objects.active = rig
     bpy.ops.object.mode_set(mode="POSE")
     for sfx, s in (("L", 1), ("R", -1)):
         pb = rig.pose.bones[f"upper_arm.{sfx}"]
         head = pb.bone.head_local
         # about the forward axis through the shoulder: +X arm (L) turns down for +angle about +Y
-        rot = (Matrix.Translation(head) @ Matrix.Rotation(math.radians(s * ARM_HANG_DEG), 4, "Y")
+        rot = (Matrix.Translation(head) @ Matrix.Rotation(math.radians(s * deg), 4, "Y")
                @ Matrix.Translation(-head))
         pb.matrix = rot @ pb.bone.matrix_local
     bpy.context.view_layer.update()
@@ -1064,79 +1182,173 @@ def rest_pose_arms_down(rig, meshes):
         attach(ob, rig)
 
 
-def settle_dress(dress, bodies, rig, margin=0.0016, radius=0.022, iters=15):
-    """Lowering the arms folds the sleeve roots into the bodice and lays the arms against the
-    skirt: relax the dress around the armpits (Laplacian smoothing), dent the skirt where the
-    arms rest, and push every vertex that ended up inside a body part back out to the surface
-    + margin, so the rest pose is collision-free for the cloth solver."""
-    bm = bmesh.new(); bm.from_mesh(dress.data); bm.verts.ensure_lookup_table()
-    # Taubin smoothing (shrink / inflate) around each shoulder joint: evens out the folded
-    # armpit and the stretched sleeve cap without shrinking the sleeve puff
-    joints = [rig.data.bones[f"upper_arm.{sfx}"].head_local for sfx in ("L", "R")]
-    region = [v for v in bm.verts if v.link_edges and min((v.co - j).length for j in joints) < radius]
-    for i in range(iters * 2):
-        lam = 0.5 if i % 2 == 0 else -0.53
-        new = {}
-        for v in region:
-            nb = [e.other_vert(v).co for e in v.link_edges]
-            new[v] = v.co + (sum(nb, Vector()) / len(nb) - v.co) * lam
-        for v, co in new.items():
-            v.co = co
-    # the skirt / bodice gives way where the forearms and hands rest against it: push those
-    # vertices towards the body axis until they clear the limb (sleeve) capsules
-    dl = bm.verts.layers.deform.verify()
-    arm_groups = {vg.index for vg in dress.vertex_groups if vg.name.startswith(("upper_arm", "forearm", "hand"))}
-    caps = []
-    for sfx in ("L", "R"):
-        for bone, r in ((f"forearm.{sfx}", 0.034 * H), (f"hand.{sfx}", 0.022 * H)):
-            b = rig.data.bones[bone]
-            caps.append((b.head_local.copy(), b.tail_local.copy(), r + margin))
+def sleeves_to_rest(dress, sleeve_info):
+    """Move the sleeves from the spread loft onto the hanging arms (same rings, re-lofted)."""
+    for info in sleeve_info.values():
+        for ids, pts in zip(info["rings"][1:], info["rest"][1:]):
+            for vi, pt in zip(ids, pts):
+                dress.data.vertices[vi].co = Vector(pt) * H
+    dress.data.update()
+
+
+def _inside(tree, p, direction):
+    """Ray parity: is p inside the closed (or tube-like, across the ray) surface of `tree`?"""
+    hits, o = 0, p.copy()
+    for _ in range(12):
+        loc = tree.ray_cast(o, direction)[0]
+        if loc is None:
+            break
+        hits += 1; o = loc + direction * 1e-5
+    return hits % 2 == 1
+
+
+def self_intersections(bm):
+    """Pairs of faces of `bm` that cut through each other (faces sharing a vertex excluded)."""
+    bm.faces.ensure_lookup_table()
+    tree = BVHTree.FromBMesh(bm)
+    out = []
+    for a, b in tree.overlap(tree):
+        if a < b and not {v.index for v in bm.faces[a].verts} & {v.index for v in bm.faces[b].verts}:
+            out.append((bm.faces[a], bm.faces[b]))
+    return out
+
+
+def settle_dress(dress, bodies, limbs, sleeve_info, n_body, margin=0.0016):
+    """The hanging arms lie against the dress. Make the rest pose free of intersections, so
+    it looks clean and a cloth solver starts collision-free:
+    - every vertex inside a wooden part is pushed back out to its surface + margin;
+    - the skirt gives way where the sleeves and hands rest on it (dented in towards the body,
+      as far as the wood under it allows);
+    - sleeve faces still cutting the fitted bodice move out, skirt faces cutting a sleeve in.
+    `bodies` carry the bodice and skirt (chest, pelvis), `limbs` the arms and hands."""
+    gap = SLEEVE_GAP * H
+    bm = bmesh.new(); bm.from_mesh(dress.data)
+    bm.verts.ensure_lookup_table(); bm.faces.ensure_lookup_table()
+    sleeve = {vi for info in sleeve_info.values() for ids in info["rings"][1:] for vi in ids}
+    dg = bpy.context.evaluated_depsgraph_get()
+    body_trees = [BVHTree.FromObject(o, dg) for o in bodies]
+    limb_trees = [BVHTree.FromObject(o, dg) for o in limbs]
+
+    def clearance(trees, p):
+        """Signed distance of p to the nearest of the wooden parts (negative: inside), and
+        the direction out of it."""
+        best = (1.0, None)
+        for t in trees:
+            loc, nrm, _, _ = t.find_nearest(p, 0.01)
+            if loc is not None and (p - loc).dot(nrm) < best[0]:
+                best = ((p - loc).dot(nrm), nrm)
+        return best
+
+    def out_of_wood():
+        # along the surface normal by what is missing; where two parts meet (waist), leaving
+        # one can enter the other: repeat until nothing moves
+        moved = 0
+        for _ in range(20):
+            changed = 0
+            for v in bm.verts:
+                if not v.link_edges:
+                    continue
+                trees, m = (limb_trees, 0.0006) if v.index in sleeve else (body_trees, margin)
+                for t in trees:
+                    loc, nrm, _, _ = t.find_nearest(v.co, 0.01)
+                    if loc is not None and (v.co - loc).dot(nrm) < m - 1e-6:
+                        v.co += nrm * (m - (v.co - loc).dot(nrm)); changed += 1
+            moved += changed
+            if not changed:
+                break
+        return moved
+    moved = out_of_wood()
+
+    # ---- the skirt dents in under the sleeves and the hands
+    def tube(side):                 # the sleeve as an obstacle (open only at the cuff and the armhole)
+        ids = {vi for ids in sleeve_info[side]["rings"] for vi in ids}
+        sub = bmesh.new()
+        vmap = {vi: sub.verts.new(bm.verts[vi].co) for vi in ids}
+        for f in bm.faces:
+            if all(v.index in ids for v in f.verts):
+                sub.faces.new([vmap[v.index] for v in f.verts])
+        tree = BVHTree.FromBMesh(sub); sub.free()
+        return tree
+    obstacles = {side: [tube(side)] + [BVHTree.FromObject(o, dg) for o in limbs
+                                       if o.name.startswith("Hand") and o.name.endswith("L" if side > 0 else "R")]
+                 for side in sleeve_info}
+
+    def blocked(p, side):
+        for t in obstacles[side]:
+            if t.find_nearest(p, gap)[0] is not None or _inside(t, p, Vector((side, 0, 0))):
+                return True
+        return False
     dented = []
     for v in bm.verts:
-        if sum(w for g, w in v[dl].items() if g in arm_groups) > 0.3:
-            continue                                    # the sleeves themselves
-        for a, b, r in caps:
-            ab = b - a
-            t = max(0.0, min(1.0, (v.co - a).dot(ab) / ab.length_squared))
-            c = a + ab * t
-            d = v.co - c
-            if d.length >= r:
-                continue
-            inward = Vector((-v.co.x, -v.co.y, 0)).normalized()
-            for _ in range(40):                         # step inwards until outside the capsule
-                v.co += inward * 0.0003
-                if (v.co - c).length >= r:
-                    break
-            dented.append(v)
-    ring = {e.other_vert(v) for v in dented for e in v.link_edges} | set(dented)
-    for _ in range(4):                                  # soften the dent's rim
+        if v.index >= n_body or not v.link_edges or v.co.z > (WAIST_Z + 0.01) * H or abs(v.co.x) < 0.05 * H:
+            continue
+        side = 1 if v.co.x > 0 else -1
+        if not blocked(v.co, side):
+            continue
+        inward = Vector((-v.co.x, -v.co.y, 0)).normalized()
+        for _ in range(120):                              # step inwards until clear, or down on the wood
+            if clearance(body_trees, v.co + inward * 0.00025)[0] < margin:
+                break
+            v.co += inward * 0.00025
+            if not blocked(v.co, side):
+                break
+        dented.append(v)
+    # soften the dent's rim over two rings of neighbours, so its walls are not stretched steep
+    # (this only moves vertices inwards, away from the sleeve)
+    ring = set(dented)
+    for _ in range(2):
+        ring |= {e.other_vert(v) for v in ring for e in v.link_edges}
+    for _ in range(8):
         new = {v: v.co * 0.6 + sum((e.other_vert(v).co for e in v.link_edges), Vector()) / len(v.link_edges) * 0.4
-               for v in ring if v not in dented and v.link_edges}
+               for v in ring if v not in dented and v.link_edges and v.index < n_body
+               and v.co.z < WAIST_Z * H}                  # the fitted bodice stays as it is
         for v, co in new.items():
-            v.co = co
-    dg = bpy.context.evaluated_depsgraph_get()
-    trees = [BVHTree.FromObject(o, dg) for o in bodies]
-    moved = 0
-    for _ in range(3):              # where two bodies meet (waist), pushing out of one can push into the other
-        for v in bm.verts:
-            for t in trees:
-                loc, nrm, _, _ = t.find_nearest(v.co)
-                if loc is None:
+            if clearance(body_trees, co)[0] >= margin:
+                v.co = co
+
+    # ---- what still intersects: the sleeve yields to the fitted bodice; the skirt yields to
+    # the sleeve, and where it already lies on the wood the sleeve yields to it too
+    left = 0
+    for _ in range(80):
+        pairs = self_intersections(bm)
+        left = len(pairs)
+        move = {}
+        for fa, fb in pairs:
+            sa, sb = (any(v.index in sleeve for v in f.verts) for f in (fa, fb))
+            if sa == sb:
+                continue
+            fs, fd = (fa, fb) if sa else (fb, fa)          # sleeve face, bodice / skirt face
+            c = fd.calc_center_median()
+            side = 1 if c.x > 0 else -1
+            out = Vector((side, 0, 0)) * 0.0002
+            if c.z < WAIST_Z * H:
+                inward = Vector((-c.x, -c.y, 0)).normalized() * 0.0002
+                free = [v for v in fd.verts if clearance(body_trees, v.co + inward)[0] >= margin]
+                if free:
+                    for v in free:
+                        move[v] = inward
                     continue
-                d = (v.co - loc).dot(nrm)
-                if d < margin and (v.co - loc).length < 0.01:
-                    v.co = loc + nrm * margin; moved += 1
+            for v in fs.verts:
+                if v.index in sleeve:                      # never the armhole seam
+                    move[v] = out
+        if not move:
+            break
+        for v, step in move.items():
+            v.co += step
+    moved += out_of_wood()
+    left = len(self_intersections(bm)) if left else 0
     bm.to_mesh(dress.data); bm.free(); dress.data.update()
-    return moved
+    return {"dented": len(dented), "intersections_left": left, "pushed_out": moved}
 
 
 def build_controller(rig, coll):
     """'MarionetteControls' = the real cross, used to animate / preview in Blender.
     Bars rock about their bone's local Y (along the main bar). The puppet hangs from
-    CTRL_bar; IK targets at the hands and knees rise when their bar end rises (drivers)."""
+    CTRL_bar; IK targets at the hands and knees rise when their bar end rises, and the head
+    tilts with the head bar (drivers)."""
     ctrl, eb = _new_armature("MarionetteControls", coll)
     ctrl.data.display_type = "OCTAHEDRAL"
-    for name, parent, pivot, axis, _ in CROSS_BARS:
+    for name, parent, pivot, axis, *_ in CROSS_BARS:
         b = eb.new(name); b.head = Vector(pivot); b.use_deform = False
         b.tail = b.head + Vector(axis or (0, -1, 0)) * 0.03
         if parent:
@@ -1157,7 +1369,7 @@ def build_controller(rig, coll):
     c_ctl = ctrl.data.collections.new("Controls")
     for b in ctrl.data.bones:
         (c_att if b.name.startswith("ATT_") else c_ctl).assign(b)
-    for name in ("CTRL_legbar", "CTRL_handbar"):
+    for name in ROCKING_BARS:
         ctrl.pose.bones[name].rotation_mode = "XYZ"
     # rocking: +angle about local Y (world -Y) lifts the puppet's left (+X) end. The targets
     # rise by as much as their eye, and move forward too: the strings run up to bars in front
@@ -1187,6 +1399,14 @@ def build_controller(rig, coll):
         pb.use_ik_limit_z = True; pb.ik_min_z = math.radians(lim["min"]); pb.ik_max_z = math.radians(lim["max"])
         pb = rig.pose.bones[f"thigh.{sfx}"]
         c = pb.constraints.new("IK"); c.target = ctrl; c.subtarget = f"CTRL_knee.{sfx}"; c.chain_count = 1
+    # preview only: rocking the head bar tilts the head towards the lowered end (in the engine
+    # the two head strings do that). +local Z lifts the head's left side, like the bar's + angle
+    hd = rig.pose.bones["head"]; hd.rotation_mode = "XYZ"
+    drv = hd.driver_add("rotation_euler", 2).driver; drv.type = "SCRIPTED"
+    var = drv.variables.new(); var.name = "r"; var.type = "TRANSFORMS"
+    var.targets[0].id = ctrl; var.targets[0].bone_target = "CTRL_headbar"
+    var.targets[0].transform_type = "ROT_Y"; var.targets[0].transform_space = "LOCAL_SPACE"
+    drv.expression = "max(-0.5, min(0.5, 1.5 * r))"          # within the head joint's swing
     return ctrl
 
 
@@ -1203,7 +1423,7 @@ def control_shapes(rig, coll):
                                      for i in range(n)], [(i, (i + 1) % n) for i in range(n)])
     line = widget("MAR_WGT_bar", [(0, 0, 0), (0, 1, 0), (0.05, 0.5, 0), (-0.05, 0.5, 0)], [(0, 1), (2, 3)])
     for pb in rig.pose.bones:
-        if pb.name in ("CTRL_bar", "CTRL_handbar", "CTRL_legbar"):
+        if pb.name == "CTRL_bar" or pb.name in ROCKING_BARS:
             pb.custom_shape = line
         elif pb.name.startswith("CTRL_"):
             pb.custom_shape = circ; pb.custom_shape_scale_xyz = (0.6, 0.6, 0.6)
@@ -1265,16 +1485,18 @@ def skin_dress(dress, rig, sleeve_info, grid):
             W[nme][body] *= (1 - w)
         add(f"upper_arm.{sfx}", body, w)
     # sleeves
-    for side, (ring_ids, xs_) in sleeve_info.items():
+    for side, info in sleeve_info.items():
         sfx = "L" if side > 0 else "R"
-        for i, ids in enumerate(ring_ids[1:], start=1):
-            xa = xs_[i]
+        for i, ids in enumerate(info["rings"][1:], start=1):
+            xa = info["xs"][i]
             ids = np.array(ids)
-            c = smoothstep(0, 3, i)
+            # the fan out of the armhole goes over from the chest to the arm ring by ring
+            # (the armhole itself is all chest), so a lifted arm opens it evenly
+            c = smoothstep(0, 0.8 * SLEEVE_FAN, i)
             fw = smoothstep(ELBOW_X - 0.02, ELBOW_X + 0.02, xa)
             hw = 0.3 * smoothstep(0.34, 0.358, xa)
-            add("chest", ids, (1 - c) * 0.5)
-            add(f"upper_arm.{sfx}", ids, (1 - fw) * (c * 1 + (1 - c) * 0.5))
+            add("chest", ids, 1 - c)
+            add(f"upper_arm.{sfx}", ids, (1 - fw) * c)
             add(f"forearm.{sfx}", ids, fw * (1 - hw) * c)
             add(f"hand.{sfx}", ids, fw * hw * c)
     total = sum(W.values()) + 1e-12
@@ -1341,9 +1563,15 @@ PART_MATERIAL = {"head": "wood", "neck": "wood", "hand": "wood", "shin": "wood",
 # about the bone's LOCAL axes (Blender bone space: +Y runs along the bone). Hinge signs were
 # verified by rotating each bone in the rig: +X on shin swings the lower leg backwards;
 # forearm.L bends forwards for -Z, forearm.R for +Z (mirrored rolls).
+#
+# Types: "cone" (swing = leaning off the rest direction, twist = turning about the bone),
+# "hinge" (one axis, min/max) and "fixed" (rigid on the parent: no joint at all).
 JOINT_LIMITS = {
-    "neck": {"type": "cone", "swing": 25, "twist": 30},
-    "head": {"type": "cone", "swing": 30, "twist": 50},
+    # the collar piece is part of the torso: the head has one joint, on top of it. (A 1 g
+    # link between the two heaviest parts is also what a physics solver holds worst.)
+    "neck": {"type": "fixed"},
+    # one eye-screw joint: nods and tilts, turns further; the two former joints' ranges together
+    "head": {"type": "cone", "swing": 45, "twist": 70},
     "chest": {"type": "cone", "swing": 20, "twist": 15},
     "upper_arm": {"type": "cone", "swing": 110, "twist": 60},
     "forearm.L": {"type": "hinge", "axis": "Z", "min": -150, "max": 0},
@@ -1353,7 +1581,9 @@ JOINT_LIMITS = {
     # strings of the cross would otherwise twist the legs, and the skirt with them
     "thigh": {"type": "hinge", "axis": "X", "min": -95, "max": 30},
     "shin": {"type": "hinge", "axis": "X", "min": 0, "max": 140},
-    "foot": {"type": "cone", "swing": 35, "twist": 10},
+    # marionette feet have no ankle joint: the shoe is mounted on the shin at 90 degrees
+    # (standing position), as it is modelled in the rest pose
+    "foot": {"type": "fixed"},
 }
 
 
@@ -1370,6 +1600,16 @@ def fabric_mass(ob):
     area = sum(f.calc_area() for f in bm.faces)
     bm.free()
     return area * FABRIC_GSM[ob.name]
+
+
+def sole_capsule(co):
+    """Collider of a foot: a capsule lying along the sole, heel to toe, its underside on the
+    sole. The feet are rigid on the shins and have to stand flat; a capsule along the slanted
+    foot bone (ankle to toe) would be a ball three times the shoe's width, reaching below the sole."""
+    lo, hi = co.min(axis=0), co.max(axis=0)
+    r = float(hi[0] - lo[0]) / 2
+    x = float(hi[0] + lo[0]) / 2
+    return np.array([x, hi[1] - r, lo[2] + r]), np.array([x, lo[1] + r, lo[2] + r]), r
 
 
 def mesh_volume(ob):
@@ -1442,6 +1682,8 @@ def write_metadata(rig, ctrl, parts, dress, pin, path):
             co = np.array([v.co for o in (ob if isinstance(ob, list) else [ob]) for v in o.data.vertices])
             hd, tl = np.array(b.head_local), np.array(b.tail_local)
             radius = float(np.percentile(seg_dist(co, hd, tl), 90))
+            if key == "foot":
+                hd, tl, radius = sole_capsule(co)
             e.update({"mass_kg": round(mass, 5),
                       "collider": {"type": "capsule", "radius": round(radius, 5),
                                    "a": [round(c, 5) for c in hd], "b": [round(c, 5) for c in tl]}})
@@ -1462,13 +1704,17 @@ def write_metadata(rig, ctrl, parts, dress, pin, path):
                         "controller": STRING_TOP[name][0], "controller_point": r5(t),
                         "rest_length": round((t - a).length, 5)})
     controller = {
-        "description": "SKKG 9-string cross: main bar with shoulder crossbar and head bar (fixed), "
-                       "leg bar and hand bar rock about 'axis' (right-hand rule; + lifts the .L end)",
+        "description": "SKKG 9-string cross: main bar with the fixed shoulder crossbar; the head bar "
+                       "(hinged at its centre on a post below it), the leg bar and the hand bar rock "
+                       "about 'axis' (right-hand rule; + lifts the .L end) within +-limit_deg, neutral "
+                       "at 0. A 'detachable' bar only clings to its pivot: it can be taken off and "
+                       "moved freely, its strings stay on it",
         "stick_size_m": STICK,
         "bars": [{"name": name, "parent": parent, "pivot": r5(pivot), "axis": list(axis) if axis else None,
                   "input": key,
+                  **({"limit_deg": limit} if limit else {}), **({"detachable": True} if detachable else {}),
                   "sticks": [{"a": r5(a), "b": r5(b)} for bar, a, b in CROSS_STICKS if bar == name]}
-                 for name, parent, pivot, axis, key in CROSS_BARS],
+                 for name, parent, pivot, axis, key, limit, detachable in CROSS_BARS],
     }
     edges = np.array([[dress.data.vertices[i].co for i in e.vertices] for e in dress.data.edges])
     el = np.linalg.norm(edges[:, 0] - edges[:, 1], axis=1)
@@ -1476,9 +1722,13 @@ def write_metadata(rig, ctrl, parts, dress, pin, path):
     meta = {
         "units": "metres", "up": "+Z", "forward": "-Y", "height_m": H,
         "joint_limit_convention": "degrees about bone-local axes (Blender bone space, +Y along the bone); "
-                                  "values are estimates, hinge signs verified in the rig",
+                                  "values are estimates, hinge signs verified in the rig. cone: swing "
+                                  "(off the rest direction) / twist (about the bone), +- from the rest "
+                                  "pose; hinge: axis, min, max; fixed: rigid on the parent (no joint)",
         "assumptions": ["9-string layout and cross from the SKKG control cross (photos + sketches); "
                         "head bar size/drop and hand bar pivot estimated",
+                        "head bar hinged at its centre (+-45 deg) and hand bar detachable from the "
+                        "front tip: as specified for the project, not measured on the object",
                         "rest pose: arms hanging",
                         "lead-weighted shoes (metal plates visible on the soles)",
                         "silk satin ~80 g/m2", "joint ranges"],
@@ -1503,23 +1753,24 @@ def write_metadata(rig, ctrl, parts, dress, pin, path):
 
 def make_demo_action(ctrl):
     """Demo of the cross: rest -> hand bar rocks (left hand up, then right) -> leg bar rocks
-    (walking steps) -> whole cross bobs. Used to test skinning + cloth."""
+    (walking steps) -> head bar rocks (head tilts) while the whole cross bobs. Used to test
+    skinning + cloth."""
     if ctrl.animation_data is None:
         ctrl.animation_data_create()
     act = bpy.data.actions.get("MAR_DemoPull") or bpy.data.actions.new("MAR_DemoPull")
     ctrl.animation_data.action = act
     rock = math.radians(30)
-    keys = {  # frame: (hand bar angle, leg bar angle, bar lift in metres)
-        1: (0, 0, 0), 15: (0, 0, 0), 30: (rock, 0, 0), 45: (-rock, 0, 0), 55: (0, 0, 0),
-        65: (0, rock, 0), 75: (0, -rock, 0), 85: (0, rock, 0), 95: (0, 0, 0),
-        105: (0, 0, 0.03), 120: (0, 0, 0)}
-    bar, hands, legs = (ctrl.pose.bones[n] for n in ("CTRL_bar", "CTRL_handbar", "CTRL_legbar"))
-    for f, (h, l, z) in sorted(keys.items()):
-        hands.rotation_euler = (0, h, 0); hands.keyframe_insert("rotation_euler", frame=f)
-        legs.rotation_euler = (0, l, 0); legs.keyframe_insert("rotation_euler", frame=f)
+    keys = {  # frame: (hand bar angle, leg bar angle, head bar angle, bar lift in metres)
+        1: (0, 0, 0, 0), 15: (0, 0, 0, 0), 30: (rock, 0, 0, 0), 45: (-rock, 0, 0, 0), 55: (0, 0, 0, 0),
+        65: (0, rock, 0, 0), 75: (0, -rock, 0, 0), 85: (0, rock, 0, 0), 95: (0, 0, 0, 0),
+        102: (0, 0, rock, 0), 110: (0, 0, -rock, 0.03), 120: (0, 0, 0, 0)}
+    bar, hands, legs, head = (ctrl.pose.bones[n] for n in ("CTRL_bar", "CTRL_handbar", "CTRL_legbar", "CTRL_headbar"))
+    for f, (h, l, hd, z) in sorted(keys.items()):
+        for pb, angle in ((hands, h), (legs, l), (head, hd)):
+            pb.rotation_euler = (0, angle, 0); pb.keyframe_insert("rotation_euler", frame=f)
         bar.location = bar.bone.matrix_local.to_3x3().inverted() @ Vector((0, 0, z))
         bar.keyframe_insert("location", frame=f)
-    for pb in (bar, hands, legs):
+    for pb in (bar, hands, legs, head):
         pb.location = (0, 0, 0); pb.rotation_euler = (0, 0, 0)
     return act
 
@@ -1542,7 +1793,9 @@ def setup_preview_lights(coll):
 # main
 # ============================================================================
 
-def build():
+def build(stage="rest"):
+    """stage="spread" stops with the arms spread (ARM_SPREAD_DEG), where the sleeves are
+    lofted: for checking the dress there. Nothing is exported from that stage."""
     clear_previous()
     coll = get_collection()
     scene = bpy.context.scene
@@ -1567,8 +1820,16 @@ def build():
         for ob in (obs if isinstance(obs, list) else [obs]):
             skin_rigid(ob, rig, bone)
     skin_dress(dress, rig, sleeve_info, grid)
-    rest_pose_arms_down(rig, list(arms.values()) + [dress])
-    settle_dress(dress, [chest, pelvis] + [arms[k] for k in arms if k.startswith("upper_arm")], rig)
+    # arms out a bit: the pose the sleeves were lofted in (clean armpits and sleeve caps) ...
+    pose_arms(rig, list(arms.values()), ARM_SPREAD_DEG)
+    if stage == "spread":
+        remove_loose(dress)
+        return rig, dress, None
+    # ... then down to rest: hanging, the sleeves re-lofted around them
+    pose_arms(rig, list(arms.values()), ARM_HANG_DEG - ARM_SPREAD_DEG)
+    sleeves_to_rest(dress, sleeve_info)
+    settled = settle_dress(dress, [chest, pelvis], list(arms.values()), sleeve_info, grid[3] * grid[1])
+    print("settle_dress", settled)
     ctrl = build_controller(rig, coll)
     pin_color_attribute(dress, pin)
     remove_loose(dress)                       # grid points inside the armhole cut-outs

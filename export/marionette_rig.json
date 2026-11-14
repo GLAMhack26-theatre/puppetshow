@@ -3,9 +3,10 @@
   "up": "+Z",
   "forward": "-Y",
   "height_m": 0.35,
-  "joint_limit_convention": "degrees about bone-local axes (Blender bone space, +Y along the bone); values are estimates, hinge signs verified in the rig",
+  "joint_limit_convention": "degrees about bone-local axes (Blender bone space, +Y along the bone); values are estimates, hinge signs verified in the rig. cone: swing (off the rest direction) / twist (about the bone), +- from the rest pose; hinge: axis, min, max; fixed: rigid on the parent (no joint)",
   "assumptions": [
     "9-string layout and cross from the SKKG control cross (photos + sketches); head bar size/drop and hand bar pivot estimated",
+    "head bar hinged at its centre (+-45 deg) and hand bar detachable from the front tip: as specified for the project, not measured on the object",
     "rest pose: arms hanging",
     "lead-weighted shoes (metal plates visible on the soles)",
     "silk satin ~80 g/m2",
@@ -119,9 +120,7 @@
         ]
       },
       "joint": {
-        "type": "cone",
-        "swing": 25,
-        "twist": 30
+        "type": "fixed"
       }
     },
     "head": {
@@ -154,8 +153,8 @@
       },
       "joint": {
         "type": "cone",
-        "swing": 30,
-        "twist": 50
+        "swing": 45,
+        "twist": 70
       }
     },
     "string_head.L": {
@@ -534,22 +533,20 @@
       "mass_kg": 0.01375,
       "collider": {
         "type": "capsule",
-        "radius": 0.01911,
+        "radius": 0.00805,
         "a": [
-          0.016450000926852226,
-          0.0,
-          0.020999999716877937
+          0.01645,
+          0.00455,
+          0.00805
         ],
         "b": [
-          0.016450000926852226,
-          -0.022749999538064003,
-          0.007000000216066837
+          0.01645,
+          -0.01767,
+          0.00805
         ]
       },
       "joint": {
-        "type": "cone",
-        "swing": 35,
-        "twist": 10
+        "type": "fixed"
       }
     },
     "string_knee.L": {
@@ -652,22 +649,20 @@
       "mass_kg": 0.01375,
       "collider": {
         "type": "capsule",
-        "radius": 0.01911,
+        "radius": 0.00805,
         "a": [
-          -0.016450000926852226,
-          0.0,
-          0.020999999716877937
+          -0.01645,
+          0.00455,
+          0.00805
         ],
         "b": [
-          -0.016450000926852226,
-          -0.022749999538064003,
-          0.007000000216066837
+          -0.01645,
+          -0.01767,
+          0.00805
         ]
       },
       "joint": {
-        "type": "cone",
-        "swing": 35,
-        "twist": 10
+        "type": "fixed"
       }
     },
     "string_knee.R": {
@@ -708,7 +703,7 @@
         0.0,
         0.31675
       ],
-      "controller": "CTRL_bar",
+      "controller": "CTRL_headbar",
       "controller_point": [
         0.045,
         0.0,
@@ -724,7 +719,7 @@
         0.0,
         0.31675
       ],
-      "controller": "CTRL_bar",
+      "controller": "CTRL_headbar",
       "controller_point": [
         -0.045,
         0.0,
@@ -846,7 +841,7 @@
     }
   ],
   "controller": {
-    "description": "SKKG 9-string cross: main bar with shoulder crossbar and head bar (fixed), leg bar and hand bar rock about 'axis' (right-hand rule; + lifts the .L end)",
+    "description": "SKKG 9-string cross: main bar with the fixed shoulder crossbar; the head bar (hinged at its centre on a post below it), the leg bar and the hand bar rock about 'axis' (right-hand rule; + lifts the .L end) within +-limit_deg, neutral at 0. A 'detachable' bar only clings to its pivot: it can be taken off and moved freely, its strings stay on it",
     "stick_size_m": 0.009,
     "bars": [
       {
@@ -898,18 +893,6 @@
           },
           {
             "a": [
-              -0.045,
-              0.0,
-              0.5725
-            ],
-            "b": [
-              0.045,
-              0.0,
-              0.5725
-            ]
-          },
-          {
-            "a": [
               0,
               -0.1,
               0.6125
@@ -918,6 +901,36 @@
               0,
               -0.1,
               0.5625
+            ]
+          }
+        ]
+      },
+      {
+        "name": "CTRL_headbar",
+        "parent": "CTRL_bar",
+        "pivot": [
+          0.0,
+          0.0,
+          0.5725
+        ],
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "input": "head",
+        "limit_deg": 45.0,
+        "sticks": [
+          {
+            "a": [
+              -0.045,
+              0.0,
+              0.5725
+            ],
+            "b": [
+              0.045,
+              0.0,
+              0.5725
             ]
           }
         ]
@@ -936,6 +949,7 @@
           0.0
         ],
         "input": "legs",
+        "limit_deg": 34.4,
         "sticks": [
           {
             "a": [
@@ -965,6 +979,8 @@
           0.0
         ],
         "input": "hands",
+        "limit_deg": 34.4,
+        "detachable": true,
         "sticks": [
           {
             "a": [
@@ -986,13 +1002,13 @@
     "mesh": "Dress",
     "vertices": 6520,
     "faces": 6420,
-    "area_m2": 0.063,
+    "area_m2": 0.0612,
     "fabric": "silk satin ~80 g/m2",
-    "mass_kg": 0.00504,
+    "mass_kg": 0.0049,
     "edge_length_m": {
-      "min": 0.00044,
-      "median": 0.00307,
-      "max": 0.01324
+      "min": 0.00041,
+      "median": 0.00309,
+      "max": 0.00888
     },
     "pin_attribute": "vertex colour 'cloth_pin' R = pin (1 skinned / 0 simulated), G = 1 - pin (max-distance style)",
     "pin_vertex_group": "pin",

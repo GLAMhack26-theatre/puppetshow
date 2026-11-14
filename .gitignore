@@ -15,6 +15,9 @@ public/
 # TLS certificates for the Vite server
 certs/
 
+# Recorded hand sessions (?test=mediapipe&record, key R): tuning data, not source
+hand-recording-*.json
+
 # Local environment
 .env
 .env.*

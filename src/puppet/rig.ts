@@ -1,7 +1,7 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import { Matrix4, PropertyBinding, Quaternion, Vector3, type Object3D } from "@iwsdk/core";
 import type { RockId, StringId } from "../input/control-input";
-import { GROUP, physics, renderPose } from "../systems/rapier-system";
+import { GROUP, physics, renderPose, setJointFriction, setJointLimits } from "../systems/rapier-system";
 
 // Ragdoll from a rig description (marionette.ts): one capsule body per bone,
 // joints at the child bone heads, and every frame the skeleton's bones
@@ -10,14 +10,31 @@ import { GROUP, physics, renderPose } from "../systems/rapier-system";
 // All bodies start unrotated; each capsule is turned by its collider
 // instead. Then every joint frame is aligned at rest, and Rapier's revolute
 // joint (one axis for both bodies) works for any bone orientation.
+//
+// Joints keep the limits from the rig: a wooden marionette cannot fold its
+// body, spin its head or bend a knee backwards, and without limits the
+// ragdoll does all of that as soon as the cross is shaken.
 
 const LINEAR_DAMPING = 0.5;
-const ANGULAR_DAMPING = 3; // calms the spherical joints, which have no cone limits in Rapier's JS API
+const ANGULAR_DAMPING = 1; // air drag only: the joints have their own limits and friction
+/**
+ * Resistance of the joints themselves (wood on wire loops): a motor on every
+ * free rotation that pulls its speed towards 0. Limbs still dangle and swing,
+ * but come to rest after a few beats. Measured after letting a rocker go: an
+ * arm swings for 1.7 s instead of 2.6 s, the head wobbles for 1.9 s instead
+ * of 4.7 s; at 40 arms and legs stop within a second.
+ */
+const JOINT_FRICTION = 10;
 
 export type RigJoint =
-  | { type: "spherical" }
+  // Swing: how far the bone may lean off its rest direction; twist: turning about its own axis. Rad, ± from the rest pose
+  | { type: "cone"; swing: number; twist: number }
   // Axis in bone-local space; limits in rad, right-hand rule, from the rest pose
-  | { type: "revolute"; axis: Vector3; limits: [number, number] };
+  | { type: "revolute"; axis: Vector3; limits: [number, number] }
+  // Rigid on its parent (the feet): no body of its own, its collider joins the parent's body
+  | { type: "fixed" };
+
+const ANGULAR_AXES = [RAPIER.JointAxis.AngX, RAPIER.JointAxis.AngY, RAPIER.JointAxis.AngZ];
 
 /** Points are in the puppet root's local space. */
 export interface RigBone {
@@ -56,6 +73,10 @@ export interface RigBar {
   /** Rocking axis (unit); + lifts the puppet's left end */
   axis?: Vector3;
   input?: RockId;
+  /** Rocking range, rad (± about the axis) */
+  limit: number;
+  /** Can be taken off the cross and moved freely (ControlInput.handBar) */
+  detachable: boolean;
   /** For drawing: square sticks from a to b */
   sticks: { a: Vector3; b: Vector3 }[];
 }
@@ -72,8 +93,11 @@ export interface RigDescription {
 }
 
 export interface RigPart {
+  name: string;
   bone: Object3D;
+  /** A part that is fixed on its parent shares the parent's body */
   body: RAPIER.RigidBody;
+  joint?: RAPIER.ImpulseJoint;
   /** Body-local end of the capsule (hand tips: grab sensors) */
   tail: Vector3;
   // Bone pose relative to its body (the body is unrotated at rest)
@@ -94,6 +118,7 @@ export function buildRig(root: Object3D, description: RigDescription): Rig {
   const pw = physics.world;
   root.updateMatrixWorld(true);
   const toWorld = (v: Vector3) => v.clone().applyMatrix4(root.matrixWorld);
+  const sideways = new Vector3(1, 0, 0).transformDirection(root.matrixWorld);
   const known = new Map(description.bones.map((b) => [b.name, b]));
   const parts: RigPart[] = [];
   const byName = new Map<string, RigPart>();
@@ -109,49 +134,86 @@ export function buildRig(root: Object3D, description: RigDescription): Rig {
     const center = a.clone().add(b).multiplyScalar(0.5);
     const axis = b.clone().sub(a);
 
-    const body = pw.createRigidBody(
-      RAPIER.RigidBodyDesc.dynamic()
-        .setTranslation(center.x, center.y, center.z)
-        .setLinearDamping(LINEAR_DAMPING)
-        .setAngularDamping(ANGULAR_DAMPING),
-    );
-    pw.createCollider(
-      RAPIER.ColliderDesc.capsule(Math.max(0.0005, axis.length() / 2), spec.radius)
-        .setRotation(new Quaternion().setFromUnitVectors(Y, axis.clone().normalize()))
-        .setMass(spec.mass)
-        .setCollisionGroups(spec.group === "limb" ? GROUP.limb : GROUP.puppet),
-      body,
-    );
+    const capsule = RAPIER.ColliderDesc.capsule(Math.max(0.0005, axis.length() / 2), spec.radius)
+      .setRotation(new Quaternion().setFromUnitVectors(Y, axis.clone().normalize()))
+      .setMass(spec.mass)
+      .setCollisionGroups(spec.group === "limb" ? GROUP.limb : GROUP.puppet);
 
-    // Joint to the nearest ancestor that has a body
+    // The nearest ancestor that has a body
     let parentName = spec.parent;
     while (parentName && !byName.has(parentName)) parentName = known.get(parentName)?.parent;
     const parent = parentName ? byName.get(parentName) : undefined;
-    if (parent && spec.joint) {
+
+    let body: RAPIER.RigidBody;
+    let joint: RAPIER.ImpulseJoint | undefined;
+    if (parent && spec.joint?.type === "fixed") {
+      // Rigid on its parent: one body with two capsules. Nothing for the solver
+      // to hold together, which a fixed joint between two light bodies would be
+      body = parent.body;
+      const origin = body.translation();
+      pw.createCollider(capsule.setTranslation(center.x - origin.x, center.y - origin.y, center.z - origin.z), body);
+    } else {
+      body = pw.createRigidBody(
+        RAPIER.RigidBodyDesc.dynamic()
+          .setTranslation(center.x, center.y, center.z)
+          .setLinearDamping(LINEAR_DAMPING)
+          .setAngularDamping(ANGULAR_DAMPING),
+      );
+      pw.createCollider(capsule, body);
+    }
+
+    if (parent && spec.joint && spec.joint.type !== "fixed") {
       const p = parent.body.translation();
       const anchor1 = { x: head.x - p.x, y: head.y - p.y, z: head.z - p.z };
       const anchor2 = { x: head.x - center.x, y: head.y - center.y, z: head.z - center.z };
       if (spec.joint.type === "revolute") {
         // Bone-local axis → world at rest = the same in both (unrotated) bodies
         const worldAxis = spec.joint.axis.clone().applyQuaternion(bone.getWorldQuaternion(new Quaternion())).normalize();
-        const joint = pw.createImpulseJoint(
+        joint = pw.createImpulseJoint(
           RAPIER.JointData.revolute(anchor1, anchor2, { x: worldAxis.x, y: worldAxis.y, z: worldAxis.z }),
           parent.body,
           body,
           true,
         );
         (joint as RAPIER.RevoluteImpulseJoint).setLimits(...spec.joint.limits);
+        if (JOINT_FRICTION > 0) (joint as RAPIER.RevoluteImpulseJoint).configureMotorVelocity(0, JOINT_FRICTION);
       } else {
-        pw.createImpulseJoint(RAPIER.JointData.spherical(anchor1, anchor2), parent.body, body, true);
+        // Cone: a ball joint (a generic joint with only the position locked)
+        // with a limit on each rotation. The joint's x axis is the bone's rest
+        // direction (twist); y is the puppet's left–right axis and z what is
+        // left, so the swing limit holds for leaning forwards / backwards and
+        // sideways (the corners between the two reach √2 times as far).
+        const along = axis.clone().normalize();
+        const z = new Vector3().crossVectors(along, sideways);
+        if (z.lengthSq() < 1e-6) z.crossVectors(along, Y);
+        z.normalize();
+        const frame = new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(along, new Vector3().crossVectors(z, along), z));
+        const { LinX, LinY, LinZ } = RAPIER.JointAxesMask;
+        joint = pw.createImpulseJoint(
+          RAPIER.JointData.generic(anchor1, anchor2, { x: along.x, y: along.y, z: along.z }, LinX | LinY | LinZ),
+          parent.body,
+          body,
+          true,
+        );
+        joint.setLocalFrame1(anchor1, frame);
+        joint.setLocalFrame2(anchor2, frame);
+        const { swing, twist } = spec.joint;
+        ANGULAR_AXES.forEach((angular, i) => {
+          setJointLimits(joint!, angular, i === 0 ? -twist : -swing, i === 0 ? twist : swing);
+          if (JOINT_FRICTION > 0) setJointFriction(joint!, angular, JOINT_FRICTION);
+        });
       }
     }
 
+    const origin = body.translation();
     const part: RigPart = {
+      name: spec.name,
       bone,
       body,
-      tail: b.clone().sub(center),
+      joint,
+      tail: b.clone().sub(origin),
       restQuaternion: bone.getWorldQuaternion(new Quaternion()),
-      restOffset: bone.getWorldPosition(new Vector3()).sub(center),
+      restOffset: bone.getWorldPosition(new Vector3()).sub(origin),
       restScale: bone.getWorldScale(new Vector3()),
       world: new Matrix4(),
     };
