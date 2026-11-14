@@ -15,7 +15,8 @@
     "Katze_29404.202": { "label": "Katze", "scale": 1, "source": "https://digital.skkg.ch/de/intro/skkg%3Aobject%2F75eef8be-9ba0-4361-b986-6d2a445625e6" },
     "Kugel_38896.3": { "label": "Kugel", "scale": 0.2, "source": "https://digital.skkg.ch/de/intro/skkg%3Aobject%2F75eef8be-9ba0-4361-b986-6d2a445625e6" },
     "Laterne_kuenstlich": { "label": "Laterne", "scale": 1, "source": "ai" },
-    "Stuhl_25210.6": { "label": "Stuhl", "scale": 1, "source": "https://digital.skkg.ch/de/intro/skkg%3Aobject%2F75eef8be-9ba0-4361-b986-6d2a445625e6" }
+    "Stuhl_25210.6": { "label": "Stuhl", "scale": 1, "source": "https://digital.skkg.ch/de/intro/skkg%3Aobject%2F75eef8be-9ba0-4361-b986-6d2a445625e6" },
+    "Truhe_46955.glb": { "label": "Truhe", "scale": 0.4, "source": "https://digital.skkg.ch/de/intro/skkg%3Aobject%2F75eef8be-9ba0-4361-b986-6d2a445625e6" }
   },
   "backdrops": {
     "Inside_Castle": { "label": "Im Schloss", "source": "https://digital.skkg.ch/de/intro/skkg%3Aobject%2F75eef8be-9ba0-4361-b986-6d2a445625e6" },
