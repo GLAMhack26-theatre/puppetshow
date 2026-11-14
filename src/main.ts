@@ -1,21 +1,28 @@
 import { World } from "@iwsdk/core";
 import { PhysicsLink } from "./components/physics-link";
+import { addCameraButton, startHandTracking } from "./input/mediapipe";
 import { addLighting } from "./stage/lighting";
 import { MainCurtainSystem, loadMainCurtain, skipMainCurtain } from "./stage/main-curtain";
 import { SignSystem, loadSigns, onPlayChosen } from "./stage/signs";
 import { startImpro } from "./impro/impro";
 import { BackdropSystem } from "./stage/backdrops";
 import { RequisitSystem } from "./props/requisits";
+import { SpotlightSystem } from "./stage/spotlights";
 import { StageSystem, isCurtainOpen, loadStage, setCurtain } from "./stage/stage";
 import { RapierSystem, initPhysics } from "./systems/rapier-system";
 import { FpsSystem } from "./spike/world";
 
-// Phase 0 spike: one page, the test picked with ?test=world|puppet|mediapipe|interop
-// (docs/spikes/iwsdk.md). src/spike/ is removed once the spike is done.
-// ?test=nocurtain skips the main curtain and the signs and goes straight
-// into impro mode, for faster development (the "impro" debug button).
+// Without ?test: the play itself. Curtain and signs, then the marionette,
+// led by the hand in front of the camera (the mouse until the camera runs).
+// ?test=nocurtain is the same without the main curtain and the signs,
+// straight into impro mode, for faster development (the "impro" debug button).
+// Phase 0 spike tests (docs/spikes/iwsdk.md; src/spike/ is removed once the
+// spike is done): ?test=world (orbit camera, no puppet), ?test=puppet (mouse
+// only, no camera), ?test=interop.
 
-const test = new URLSearchParams(location.search).get("test") ?? "world";
+const test = new URLSearchParams(location.search).get("test") ?? "play";
+/** These tests have no camera control; everything else is the play */
+const handControl = !["world", "puppet", "interop"].includes(test);
 
 await initPhysics();
 
@@ -37,6 +44,7 @@ world.registerSystem(MainCurtainSystem);
 world.registerSystem(SignSystem);
 world.registerSystem(BackdropSystem);
 world.registerSystem(RequisitSystem);
+world.registerSystem(SpotlightSystem);
 
 if (test === "nocurtain") {
   skipMainCurtain();
@@ -46,6 +54,10 @@ if (test === "nocurtain") {
   await loadMainCurtain(world);
   await loadSigns(world);
   onPlayChosen((play) => play === "impro" && startImpro(world));
+  // The click on a sign also starts the camera: it is the user gesture
+  // camera access needs. Registered here, before the stage and the puppet
+  // load: the signs can be clicked long before those are ready.
+  if (handControl) onPlayChosen(() => void startHandTracking());
 }
 await loadStage(world);
 addLighting(world);
@@ -53,15 +65,13 @@ addLighting(world);
 addEventListener("keydown", (e) => e.key === "v" && setCurtain(!isCurtainOpen()));
 
 switch (test) {
-  case "puppet":
-    (await import("./spike/puppet")).setupPuppet(world);
-    break;
-  case "mediapipe":
-    (await import("./spike/mediapipe")).setupMediaPipe(world);
+  case "world":
+    (await import("./spike/world")).setupOrbit(world);
     break;
   case "interop":
     (await import("./spike/interop")).setupInterop(world);
     break;
   default:
-    (await import("./spike/world")).setupOrbit(world);
+    await (await import("./spike/puppet")).setupPuppet(world);
+    if (handControl) addCameraButton();
 }

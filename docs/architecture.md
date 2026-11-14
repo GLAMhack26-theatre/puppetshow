@@ -70,18 +70,18 @@ If items 1 or 2 fail, the fallback is our own thin engine with the same split in
 - The **Play** button opens the main scene. It also unlocks audio and asks for the camera and motion-sensor permissions, because iOS only grants these after a user gesture.
 
 **Main scene**
-- At start the main curtain (`assets/stage_parts/Main_Curtain.glb`, `src/stage/main-curtain.ts`) hangs right in front of the camera and covers the whole screen at any aspect ratio, with a light cloth wobble (shader). Two seconds after start three signs (`src/stage/signs.ts`, the plays to choose from: `Sign_Haensel`, `Sign_Froschkoenig`, `Sign_Impro` in `assets/stage_parts/`) drop in one after another in a loose, slightly tilted row in front of it, overshoot and settle, and cast soft fake shadows on it (blurred silhouette quads, no shadow map). Hover enlarges a sign; a click on a sign raises the curtain, and the signs go up with it.
+- At start the main curtain (`assets/stage_parts/Main_Curtain.glb`, `src/stage/main-curtain.ts`) hangs right in front of the camera and covers the whole screen at any aspect ratio, with a light cloth wobble (shader). Two seconds after start three signs (`src/stage/signs.ts`, the plays to choose from: `Sign_Haensel`, `Sign_Froschkoenig`, `Sign_Impro` in `assets/stage_parts/`) drop in one after another in a loose, slightly tilted row in front of it, overshoot and settle, and cast soft fake shadows on it (blurred silhouette quads, no shadow map). Hover enlarges a sign; a click on a sign raises the curtain, and the signs go up with it. The same click starts the camera and MediaPipe hand control (`src/input/mediapipe.ts`): it is the user gesture camera access needs. Without a camera (or permission) the mouse keeps control; a **Kamera starten** button in the debug panel starts it by hand.
 - **Impro mode** (the `Sign_Impro` sign, `src/impro/impro.ts`): once the curtain is up, a menu offers **Bühnenbild**. It slides in a panel from the right (a quarter of the screen width, at least 240 px for phones): a starry night sky with a scalloped gold edge, on which the painted backdrops are paper cards travelling along a curve while scrolling, the middle one biggest (`src/impro/backdrop-slider.ts`, look tuned in its `SLIDER` constants, no settings UI). The cards are the painted backdrops (`assets/stage_parts/Background_*.glb`, picked up automatically; thumbnails are cut from the texture inside each `.glb`). A click stands that backdrop still at the back edge of the stage floor, scaled to the floor's (`Ground_Box`) width and unlit, (`src/stage/backdrops.ts`), replacing the previous one; a second click removes it. Backdrops are revealed like a sheet let down from the fly loft: they sink into place while a ragged torn-paper edge uncovers them from the top (shader discard on uv), and hide in reverse; switching crossfades.
 - **Requisiten** (props, `src/props/requisits.ts`): the same slider, mirrored on the left (`createSlider({ mirror: true })`), lists every `.glb` in `assets/digital.skkg.ch/requisits/`. Card picture: an image with the same name next to the `.glb` (`Stuhl.png`) if there is one, otherwise the model is rendered once in a small offscreen renderer. A click lowers the prop onto the stage as if on a string (kinematic), a second click lifts it off. The spot is chosen by best-candidate sampling: of 24 random spots on the floor the one with the most room to the props already there wins, so props spread out. Standing props are dynamic Rapier bodies (box collider; small ones register as grabbable); they are dragged across the floor with mouse or finger (kinematic while dragged, pushing others aside; the orbit camera is held off by a capture-phase listener). A prop knocked off the stage is let down again on a free spot. Anything larger than 0.5 m is scaled down.
 - **Catalogue** (`assets/catalogue.json`, read by `src/catalogue.ts`): hand-edited per file name, for props (`requisits`) label, `scale` and `source`, for backdrops label and `source`. A scale other than 1 shows under the card's name as "Massstab 1 : 5". `source` is the object's page in the SKKG collection: a round gold "i" on the card's outer side (left on props, right on backdrops) opens it in a new tab. `"ai"` marks an object invented without an SKKG original: the "i" then shows the "Fake-Objekt gefunden!" popup (beige paper with the slider's scalloped gold edge, `src/impro/source-info.ts`). An empty `source` shows no "i".
 - A central stage that fills the room: proscenium, curtains, and layered paper-theatre backdrops (scans as alpha planes).
 - Behind the theatre: a curved red velvet wall with a gold band at its foot (`assets/stage_parts/wall.glb`, `src/stage/wall.ts`), 4 m wide, its hollow side towards the camera, 0.3 m behind the stage; the velvet texture is grey and tiled (one repeat per 0.5 m) instead of stretched; its colour is multiplied in from `VELVET_COLOR`.
 - Around the theatre: a 20 m ground plane with the tiled asphalt wood (`assets/textures/herringbone_parquet_diff_1k.jpg`, one repeat per 1.5 m) at the bottom of the stage model, fading out radially so there is no horizon line (`src/stage/ground.ts`).
-- **3-point lighting:** key, fill and back light.
-- **One controllable spotlight:**
-  - moved by gesture, phone or UI
-  - option to follow the puppet
-  - the only light casting shadows on phones
+- **3-point lighting:** key, fill and back light (`src/stage/lighting.ts`), the general light on the stage. Kept low enough that the follow spots stand out and white props do not burn out (the renderer has no tone mapping, so the unlit painted parts keep their colours).
+- **Follow spots** (`src/stage/spotlights.ts`, `SpotlightSystem`): every puppet on the stage gets its own spotlight, created with the puppet (`createPuppet`), which tracks its chest with a slight lag.
+  - They hang on a lighting bar out in front of the stage (1.6 m in front, 1.2 m up, above the camera's view), as front-of-house spots do in a real theatre, each as a small fixture that turns with its beam.
+  - They add a pool of focus light around the puppet to the stage already lit by the 3-point lighting; the beam is also drawn as faint haze (an additive cone, rendering only).
+  - They are the only lights casting shadows; on phones only the first spot does.
 - The marionette and props it can interact with: hold, throw, drop.
 - **Exit** goes back to the title.
 
@@ -89,7 +89,7 @@ If items 1 or 2 fail, the fallback is our own thin engine with the same split in
 - Curtain transitions, ticket- or programme-style buttons, Geist Sans for the UI, Geist Serif for titles.
 - Debug HUD with landmarks, FPS and physics wireframe, toggled with `?debug`.
 - An old-film vignette (darkened, softly burnt-in edges) lies over the 3D view in 2D, under the UI (buttons, HUD, impro menu and slider): a CSS overlay in `index.html` that lets all input through.
-- Debug buttons top right pick `?test=…`; **impro** (`?test=nocurtain`) skips the main curtain and the signs and goes straight into impro mode.
+- Without `?test` the page is the play itself: curtain, signs, then the marionette with hand control. Debug buttons top right pick `?test=…`; **impro** (`?test=nocurtain`) skips the main curtain and the signs and goes straight into impro mode; **puppet** is the marionette with the mouse only, **world** the stage alone with an orbit camera.
 
 ---
 
@@ -103,18 +103,19 @@ interface ControlInput {                              // mutable, written once p
   rock: { hands: number; legs: number };              // rad, ±0.6: rocking the hand bar / leg bar
   pulls: Record<StringId, number>;                    // 0..1 per string on top (plucking): head.L/R, shoulder.L/R, back, hand.L/R, knee.L/R
   grip: { left: boolean; right: boolean };            // puppet hands grab / release
-  spotlight?: { target: Vector3 };
   source: "mediapipe" | "phone" | "mouse" | "remote-phone" | "xr-3dof" | "xr-6dof";
 }
 ```
 
 | Source | Bar pose | Rock (hands / legs) | Pulls | Grip | When |
 |---|---|---|---|---|---|
-| MediaPipe (webcam on desktop or phone) | Wrist/palm pose of the main hand | Open (not decided) | Fingertip heights relative to the palm | `Closed_Fist` / pinch | now |
+| MediaPipe (webcam on desktop or phone) | Wrist/palm pose of the main hand | Open (not decided) | Fingertip heights relative to the palm | Pinch (thumb–index); a fist lets go of the puppet, see below | now |
 | Phone sensors + touch | DeviceOrientation (3DoF) | Open (not decided; e.g. touch sliders) | Touch zones/sliders | Button | now |
 | Mouse/keyboard | Drag, wheel | Q/E legs, A/D hands, sliders | Sliders | Click | now (dev) |
 | Remote phone (WebRTC) | Same as phone, streamed | Same | Same | Same | later |
 | WebXR 3DoF / 6DoF | Controller orientation / controller or `XRHand` pose | Open (not decided) | Trigger / finger joints | Grip / pinch | later |
+
+**Letting go of the puppet (MediaPipe, `src/input/hand-release.ts`):** while a hand is attached, the cross follows it, so lowering the hand would drag the puppet down. A fist held for 3 s lets go: the cross stays where it is and the puppet's hands open. The player then has 5 s to take the hand away, shown by a little timer (`src/ui/release-timer.ts`; the same ring fills while the fist is held). After that a hand connects again by itself as soon as it is seen above the low zone. A hand in the low zone (the bottom quarter of the camera image, standing in for "hand down at the lower torso", which a hand model cannot see) never connects; this also holds at the start, and for a hand that left the camera image for more than a second (it is let go without a countdown). Once attached, the hand may go as low as it likes, so the puppet can still be lowered. The fist is read from the hand landmarks (all four fingertips nearer to the wrist than their middle joints), so only the HandLandmarker runs.
 
 MediaPipe runs with `detectForVideo` on `requestVideoFrameCallback`, separate from the render loop. It uses the GPU delegate and falls back to CPU. The wasm and the `.task` models are served locally from `/mediapipe/`, so no CDN is needed at runtime.
 
@@ -177,10 +178,10 @@ certs/                  # git-ignored TLS cert/key for Vite (server.https / prev
 src/
   main.ts               # IWSDK World (xr:false), register systems
   components/  systems/  scenes/{title,main}.ts
-  stage/{stage,lighting,backdrops}.ts
-  input/{control-input,mediapipe,phone,mouse}.ts
+  stage/{stage,lighting,spotlights,backdrops}.ts
+  input/{control-input,mediapipe,hand-release,phone,mouse}.ts
   audio/{audio,zzfx}.ts
-  ui/                   # overlay, styles, Geist fonts
+  ui/                   # overlay, release timer, styles, Geist fonts
 index.html  vite.config.ts  tsconfig.json  package.json
 Dockerfile  docker-compose.yml  dev.sh  CLAUDE.md
 ```
@@ -237,6 +238,9 @@ Add one line per change to a decision in this doc: date, what changed, why.
 |---|---|---|
 | 2026-11-14 | `assets/catalogue.json` holds label, scale and SKKG source of props and backdrops (replaces the label/scale tables in code); "i" button per card, `"ai"` sources reveal a fake-object popup; prop models moved to `assets/digital.skkg.ch/requisits/` | One place for non-programmers to tune sizes and add collection links; visitors learn to check sources |
 | 2026-11-14 | Impro props: mirrored slider on the left, props lowered onto free spots (best-candidate sampling) and dragged on the floor; thumbnails rendered from the `.glb` unless a picture lies next to it | Visitors furnish the stage after choosing the backdrop; no extra PNG needed per prop |
+| 2026-11-14 | Follow spots: one spotlight per puppet, tracking it, on a lighting bar in front of the stage, replace the single controllable spotlight (`ControlInput.spotlight` dropped); general lighting about halved | Each puppet gets its own focus light, as in a real theatre; under the old levels the spot's pool did not show and whites burnt out |
+| 2026-11-14 | The page without `?test` is the play (curtain, signs, marionette, hand control); the click on a sign starts the camera and MediaPipe; `?test=nocurtain` has the marionette too, the orbit camera stays in `?test=world` | No extra "start camera" step; the sign click is the user gesture iOS needs. Orbit and the mouse-led cross would fight over the pointer |
+| 2026-11-14 | Letting go of the puppet: fist held 3 s releases the hand, 5 s countdown, then a hand above the low zone connects again; grip is the pinch only | The player must be able to put the hand down without dragging the puppet to the floor |
 | 2026-11-14 | Control cross: the real SKKG 9-string cross (main bar + shoulder/head bars, rocking leg bar and hand bar) from `marionette_rig.json` replaces the single merged bar; `ControlInput.rock` added; hips became hinges | The real cross works by tilting and rocking, not by pulling single strings; angled knee strings twisted spherical hips |
 | 2026-11-14 | Marionette rest pose: arms hanging down instead of T-pose; soft fabric hat instead of a lacquered one; head strings on the head, not the hat | Matches how the puppet really rests and is built |
 | 2026-11-14 | Old-film vignette drawn over the 3D view, under the UI (CSS overlay); `?test=nocurtain` (debug button "impro") skips the main curtain and the signs and starts impro mode | Look of an old film; faster development without clicking through the curtain |

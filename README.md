@@ -6,6 +6,30 @@ How can we bring the Marionette Paper Theatre back into the 3-dimensional space?
 
 Decisions, setup and phases: [docs/architecture.md](docs/architecture.md)
 
+## Tuning
+
+The look is tuned with constants at the top of the source files; there is no settings UI.
+
+### Follow spots (`src/stage/spotlights.ts`)
+
+Every puppet gets its own spotlight, which hangs on a lighting bar in front of the stage and tracks the puppet's chest.
+
+| Constant | Value | What it changes |
+|---|---|---|
+| `INTENSITY` | 15 cd | Brightness of the spot. The renderer has no tone mapping, so light clothes burn out to white above about 18. |
+| `ANGLE` | 0.15 rad | Half the beam angle: the size of the pool, about 0.55 m across at the puppet. Smaller is more focused. |
+| `PENUMBRA` | 0.35 | Softness of the pool's edge, 0 (hard) … 1 (soft all the way to the centre). The fully lit core is `ANGLE × (1 − PENUMBRA)`; keep the 0.35 m puppet inside it. |
+| `COLOR` | `0xfff1d6` | Colour of the light, the lens and the drawn beam (warm tungsten). |
+| `BEAM_OPACITY` | 0.1 | Brightness of the beam drawn in the air (haze); 0 switches it off. Rendering only, it lights nothing. |
+| `BEAM_PAST` | 1.2 | How far the drawn beam reaches past the puppet, in beam lengths (about to the floor). |
+| `FOLLOW` | 6 /s | How fast the spot catches up with its puppet. Lower lags more, like a slow spot operator. |
+| `BAR_Y`, `BAR_Z` | 1.2 m, 1.6 m | Height of the lighting bar and its distance in front of the stage centre: the angle the light comes in at. It has to stay under the top of the proscenium opening and out of the camera's view. |
+| `SLOTS_X` | −0.5, 0.5, 0, −0.9, 0.9 m | Where the spots hang along the bar, in the order the puppets arrive. Off-centre gives the puppet some modelling shadow. |
+| `DROP` | 0.1 m | How far the lens hangs below the bar. |
+| `MAX_SHADOW_SPOTS` | 3 (phones: 1) | How many spots cast shadows; shadow maps are costly on phones. |
+
+How much the pool stands out also depends on the general light on the stage in `src/stage/lighting.ts` (key 0.8, fill 0.25, back 0.6, hemisphere 0.15, `ENVIRONMENT_INTENSITY` 0.3): lower those to make the spot read stronger without burning out the puppet.
+
 
 
 ## Marionette model (SKKG Marionettenpuppe 46154)
