@@ -1,4 +1,4 @@
-/* Impro mode UI: functional placeholder, the theatre look comes later. */
+/* Impro mode UI: menu button and the backdrop panel (paper-theatre slider). */
 
 .impro-menu {
   position: fixed;
@@ -30,82 +30,210 @@
   background: #6b2a1ee6;
 }
 
-/* Slides in from the right; never wider than a quarter of the screen */
+/* Slides in from the right. Wide enough for the curve of cards: a quarter
+   of the screen on desktop, but at least 240px so phones get usable cards. */
 .impro-panel {
   position: fixed;
   top: 0;
   right: 0;
   bottom: 0;
-  width: 25vw;
-  display: flex;
-  flex-direction: column;
-  background: #1a110de8;
-  box-shadow: -4px 0 16px #0008;
-  transform: translateX(100%);
-  transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+  width: clamp(240px, 25vw, 420px);
+  color: #f3e6c8;
+  transform: translateX(105%);
+  transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* Only the sky (clipped) and the header take clicks; the transparent part
+     left of the scalloped edge lets clicks through to the stage */
+  pointer-events: none;
   z-index: 20;
 }
 .impro-panel.open {
   transform: translateX(0);
 }
 .impro-panel-header {
+  position: absolute;
+  top: max(10px, env(safe-area-inset-top));
+  right: 10px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  border-bottom: 1px solid #f3e9dc33;
+  gap: 6px;
+  pointer-events: auto;
+  text-shadow: 0 1px 4px #0a1633;
+  z-index: 2;
 }
 .impro-panel-header h2 {
   margin: 0;
-  font: 600 16px/1.2 Georgia, serif;
+  font: 400 18px/1.1 Georgia, serif;
+  letter-spacing: 0.02em;
 }
 .impro-panel-close {
   color: inherit;
   background: none;
   border: 0;
-  font-size: 22px;
+  font-size: 24px;
   line-height: 1;
   cursor: pointer;
 }
-.impro-backdrops {
-  flex: 1;
+.impro-loading {
+  position: absolute;
+  top: 50%;
+  right: 24px;
   margin: 0;
-  padding: 10px;
-  list-style: none;
+  font: italic 14px Georgia, serif;
+  opacity: 0.8;
+}
+
+/* ---- Paper-theatre slider (backdrop-slider.ts) ---- */
+.slider,
+.slider-clip {
+  position: absolute;
+  inset: 0;
+}
+.slider-clip {
+  pointer-events: auto;
+}
+.slider-scroller {
+  height: 100%;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   touch-action: pan-y;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  scrollbar-width: none;
 }
-.impro-loading {
-  opacity: 0.7;
+.slider-scroller::-webkit-scrollbar {
+  display: none;
 }
-.impro-backdrop {
+.slider-stage {
+  position: sticky;
+  top: 0;
+  height: 100%;
+  overflow: hidden;
+}
+.slider-sky,
+.slider-skybg,
+.slider-drift,
+.slider-grain {
+  position: absolute;
+  inset: 0;
+}
+.slider-skybg {
+  background:
+    radial-gradient(120% 60% at 85% 50%, #1b3470 0%, #1b347000 70%),
+    linear-gradient(180deg, #0a1633 0%, #102250 50%, #0a1530 100%);
+}
+.slider-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
   width: 100%;
+  will-change: transform;
+}
+.slider-drift svg {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+.slider-d1 {
+  animation: slider-d1 16s ease-in-out infinite alternate;
+}
+.slider-d2 {
+  animation: slider-d2 11s ease-in-out infinite alternate;
+}
+.slider-twA {
+  animation: slider-tw 3.4s ease-in-out infinite alternate;
+}
+.slider-twB {
+  animation: slider-tw 4.7s ease-in-out -2s infinite alternate;
+}
+@keyframes slider-d1 {
+  to { transform: translate(7px, -5px); }
+}
+@keyframes slider-d2 {
+  to { transform: translate(-10px, 6px); }
+}
+@keyframes slider-tw {
+  from { opacity: 1; }
+  to { opacity: 0.3; }
+}
+.slider-grain {
+  pointer-events: none;
+  opacity: 0.5;
+  background-size: 220px 220px;
+  background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1.2 -.4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.slider-edge {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.slider-edge path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.slider-edge-shadow {
+  stroke: #00000047;
+  stroke-width: 5;
+}
+.slider-edge-gold {
+  stroke: #d8aa4a;
+  stroke-width: 2.5;
+}
+
+/* Cards: beige paper; position, tilt and size come from the script */
+.slider-card {
+  position: absolute;
+  left: 0;
+  top: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 4px;
-  color: inherit;
-  background: #0006;
-  border: 2px solid transparent;
-  border-radius: 6px;
-  font: 12px/1.2 system-ui, sans-serif;
-  text-align: left;
-  cursor: pointer;
-}
-.impro-backdrop:hover {
-  border-color: #f3e9dc66;
-}
-.impro-backdrop[aria-pressed="true"] {
-  border-color: #e8b04a;
-}
-.impro-backdrop img {
-  width: 100%;
-  aspect-ratio: 1;
-  object-fit: contain;
+  padding: 10px 10px 8px;
+  color: #3b2f1e;
+  background: #e3d2b0;
+  border: 0;
   border-radius: 3px;
-  background: #f3e9dc14;
+  box-shadow:
+    0 8px 16px #0006,
+    inset 0 0 0 6px #ecdcbc,
+    inset 0 0 0 7px #c4ad82;
+  font: 12px/1.15 Georgia, serif;
+  text-align: center;
+  cursor: pointer;
+  will-change: transform;
+  transition: box-shadow 0.2s, filter 0.2s;
+}
+.slider-card:hover {
+  filter: brightness(1.06);
+}
+.slider-card:focus-visible {
+  outline: 2px solid #f3e6c8;
+  outline-offset: 3px;
+}
+.slider-card[aria-pressed="true"] {
+  box-shadow:
+    0 8px 16px #0006,
+    0 0 0 3px #d8aa4a,
+    inset 0 0 0 6px #ecdcbc,
+    inset 0 0 0 7px #c4ad82;
+}
+.slider-card img {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  object-fit: contain;
+}
+.slider-card span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slider-d1,
+  .slider-d2,
+  .slider-twA,
+  .slider-twB {
+    animation: none;
+  }
 }
