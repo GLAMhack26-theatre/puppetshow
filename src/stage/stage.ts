@@ -12,6 +12,7 @@ import {
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import stageUrl from "../../assets/stage_parts/Stage_Parent.glb?url";
 import { GROUP, physics } from "../systems/rapier-system";
+import { addGround } from "./ground";
 
 // The main stage from assets/stage_parts/Stage_Parent.glb (Unity export):
 // Stage_Front (paper theatre front, cut-out PNG), Curtain (in front of it)
@@ -97,6 +98,8 @@ export async function loadStage(world: World) {
   root.position.set(-groundCenter.x, -groundBox.max.y, -groundCenter.z);
   root.updateMatrixWorld(true);
   world.scene.add(root);
+  // The asphalt around the theatre, at the bottom of the whole stage model
+  addGround(world, new Box3().setFromObject(root).min.y);
 
   groundBox.setFromObject(ground);
   const size = groundBox.getSize(new Vector3());

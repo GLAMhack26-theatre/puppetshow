@@ -73,6 +73,7 @@ If items 1 or 2 fail, the fallback is our own thin engine with the same split in
 - At start the main curtain (`assets/stage_parts/Main_Curtain.glb`, `src/stage/main-curtain.ts`) hangs right in front of the camera and covers the whole screen at any aspect ratio, with a light cloth wobble (shader). Two seconds after start three signs (`src/stage/signs.ts`, the plays to choose from: `Sign_Haensel`, `Sign_Froschkoenig`, `Sign_Impro` in `assets/stage_parts/`) drop in one after another in a loose, slightly tilted row in front of it, overshoot and settle, and cast soft fake shadows on it (blurred silhouette quads, no shadow map). Hover enlarges a sign; a click on a sign raises the curtain, and the signs go up with it.
 - **Impro mode** (the `Sign_Impro` sign, `src/impro/impro.ts`): once the curtain is up, a menu offers **Bühnenbild**. It slides in a panel from the right (at most a quarter of the screen width) with a scrollable list of the painted backdrops (`assets/stage_parts/Background_*.glb`, picked up automatically; thumbnails are cut from the texture inside each `.glb`). A click stands that backdrop still at the back edge of the stage floor, scaled to the floor's (`Ground_Box`) width and unlit, (`src/stage/backdrops.ts`), replacing the previous one; a second click removes it. Backdrops are revealed like a sheet let down from the fly loft: they sink into place while a ragged torn-paper edge uncovers them from the top (shader discard on uv), and hide in reverse; switching crossfades. Props (3D models) follow the same way later.
 - A central stage that fills the room: proscenium, curtains, and layered paper-theatre backdrops (scans as alpha planes).
+- Around the theatre: a 20 m ground plane with the tiled asphalt texture (`assets/textures/clean_asphalt_diff_1k.jpg`, one repeat per 1.5 m) at the bottom of the stage model, fading out radially so there is no horizon line (`src/stage/ground.ts`).
 - **3-point lighting:** key, fill and back light.
 - **One controllable spotlight:**
   - moved by gesture, phone or UI
@@ -221,6 +222,7 @@ Add one line per change to a decision in this doc: date, what changed, why.
 
 | Date | Change | Reason |
 |---|---|---|
+| 2026-11-13 | Ground around the theatre: tiled asphalt plane, fading out at its rim | The theatre floated in black space |
 | 2026-11-13 | Impro mode: stage set built by the visitor, starting with backdrops from a side panel; backdrops unlit and as wide as `Ground_Box` | First step of the impro play: choose the scenery before playing |
 | 2026-11-13 | Main curtain follows the camera (camera space, drawn over everything) instead of being placed in the stage; a click on one of the signs in front of it raises it | It must cover the screen on every aspect ratio (phone portrait, desktop) and while the orbit camera moves |
 | 2026-11-13 | HTTPS switched on by `vite --mode https` (`HTTPS=1` still works); `.sh` files always checked out with LF (`.gitattributes`) | `HTTPS=1 vite` fails in cmd/PowerShell, and CRLF scripts fail in WSL2 |

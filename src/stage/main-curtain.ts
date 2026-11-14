@@ -58,6 +58,11 @@ export async function loadMainCurtain(world: World) {
   mesh.renderOrder = 1000;
   mesh.frustumCulled = false;
   const material = mesh.material as Material;
+  // three.js draws all opaque objects before all transparent ones, whatever
+  // the renderOrder: as an opaque mesh the curtain would be covered by any
+  // transparent part of the scene (the fading ground, backdrops). In the
+  // transparent pass its renderOrder puts it last.
+  material.transparent = true;
   material.depthTest = false;
   material.depthWrite = false;
   addWobble(material);
