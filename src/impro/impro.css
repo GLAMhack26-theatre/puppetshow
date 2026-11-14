@@ -1,34 +1,5 @@
-/* Impro mode UI: menu button and the backdrop panel (paper-theatre slider). */
-
-.impro-menu {
-  position: fixed;
-  left: 50%;
-  bottom: max(12px, env(safe-area-inset-bottom));
-  transform: translate(-50%, 12px);
-  display: flex;
-  gap: 8px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.4s, transform 0.4s;
-  z-index: 10;
-}
-.impro-menu.visible {
-  opacity: 1;
-  transform: translate(-50%, 0);
-  pointer-events: auto;
-}
-.impro-menu-item {
-  color: #f3e9dc;
-  background: #2a1a14e6;
-  border: 1px solid #f3e9dc55;
-  border-radius: 6px;
-  padding: 8px 14px;
-  font: 600 14px/1 Georgia, serif;
-  cursor: pointer;
-}
-.impro-menu-item[aria-expanded="true"] {
-  background: #6b2a1ee6;
-}
+/* Impro mode UI: the sky panels on both sides (paper-theatre slider) with
+   their dock of round buttons. */
 
 /* Slides in from the right. Wide enough for the curve of cards: a quarter
    of the screen on desktop, but at least 240px so phones get usable cards. */
@@ -39,7 +10,10 @@
   bottom: 0;
   width: clamp(240px, 25vw, 420px);
   color: #f3e6c8;
-  transform: translateX(105%);
+  /* Closed, it moves out only so far that the dock stays at the screen edge:
+     the dock's outer side is --dock-x in from the panel's inner side */
+  --dock-w: 56px;
+  transform: translateX(calc(100% - var(--dock-x, 0px) - 10px));
   transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
   /* Only the sky (clipped) and the header take clicks; the transparent part
      left of the scalloped edge lets clicks through to the stage */
@@ -64,14 +38,6 @@
   margin: 0;
   font: 400 18px/1.1 Georgia, serif;
   letter-spacing: 0.02em;
-}
-.impro-panel-close {
-  color: inherit;
-  background: none;
-  border: 0;
-  font-size: 24px;
-  line-height: 1;
-  cursor: pointer;
 }
 .impro-loading {
   position: absolute;
@@ -188,6 +154,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  box-sizing: border-box;
   padding: 10px 10px 8px;
   color: #3b2f1e;
   background: #e3d2b0;
@@ -206,11 +173,11 @@
 .slider-card:hover {
   filter: brightness(1.06);
 }
-.slider-card:focus-visible {
+.slider-card:has(.slider-pick:focus-visible) {
   outline: 2px solid #f3e6c8;
   outline-offset: 3px;
 }
-.slider-card[aria-pressed="true"] {
+.slider-card.selected {
   box-shadow:
     0 8px 16px #0006,
     0 0 0 3px #d8aa4a,
@@ -223,10 +190,99 @@
   width: 100%;
   object-fit: contain;
 }
-.slider-card span {
+.slider-card span,
+.slider-caption {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+.slider-caption {
+  margin-top: -3px;
+  font-size: 10px;
+  font-style: italic;
+  color: #7a6446;
+}
+.slider-caption:empty {
+  display: none;
+}
+/* Covers the whole card: the click target for picking */
+.slider-pick {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: inherit;
+  cursor: pointer;
+}
+.slider-pick:focus-visible {
+  outline: none;
+}
+/* Round "i" on the card's outer side (towards the screen edge): right for
+   backdrops, left for props (the mirrored slider) */
+.slider-info {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  z-index: 1;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: #3b2f1e;
+  background: radial-gradient(circle at 35% 30%, #f2d58c, #d8aa4a 60%, #a97c2c);
+  border: 1.5px solid #f3e6c8;
+  border-radius: 50%;
+  box-shadow: 0 2px 5px #0007;
+  font: italic 700 15px/1 Georgia, serif;
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+.slider-info:hover {
+  transform: scale(1.12);
+}
+.slider-info:focus-visible {
+  outline: 2px solid #f3e6c8;
+  outline-offset: 2px;
+}
+.slider-mirrored .slider-info {
+  left: -8px;
+  right: auto;
+}
+/* The IIIF drop field at the end of the props: an empty paper card with a
+   dashed frame, lighting up gold while a manifest hovers over the slider */
+.slider-drop {
+  background: #e3d2b0b3;
+}
+.slider-drop-zone {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px;
+  text-align: center;
+  overflow: hidden;
+  border: 2px dashed #7a6446;
+  border-radius: 3px;
+  transition: background 0.2s, border-color 0.2s;
+}
+.slider-drop .slider-drop-mark {
+  font: 700 22px/1 Georgia, serif;
+  letter-spacing: 0.08em;
+  color: #2873b8; /* IIIF blue */
+}
+.slider-drop.dragover .slider-drop-zone {
+  background: #f2d58c80;
+  border-color: #a97c2c;
+}
+.slider-drop.dragover {
+  box-shadow: 0 8px 16px #0006, 0 0 0 3px #d8aa4a;
+}
+.slider-drop .slider-caption {
+  white-space: normal;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -236,4 +292,209 @@
   .slider-twB {
     animation: none;
   }
+}
+
+/* The props panel: the same slider, mirrored on the left (backdrop-slider.ts) */
+.impro-panel.left {
+  left: 0;
+  right: auto;
+  transform: translateX(calc(-100% + var(--dock-x, 0px) + 10px));
+}
+.impro-panel.left.open {
+  transform: translateX(0);
+}
+.impro-panel.left .impro-panel-header {
+  left: 10px;
+  right: auto;
+  flex-direction: row-reverse;
+}
+.impro-panel.left .impro-loading {
+  left: 24px;
+  right: auto;
+}
+.slider-mirrored {
+  transform: scaleX(-1);
+}
+/* Rendered thumbnails arrive later: no broken-image icon meanwhile */
+.slider-card img:not([src]) {
+  visibility: hidden;
+}
+
+/* ---- "Fake-Objekt gefunden!" popup (source-info.ts): beige paper with the
+   slider's scalloped gold edge ---- */
+.fake-popup {
+  width: min(380px, calc(100vw - 32px));
+  padding: 0;
+  overflow: visible;
+  color: #3b2f1e;
+  background: none;
+  border: 0;
+}
+.fake-popup::backdrop {
+  background: rgb(18 10 6 / 0.55);
+}
+.fake-popup[open] {
+  animation: fake-popup-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1.2);
+}
+@keyframes fake-popup-in {
+  from {
+    opacity: 0;
+    transform: translateY(-24px) rotate(-2deg) scale(0.92);
+  }
+}
+.fake-popup-paper,
+.fake-popup-edge {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.fake-popup-paper {
+  overflow: hidden;
+  background:
+    url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .35 0 0 0 0 .25 0 0 0 0 .1 0 0 0 .5 -.15'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
+    radial-gradient(120% 90% at 50% 40%, #f1e4c8 0%, #e3d2b0 70%, #d4bf96 100%);
+  background-size: 220px 220px, 100% 100%;
+}
+.fake-popup-paper svg {
+  position: absolute;
+  inset: 0;
+  opacity: 0.35;
+}
+.fake-popup-edge {
+  overflow: visible;
+}
+.fake-popup-edge path {
+  fill: none;
+  stroke-linejoin: round;
+}
+.fake-popup-edge .shadow {
+  stroke: #00000040;
+  stroke-width: 5;
+}
+.fake-popup-edge .gold {
+  stroke: #d8aa4a;
+  stroke-width: 2.5;
+}
+.fake-popup-body {
+  position: relative;
+  padding: 34px 36px 30px;
+  text-align: center;
+  font: 15px/1.45 Georgia, serif;
+}
+.fake-popup-kicker {
+  margin: 0 0 4px;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #8a6a3a;
+}
+.fake-popup h2 {
+  margin: 0 0 12px;
+  font: 400 26px/1.15 Georgia, serif;
+  color: #6b2a1e;
+}
+.fake-popup-body p:not(.fake-popup-kicker) {
+  margin: 0 0 20px;
+}
+.fake-popup-close {
+  color: #f3e9dc;
+  background: #6b2a1e;
+  border: 1px solid #d8aa4a;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font: 600 14px/1 Georgia, serif;
+  cursor: pointer;
+}
+.fake-popup-close:hover {
+  background: #823526;
+}
+
+/* ---- Dock: round icon buttons per page and the golden X, at the sky's
+   scalloped edge (impro.ts sets --dock-x from the slider's layout) ---- */
+.impro-page {
+  position: absolute;
+  inset: 0;
+}
+.impro-dock {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--dock-x, 0px) - var(--dock-w));
+  width: var(--dock-w);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  transform: translateY(-50%);
+  opacity: 0;
+  transition: opacity 0.4s;
+  z-index: 3;
+}
+.impro-panel.left .impro-dock {
+  left: auto;
+  right: calc(var(--dock-x, 0px) - var(--dock-w));
+}
+/* Shown once the main curtain is up */
+.impro-panel.ready .impro-dock {
+  opacity: 1;
+  pointer-events: auto;
+}
+.impro-dock-button {
+  width: var(--dock-w);
+  height: var(--dock-w);
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 50%;
+  box-shadow: 0 4px 10px #0008;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.impro-dock-button img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.impro-dock-button:hover {
+  transform: scale(1.08);
+}
+.impro-dock-button[aria-pressed="true"] {
+  box-shadow: 0 4px 10px #0008, 0 0 0 3px #d8aa4a;
+}
+.impro-dock-button:focus-visible,
+.impro-dock-close:focus-visible {
+  outline: 2px solid #f3e6c8;
+  outline-offset: 3px;
+}
+/* Golden, without a background; only there while the panel is open */
+.impro-dock-close {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  color: #d8aa4a;
+  background: none;
+  border: 0;
+  font: 400 40px/1 Georgia, serif;
+  text-shadow: 0 1px 2px #0009, 0 0 8px #000a;
+  cursor: pointer;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.3s, transform 0.15s, visibility 0.3s;
+}
+.impro-panel.open .impro-dock-close {
+  visibility: visible;
+  opacity: 1;
+}
+.impro-dock-close:hover {
+  color: #f2d58c;
+  transform: scale(1.12);
+}
+@media (max-width: 600px) {
+  .impro-panel {
+    --dock-w: 46px;
+  }
+}
+
+/* Hidden after a return to the play choice (impro.ts) */
+.impro-panel[hidden] {
+  display: none;
 }

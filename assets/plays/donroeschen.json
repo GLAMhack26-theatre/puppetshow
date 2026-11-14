@@ -1,0 +1,17 @@
+{
+  "name": "Donröschen",
+  "scenes": [
+    {
+      "name": "Schloss",
+      "backdrop": "Inside_Castle",
+      "props": [
+        {
+          "id": "Kugel_38896.3",
+          "x": 0.5,
+          "z": 0.688,
+          "yaw": -8.3
+        }
+      ]
+    }
+  ]
+}

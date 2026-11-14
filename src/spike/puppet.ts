@@ -1,18 +1,18 @@
 import { Euler, Plane, Quaternion, Raycaster, Vector2, Vector3, type World } from "@iwsdk/core";
 import { STRING_IDS, controlInput } from "../input/control-input";
-import { loadProps } from "../props/props";
 import { loadMarionette } from "../puppet/marionette";
 import { createPuppet } from "../puppet/puppet";
 import type { RigController } from "../puppet/rig";
 import { physics, stepPhysics } from "../systems/rapier-system";
 import { hudLines } from "./world";
 
-// The SKKG marionette (src/puppet/) on its control cross with 9 strings,
-// and the SKKG props. Pointer moves the cross, wheel rolls it, Shift+wheel
-// pitches it (bow); Q / E rock the leg bar (walk), A / D the hand bar, Y / X
-// the head bar (or the rocker sliders); H takes the hand bar off the cross:
-// pointer and wheel then move and turn it instead, H again lets it snap back;
-// string sliders pluck single strings; F / G (or the buttons) grip left / right.
+// The SKKG marionette (src/puppet/) on its control cross with 9 strings
+// (props come from the impro panel and scene presets). Pointer moves the
+// cross, wheel rolls it, Shift+wheel pitches it (bow); Q / E rock the leg bar
+// (walk), A / D the hand bar, Y / X the head bar (or the rocker sliders); H
+// takes the hand bar off the cross: pointer and wheel then move and turn it
+// instead, H again lets it snap back; string sliders pluck single strings;
+// F / G (or the buttons) grip left / right.
 
 /** Where the pointer can move the bar (real scale: puppet 0.35 m) */
 const BAR_X = 0.55;
@@ -22,7 +22,6 @@ const BAR_Y: [number, number] = [0.35, 1.0];
 export async function setupPuppet(world: World) {
   const { root, description } = await loadMarionette();
   const puppet = createPuppet(world, root, description);
-  await loadProps(world);
 
   physics.afterSync.push(() => {
     for (const hand of puppet.grab.status()) hudLines[hand.side] = `${hand.touching} / ${hand.holding}`;

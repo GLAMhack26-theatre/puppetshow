@@ -65,6 +65,8 @@ interface FollowSpot {
   aim: (out: Vector3) => void;
   /** Aimed at the puppet right away, without swinging in from the last place */
   settled: boolean;
+  /** 0 dark … 1 full, on top of the look: the spot goes out with its puppet */
+  level: number;
 }
 
 const spots: FollowSpot[] = [];
@@ -139,14 +141,19 @@ export function addFollowSpot(world: World, aim: (out: Vector3) => void) {
   const fixture = createFixture();
   fixture.position.copy(position);
   const beam = new Mesh(beamGeometry, beamMaterial);
-  beam.visible = look.beam > 0;
   fixture.add(beam);
   world.scene.add(light, light.target, fixture);
-  const spot: FollowSpot = { slot, light, fixture, beam, aim, settled: false };
+  const spot: FollowSpot = { slot, light, fixture, beam, aim, settled: false, level: 1 };
   spots.push(spot);
+  applyLevel(spot);
 
   return {
     light,
+    /** 0 dark … 1 full: the spot goes out with its puppet while a scene changes. */
+    dim(level: number) {
+      spot.level = level;
+      applyLevel(spot);
+    },
     remove() {
       spots.splice(spots.indexOf(spot), 1);
       world.scene.remove(light, light.target, fixture);
@@ -164,9 +171,16 @@ export function setSpotLook(color: Color, intensity: number, angle: number, penu
   beamMaterial.uniforms.uOpacity.value = beam;
   for (const spot of spots) {
     spot.light.color.copy(color);
-    Object.assign(spot.light, { intensity, angle, penumbra });
-    spot.beam.visible = beam > 0;
+    Object.assign(spot.light, { angle, penumbra });
+    applyLevel(spot);
   }
+}
+
+// Brightness is the look's (the lighting scene) times the spot's own level
+// (dimmed with its puppet), so neither overwrites the other
+function applyLevel(spot: FollowSpot) {
+  spot.light.intensity = look.intensity * spot.level;
+  spot.beam.visible = look.beam > 0 && spot.level > 0.5;
 }
 
 // A small theatre spot: a can with a glowing lens, on a hanger from the bar.

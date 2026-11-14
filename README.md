@@ -10,7 +10,7 @@ Decisions, setup and phases: [docs/architecture.md](docs/architecture.md)
 
 ### Stage lighting: the light desk
 
-The lighting is tuned live, not in code: **Lichtpult** in the button panel opens the light desk, with one slider per parameter of the lighting rig. The rig follows the advice of a theatre lighting designer; every light is on a dimmer (0 … 100 %).
+The lighting is tuned live, not in code: **Lichtpult** in the debug button panel (shown in debug mode: Shift+D or `?debug`) opens the light desk, with one slider per parameter of the lighting rig. The rig follows the advice of a theatre lighting designer; every light is on a dimmer (0 … 100 %).
 
 | Group on the desk | The light | Parameters |
 |---|---|---|

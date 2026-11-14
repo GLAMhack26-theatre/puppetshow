@@ -1,0 +1,80 @@
+/* "zurück" / "mehr" under the hanging signs (signs.ts): golden arrows on the
+   curtain, shown only while there is another row of plays. */
+.sign-arrows {
+  position: fixed;
+  left: 50%;
+  bottom: max(13vh, 70px);
+  transform: translate(-50%, 10px);
+  display: flex;
+  gap: clamp(24px, 8vw, 90px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s, transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+  z-index: 12;
+}
+.sign-arrows.shown {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  pointer-events: auto;
+}
+.sign-arrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px;
+  color: #f2d58c;
+  background: none;
+  border: 0;
+  font: italic 400 26px/1 Georgia, serif;
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 3px #000, 0 0 12px #000c;
+  cursor: pointer;
+  transition: transform 0.2s, color 0.2s;
+}
+.sign-arrow[hidden] {
+  display: none;
+}
+.sign-arrow:hover {
+  color: #ffe7a6;
+  transform: translateX(var(--nudge, 4px));
+}
+.sign-arrow.back {
+  --nudge: -4px;
+}
+.sign-arrow:focus-visible {
+  outline: 2px solid #f3e6c8;
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+/* The arrow: a golden shaft with a pointed head, like a theatre sign's hand */
+.sign-arrow-head {
+  position: relative;
+  width: 64px;
+  height: 18px;
+  filter: drop-shadow(0 2px 3px #000a);
+}
+.sign-arrow-head::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 10px;
+  top: 7px;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(#f2d58c, #a97c2c);
+}
+.sign-arrow-head::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 0;
+  border-left: 20px solid #d8aa4a;
+  border-top: 9px solid transparent;
+  border-bottom: 9px solid transparent;
+}
+.sign-arrow.more .sign-arrow-head {
+  order: 2;
+}
+.sign-arrow.back .sign-arrow-head {
+  transform: scaleX(-1);
+}
