@@ -8,26 +8,34 @@ import {
   LineBasicMaterial,
   Mesh,
   MeshStandardMaterial,
+  Quaternion,
   Vector3,
   type Object3D,
   type World,
 } from "@iwsdk/core";
-import { STRING_IDS, controlInput, type StringId } from "../input/control-input";
+import { MAX_ROCK, STRING_IDS, controlInput, type RockId, type StringId } from "../input/control-input";
 import { STEP, addLinked, physics, renderPoint } from "../systems/rapier-system";
-import type { Rig, RigPart, RigString } from "./rig";
+import type { Rig, RigController, RigPart, RigString } from "./rig";
 
-// The control bar (Spielkreuz) and the strings: rope joints (maximum
-// distance, rest lengths from the rig) from the bar to the string sockets.
-// Pulling shortens a rope; the bar follows ControlInput with a capped speed.
+// The control cross (Spielkreuz) and the strings, rebuilt from the real SKKG
+// cross (export/marionette_rig.json, "controller"): the main bar carries the
+// back, shoulder and head strings; the leg bar and the hand bar rock about the
+// main bar's long axis. Every bar is a kinematic body; each string is a rope
+// joint (maximum distance, rest length from the rig) from the eye on its bar
+// to the socket on the puppet. The puppeteer's moves come from ControlInput:
+// the main bar's pose (tilting it bows or turns the puppet), the two rocking
+// angles, and per-string pulls on top (plucking a single string).
 
 const PULL_RANGE = 0.12; // m: a full pull shortens a string by this much (puppet: 0.35 m)
 const MAX_BAR_SPEED = 1.5; // m/s: the bar follows the input without teleporting
+const MAX_ROCK_SPEED = 6; // rad/s: rocking follows the input smoothly
 const SEGMENTS = 12; // points per drawn string
 const SAG = 0.5; // drawn sag per metre of slack
 
 interface PuppetString {
   id: StringId;
   part: RigPart;
+  bar: RAPIER.RigidBody;
   anchor: RAPIER.Vector; // on the puppet body
   barAnchor: RAPIER.Vector; // on the bar
   rest: number;
@@ -36,51 +44,93 @@ interface PuppetString {
   line: Line;
 }
 
-const vec = (v: Vector3): RAPIER.Vector => ({ x: v.x, y: v.y, z: v.z });
+interface RockingBar {
+  body: RAPIER.RigidBody;
+  input: RockId;
+  axis: Vector3;
+  /** Pivot relative to the main bar's pivot, in the main bar's frame */
+  offset: Vector3;
+  angle: number;
+}
 
-export function createStrings(world: World, root: Object3D, rig: Rig, description: RigString[]) {
+const vec = (v: Vector3): RAPIER.Vector => ({ x: v.x, y: v.y, z: v.z });
+const UP = new Vector3(0, 0, 1);
+
+export function createStrings(world: World, root: Object3D, rig: Rig, description: RigString[], controller: RigController) {
   const pw = physics.world;
   root.updateMatrixWorld(true);
   const toWorld = (v: Vector3) => v.clone().applyMatrix4(root.matrixWorld);
+  const dirToWorld = (v: Vector3) => v.clone().transformDirection(root.matrixWorld);
 
-  // One bar for all strings (the model's three controller bars merged): its
-  // centre above the puppet at the mean height of the upper string ends
-  const barPoints = description.map((s) => toWorld(s.barPoint));
-  const rootPosition = root.getWorldPosition(new Vector3());
-  const barCenter = new Vector3(rootPosition.x, barPoints.reduce((sum, p) => sum + p.y, 0) / barPoints.length, rootPosition.z);
-  controlInput.bar.position.copy(barCenter);
-
-  // Bar: a cross of two slats, kinematic
-  const barMesh = new Group();
-  const wood = new MeshStandardMaterial({ color: 0x4a2c17, roughness: 0.8 });
-  barMesh.add(new Mesh(new BoxGeometry(0.32, 0.01, 0.014), wood), new Mesh(new BoxGeometry(0.014, 0.01, 0.1), wood));
-  const { body: bar } = addLinked(world, barMesh, RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(barCenter.x, barCenter.y, barCenter.z));
+  // One kinematic body per bar, at its pivot; all start unrotated, so a point's
+  // body-local anchor at rest is simply (point − pivot) in world space
+  const wood = new MeshStandardMaterial({ color: 0xc8a171, roughness: 0.8 });
+  const size = controller.stickSize;
+  const bodies = new Map<string, { body: RAPIER.RigidBody; pivot: Vector3 }>();
+  for (const bar of controller.bars) {
+    const pivot = toWorld(bar.pivot);
+    const group = new Group();
+    for (const stick of bar.sticks) {
+      const a = toWorld(stick.a).sub(pivot);
+      const b = toWorld(stick.b).sub(pivot);
+      const mesh = new Mesh(new BoxGeometry(size, size, a.distanceTo(b) + size), wood);
+      mesh.position.addVectors(a, b).multiplyScalar(0.5);
+      mesh.quaternion.setFromUnitVectors(UP, b.clone().sub(a).normalize());
+      group.add(mesh);
+    }
+    const { body } = addLinked(world, group, RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(pivot.x, pivot.y, pivot.z));
+    bodies.set(bar.name, { body, pivot });
+  }
+  const mainBar = controller.bars.find((b) => !b.parent)!;
+  const main = bodies.get(mainBar.name)!;
+  controlInput.bar.position.copy(main.pivot);
+  const rocking: RockingBar[] = controller.bars
+    .filter((b) => b.parent && b.axis && b.input)
+    .map((b) => {
+      const { body, pivot } = bodies.get(b.name)!;
+      return { body, input: b.input!, axis: dirToWorld(b.axis!), offset: pivot.clone().sub(main.pivot), angle: 0 };
+    });
 
   const strings: PuppetString[] = [];
   const material = new LineBasicMaterial({ color: 0xf3e9dc });
-  description.forEach((s, i) => {
+  for (const s of description) {
     const part = rig.byName.get(s.bone);
-    if (!part || !STRING_IDS.includes(s.id)) return;
+    const bar = bodies.get(s.bar) ?? main;
+    if (!part || !STRING_IDS.includes(s.id)) continue;
     const anchor = vec(toWorld(s.position).sub(new Vector3().copy(part.body.translation())));
-    const barAnchor = vec(barPoints[i].clone().sub(barCenter));
+    const barAnchor = vec(toWorld(s.barPoint).sub(bar.pivot));
     const rest = s.restLength;
-    const joint = pw.createImpulseJoint(RAPIER.JointData.rope(rest, barAnchor, anchor), bar, part.body, true);
+    const joint = pw.createImpulseJoint(RAPIER.JointData.rope(rest, barAnchor, anchor), bar.body, part.body, true);
 
     const geometry = new BufferGeometry();
     geometry.setAttribute("position", new Float32BufferAttribute(new Float32Array((SEGMENTS + 1) * 3), 3));
     const line = new Line(geometry, material);
     line.frustumCulled = false;
     world.scene.add(line);
-    strings.push({ id: s.id, part, anchor, barAnchor, rest, length: rest, joint, line });
-  });
+    strings.push({ id: s.id, part, bar: bar.body, anchor, barAnchor, rest, length: rest, joint, line });
+  }
 
-  const barPosition = barCenter.clone();
+  const barPosition = main.pivot.clone();
   const barMove = new Vector3();
+  const rockQ = new Quaternion();
+  const p = new Vector3();
+  const q = new Quaternion();
   physics.beforeStep.push(() => {
     barMove.subVectors(controlInput.bar.position, barPosition).clampLength(0, MAX_BAR_SPEED * STEP);
     barPosition.add(barMove);
-    bar.setNextKinematicTranslation(barPosition);
-    bar.setNextKinematicRotation(controlInput.bar.rotation);
+    main.body.setNextKinematicTranslation(barPosition);
+    main.body.setNextKinematicRotation(controlInput.bar.rotation);
+
+    // Rocking bars ride on the main bar: pivot follows its pose, and they turn
+    // about their axis (in the main bar's frame) on top of its rotation
+    for (const r of rocking) {
+      const target = Math.max(-MAX_ROCK, Math.min(MAX_ROCK, controlInput.rock[r.input]));
+      r.angle += Math.max(-MAX_ROCK_SPEED * STEP, Math.min(MAX_ROCK_SPEED * STEP, target - r.angle));
+      p.copy(r.offset).applyQuaternion(controlInput.bar.rotation).add(barPosition);
+      q.copy(controlInput.bar.rotation).multiply(rockQ.setFromAxisAngle(r.axis, r.angle));
+      r.body.setNextKinematicTranslation(p);
+      r.body.setNextKinematicRotation(q);
+    }
 
     // Rapier's rope joint has no length setter in JS: recreate it when the
     // pull changed noticeably (a few joints per frame at most)
@@ -88,7 +138,7 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
       const length = Math.max(0.05, s.rest - PULL_RANGE * controlInput.pulls[s.id]);
       if (Math.abs(length - s.length) < 0.005) continue;
       pw.removeImpulseJoint(s.joint, true);
-      s.joint = pw.createImpulseJoint(RAPIER.JointData.rope(length, s.barAnchor, s.anchor), bar, s.part.body, true);
+      s.joint = pw.createImpulseJoint(RAPIER.JointData.rope(length, s.barAnchor, s.anchor), s.bar, s.part.body, true);
       s.length = length;
     }
   });
@@ -98,7 +148,7 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
   const b = new Vector3();
   physics.afterSync.push(() => {
     for (const s of strings) {
-      renderPoint(bar, s.barAnchor, a);
+      renderPoint(s.bar, s.barAnchor, a);
       renderPoint(s.part.body, s.anchor, b);
       const distance = a.distanceTo(b);
       const sag = Math.sqrt(Math.max(0, s.length * s.length - distance * distance)) * SAG;
@@ -111,5 +161,5 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
     }
   });
 
-  return { bar, strings };
+  return { bar: main.body, strings };
 }

@@ -97,21 +97,22 @@ If items 1 or 2 fail, the fallback is our own thin engine with the same split in
 
 ```ts
 interface ControlInput {                              // mutable, written once per frame
-  bar: { position: Vector3; rotation: Quaternion };   // the control bar (Spielkreuz)
-  pulls: Record<StringId, number>;                    // 0..1 per string: head.L/R, shoulder.L/R, back, hand.L/R, knee.L/R
+  bar: { position: Vector3; rotation: Quaternion };   // main bar of the control cross (Spielkreuz)
+  rock: { hands: number; legs: number };              // rad, ±0.6: rocking the hand bar / leg bar
+  pulls: Record<StringId, number>;                    // 0..1 per string on top (plucking): head.L/R, shoulder.L/R, back, hand.L/R, knee.L/R
   grip: { left: boolean; right: boolean };            // puppet hands grab / release
   spotlight?: { target: Vector3 };
   source: "mediapipe" | "phone" | "mouse" | "remote-phone" | "xr-3dof" | "xr-6dof";
 }
 ```
 
-| Source | Bar pose | Pulls | Grip | When |
-|---|---|---|---|---|
-| MediaPipe (webcam on desktop or phone) | Wrist/palm pose of the main hand | Fingertip heights relative to the palm | `Closed_Fist` / pinch | now |
-| Phone sensors + touch | DeviceOrientation (3DoF) | Touch zones/sliders | Button | now |
-| Mouse/keyboard | Drag, wheel | Keys | Click | now (dev) |
-| Remote phone (WebRTC) | Same as phone, streamed | Same | Same | later |
-| WebXR 3DoF / 6DoF | Controller orientation / controller or `XRHand` pose | Trigger / finger joints | Grip / pinch | later |
+| Source | Bar pose | Rock (hands / legs) | Pulls | Grip | When |
+|---|---|---|---|---|---|
+| MediaPipe (webcam on desktop or phone) | Wrist/palm pose of the main hand | Open (not decided) | Fingertip heights relative to the palm | `Closed_Fist` / pinch | now |
+| Phone sensors + touch | DeviceOrientation (3DoF) | Open (not decided; e.g. touch sliders) | Touch zones/sliders | Button | now |
+| Mouse/keyboard | Drag, wheel | Q/E legs, A/D hands, sliders | Sliders | Click | now (dev) |
+| Remote phone (WebRTC) | Same as phone, streamed | Same | Same | Same | later |
+| WebXR 3DoF / 6DoF | Controller orientation / controller or `XRHand` pose | Open (not decided) | Trigger / finger joints | Grip / pinch | later |
 
 MediaPipe runs with `detectForVideo` on `requestVideoFrameCallback`, separate from the render loop. It uses the GPU delegate and falls back to CPU. The wasm and the `.task` models are served locally from `/mediapipe/`, so no CDN is needed at runtime.
 
@@ -119,7 +120,12 @@ MediaPipe runs with `detectForVideo` on `requestVideoFrameCallback`, separate fr
 
 1. **The model defines the rig (decided):** the SKKG marionette (README, "Marionette model") comes as `export/marionette.glb` plus `export/marionette_rig.json`. The JSON holds per bone the capsule collider, `mass_kg` and the joint (cone, or hinge with a bone-local axis and limits in degrees), and the 9 strings (socket, carrying bone, position, controller point, rest length). `src/puppet/marionette.ts` turns it into a rig description; nothing about the puppet is hard-coded.
    - **Bones:** `root`, `pelvis`, `chest`, `neck`, `head`, `upper_arm/forearm/hand.L/R`, `thigh/shin/foot.L/R`.
-   - **Strings:** `head.L/R`, `shoulder.L/R`, `back`, `hand.L/R`, `knee.L/R`. The model's three controller bars are merged into one bar.
+   - **Rest pose:** arms hanging down (no T-pose), as a marionette rests on its strings.
+   - **Strings:** `head.L/R`, `shoulder.L/R`, `back`, `hand.L/R`, `knee.L/R`.
+   - **Control cross:** the real SKKG 9-string cross, in the JSON's `controller` section (bars with pivot, rocking axis and sticks; each string names its bar):
+     - main bar (16 cm, front–back): the back string at its rear end; a fixed shoulder crossbar (11 cm) and a head bar hanging below it;
+     - leg bar (12 cm) on a post under the middle, rocks about the main bar's axis: knee strings, walking;
+     - hand bar (15 cm) on a pivot at the front tip, rocks the same way: hand strings.
    - **Real scale:** the puppet is 0.35 m tall; the stage is scaled to match (1.4 m wide), and so are camera, lights and props.
    - **Masses:** the real masses from the JSON, with a floor of 5 % of the heaviest part, so the tiny hands don't destabilise the joint chains.
 2. **At runtime:**
@@ -127,8 +133,10 @@ MediaPipe runs with `detectForVideo` on `requestVideoFrameCallback`, separate fr
    - spherical or revolute joints between neighbouring bones (Rapier's JS API has no cone limits for spherical joints, so angular damping or revolute joints keep the limbs plausible)
    - the physics pose drives the `SkinnedMesh` bones
 3. **Strings:**
-   - the control bar is a kinematic body positioned from `ControlInput.bar`
-   - each string is a rope joint (maximum distance, rest length from the JSON), from a point on the bar to the socket `string_<id>`
+   - each bar of the cross is a kinematic body: the main bar is positioned from `ControlInput.bar`, the two rocking bars ride on it and turn by `ControlInput.rock`
+   - each string is a rope joint (maximum distance, rest length from the JSON), from its eye on its bar to the socket `string_<id>`
+   - tilting the cross does much of the acting: sideways tilts the head and sways the body; back raises the front bars (hands and knees lift); forward lowers them and lifts the back string a little (a slight bow; a deeper bow needs the back eye further behind the pivot, both sketch estimates); rocking the leg bar walks; rocking the hand bar lifts one hand
+   - hips and knees are hinges: the angled knee strings would otherwise twist the legs
    - a pull shortens the rope; the JS API has no length setter, so the joint is recreated when the length changes
    - the string is drawn as a sagging verlet/catenary line (rendering only)
 4. **Grab, throw, drop:**
@@ -225,6 +233,8 @@ Add one line per change to a decision in this doc: date, what changed, why.
 
 | Date | Change | Reason |
 |---|---|---|
+| 2026-11-14 | Control cross: the real SKKG 9-string cross (main bar + shoulder/head bars, rocking leg bar and hand bar) from `marionette_rig.json` replaces the single merged bar; `ControlInput.rock` added; hips became hinges | The real cross works by tilting and rocking, not by pulling single strings; angled knee strings twisted spherical hips |
+| 2026-11-14 | Marionette rest pose: arms hanging down instead of T-pose; soft fabric hat instead of a lacquered one; head strings on the head, not the hat | Matches how the puppet really rests and is built |
 | 2026-11-14 | Old-film vignette drawn over the 3D view, under the UI (CSS overlay); `?test=nocurtain` (debug button "impro") skips the main curtain and the signs and starts impro mode | Look of an old film; faster development without clicking through the curtain |
 | 2026-11-14 | Curved velvet wall behind the theatre | The stage stood in front of empty black space |
 | 2026-11-14 | Backdrop picker: paper-theatre slider (night sky, cards on a curve) instead of a plain list; panel at least 240 px wide | Design from the "Papiertheater" mock-up; a quarter of a phone screen is too narrow for the cards |

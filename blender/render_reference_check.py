@@ -13,14 +13,11 @@ OUT = os.environ.get("MARIONETTE_CHECK_DIR", "/tmp")
 
 # (image size, px per H, pixel of world origin (x or y axis, ground)) measured on the photos
 VIEWS = {
-    # T-pose photo: hat top y=112, sole y=1050, body centre x=452
-    "front": dict(res=(896, 1200), px_per_h=938.0, origin_px=(452.0, 1050.0), cam="front"),
+    # photo 1 front view (rest pose: arms hanging): body centre x=175, ground y=1047
+    "front": dict(res=(843, 1264), px_per_h=862.0, origin_px=(175.0, 1047.0), cam="front"),
     # photo 1 side view: neck axis x=451 (world y=0), ground y=1047
     "side": dict(res=(843, 1264), px_per_h=862.0, origin_px=(451.0, 1047.0), cam="side"),
-    # photo 1 front view (hanging arms): body centre x=175, ground y=1047 -> render at a hanging frame
-    "front_hang": dict(res=(843, 1264), px_per_h=862.0, origin_px=(175.0, 1047.0), cam="front", frame=45),
 }
-
 
 def render(view):
     v = VIEWS[view]

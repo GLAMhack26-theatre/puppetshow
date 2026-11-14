@@ -1,14 +1,16 @@
 import { Euler, Plane, Raycaster, Vector2, Vector3, type World } from "@iwsdk/core";
-import { STRING_IDS, controlInput } from "../input/control-input";
+import { MAX_ROCK, STRING_IDS, controlInput } from "../input/control-input";
 import { loadProps } from "../props/props";
 import { loadMarionette } from "../puppet/marionette";
 import { createPuppet } from "../puppet/puppet";
 import { physics } from "../systems/rapier-system";
 import { hudLines } from "./world";
 
-// T2: the SKKG marionette (src/puppet/) with its 9 strings and the SKKG
-// props. Pointer moves the bar, wheel rolls it, Shift+wheel pitches it,
-// sliders pull the strings, F / G (or the buttons) grip left / right.
+// T2: the SKKG marionette (src/puppet/) on its control cross with 9 strings,
+// and the SKKG props. Pointer moves the cross, wheel rolls it, Shift+wheel
+// pitches it (bow); Q / E rock the leg bar (walk), A / D rock the hand bar
+// (or the rocker sliders); string sliders pluck single strings; F / G (or the
+// buttons) grip left / right.
 
 /** Where the pointer can move the bar (real scale: puppet 0.35 m) */
 const BAR_X = 0.55;
@@ -56,6 +58,22 @@ function setupPointerAndPanel(world: World) {
   );
 
   const panel = document.getElementById("panel")!;
+  // Rocking bars: slider, or hold a key (released: back to level)
+  for (const [rock, text, plus, minus] of [["legs", "Beine (Q/E)", "q", "e"], ["hands", "Hände (A/D)", "a", "d"]] as const) {
+    const label = document.createElement("label");
+    const slider = Object.assign(document.createElement("input"), {
+      type: "range", min: String(-MAX_ROCK), max: String(MAX_ROCK), step: "0.01", value: "0",
+    });
+    const set = (angle: number) => {
+      controlInput.rock[rock] = angle;
+      slider.value = String(angle);
+    };
+    slider.addEventListener("input", () => set(Number(slider.value)));
+    addEventListener("keydown", (e) => (e.key === plus ? set(MAX_ROCK) : e.key === minus ? set(-MAX_ROCK) : undefined));
+    addEventListener("keyup", (e) => (e.key === plus || e.key === minus) && set(0));
+    label.append(text, slider);
+    panel.append(label);
+  }
   for (const id of STRING_IDS) {
     const label = document.createElement("label");
     const slider = Object.assign(document.createElement("input"), { type: "range", min: "0", max: "1", step: "0.01", value: "0" });
