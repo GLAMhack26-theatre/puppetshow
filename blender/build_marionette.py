@@ -7,8 +7,15 @@ or from a running session:
 
 Everything lives in the "Marionette" collection; re-running rebuilds it.
 All dimensions are authored as fractions of the total height H (hat top to
-sole) and measured on the orthographic front/side/T-pose reference photos.
+sole) and measured on the orthographic front/side reference photos.
 Real object size (SKKG catalogue): 35 x 14 x 7.5 cm  ->  H = 0.35 m.
+
+Rest pose: arms hanging down, as a marionette rests on its strings. The arm and
+sleeve geometry is generated along X (simple lofts) and immediately rotated into
+the hanging pose, which then becomes the rest pose of the rig and the export.
+
+Controller: the real SKKG 9-string cross (main bar, shoulder crossbar, head bar
+below it, a rocking leg bar in the middle and a rocking hand bar at the front).
 
 Conventions: Z up, the puppet faces -Y, character left = +X (".L" bones).
 """
@@ -286,24 +293,30 @@ def material(name, tex=None, scale=(1, 1), color=None, tint=None, **params):
 def build_materials():
     M = {}
     M["face"] = material("FacePaint", "face_projection.png", Roughness=0.55, **{"Coat Weight": 0.25, "Coat Roughness": 0.3})
-    M["hair"] = material("HairPaint", "hair_paint.png", (6, 3), tint=(0.48, 0.32, 0.22), Roughness=0.5,
+    M["hair"] = material("HairPaint", "hair_paint.png", (6, 3), tint=(1.0, 0.92, 0.85), Roughness=0.5,
                          **{"Coat Weight": 0.25})
     M["skin"] = material("SkinPaint", "skin_hand.png", (3, 3), Roughness=0.5, **{"Coat Weight": 0.2})
-    M["hat"] = material("HatLacquer", "hat_lacquer.png", (2, 2), tint=(0.10, 0.10, 0.11), Roughness=0.3,
-                        **{"Coat Weight": 0.8, "Coat Roughness": 0.08})
+    # soft black fabric hat (not lacquered): matte, with a cloth sheen
+    M["hat"] = material("HatFabric", "hat_fabric.png", (2, 2), tint=(0.10, 0.10, 0.11), Roughness=0.85,
+                        **{"Specular IOR Level": 0.25, "Sheen Weight": 0.5, "Sheen Roughness": 0.5,
+                           "Sheen Tint": (0.45, 0.45, 0.5, 1)})
     M["ribbon"] = material("BlackRibbon", None, color=(0.012, 0.012, 0.014), Roughness=0.35, Anisotropic=0.5)
-    M["satin"] = material("PinkSatin", "satin_pink.png", (1, 1), Roughness=0.3, Anisotropic=0.0,
-                          **{"Specular IOR Level": 0.55, "Sheen Weight": 0.12, "Sheen Tint": (1.0, 0.8, 0.88, 1)})
+    # the photo's satin texture reads almost white once lit: tint it towards the satin's pink
+    M["satin"] = material("PinkSatin", "satin_pink.png", (1, 1), tint=(0.95, 0.70, 0.85), Roughness=0.3,
+                          Anisotropic=0.0, **{"Specular IOR Level": 0.45, "Sheen Weight": 0.15,
+                                               "Sheen Tint": (1.0, 0.75, 0.86, 1)})
     M["velvet"] = material("BlackVelvet", "velvet_black.png", (2, 1), tint=(0.5, 0.5, 0.5), Roughness=0.95,
                            **{"Specular IOR Level": 0.2, "Sheen Weight": 1.0, "Sheen Roughness": 0.35,
                               "Sheen Tint": (0.35, 0.33, 0.38, 1)})
     M["knit"] = material("WhiteKnit", "knit_white.png", (4, 4), Roughness=0.9, **{"Sheen Weight": 0.4})
     M["rib"] = material("WhiteRib", "collar_rib.png", (3, 1), Roughness=0.9, **{"Sheen Weight": 0.4})
     M["linen"] = material("LinenStuffing", "linen_thigh.png", (4, 4), Roughness=0.85, **{"Sheen Weight": 0.3})
-    M["legpaint"] = material("LegWhitePaint", "leg_paint.png", (2, 1), Roughness=0.55, **{"Coat Weight": 0.15})
-    M["shoe"] = material("ShoeLeather", "shoe_leather.png", (3, 3), tint=(0.22, 0.19, 0.17), Roughness=0.4,
+    M["legpaint"] = material("LegWhitePaint", "leg_paint.png", (2, 1), tint=(1.0, 0.93, 0.80), Roughness=0.55,
+                             **{"Coat Weight": 0.15})                               # warm ivory, as in photo 3
+    M["shoe"] = material("ShoeLeather", "shoe_leather.png", (3, 3), tint=(0.8, 0.68, 0.58), Roughness=0.4,
                          **{"Coat Weight": 0.4, "Coat Roughness": 0.2})
-    M["sole"] = material("ShoeSole", "shoe_sole.png", (2, 2), Roughness=0.45, Metallic=0.3)
+    M["sole"] = material("ShoeSole", "shoe_sole.png", (2, 2), Roughness=0.45, Metallic=0.3)          # lead plate (R)
+    M["sole_green"] = material("ShoeSoleGreen", "shoe_sole_green.png", (2, 2), Roughness=0.6)       # painted (L)
     M["string"] = material("String", None, color=(0.015, 0.015, 0.015), Roughness=0.7)
     M["wood"] = material("ControlWood", None, color=(0.33, 0.2, 0.11), Roughness=0.5)
     return M
@@ -337,9 +350,11 @@ NECK_BASE, HEAD_PIVOT = 0.765, 0.81
 def build_head(M, coll):
     # z, a (half width), bf (front depth), bb (back depth)
     prof = Profile(["a", "bf", "bb"], [
-        (0.766, 0.021, 0.021, 0.022), (0.790, 0.021, 0.022, 0.023), (0.803, 0.025, 0.030, 0.026),
-        (0.810, 0.036, 0.055, 0.030), (0.817, 0.044, 0.069, 0.036), (0.828, 0.049, 0.077, 0.045),
-        (0.842, 0.052, 0.079, 0.052), (0.856, 0.054, 0.078, 0.060), (0.875, 0.056, 0.075, 0.067),
+        # jaw: narrow at the chin, widening up to the cheeks (photo 3 / front view: the jaw line
+        # rises from the chin to about +-0.047 at z 0.84), no flat shelf under the head
+        (0.766, 0.021, 0.021, 0.022), (0.790, 0.021, 0.022, 0.023), (0.803, 0.022, 0.030, 0.026),
+        (0.810, 0.024, 0.055, 0.030), (0.817, 0.028, 0.069, 0.036), (0.828, 0.038, 0.077, 0.045),
+        (0.842, 0.049, 0.079, 0.052), (0.856, 0.0555, 0.078, 0.060), (0.875, 0.0565, 0.075, 0.067),
         (0.900, 0.058, 0.072, 0.072), (0.925, 0.058, 0.071, 0.073), (0.950, 0.055, 0.066, 0.071),
         (0.970, 0.047, 0.055, 0.062), (0.983, 0.033, 0.038, 0.045), (0.990, 0.015, 0.018, 0.022)])
     N = 96
@@ -361,7 +376,7 @@ def build_head(M, coll):
             d += 0.0035 * g(x, z, sx_ * 0.024, 0.921, 0.016, 0.006)          # brow ridge
             d -= 0.0065 * g(x, z, sx_ * 0.029, 0.897, 0.012, 0.008)          # eye socket
             d += 0.0042 * g(x, z, sx_ * 0.029, 0.896, 0.0085, 0.0055)        # eyeball / lids
-            d += 0.0030 * g(x, z, sx_ * 0.034, 0.866, 0.012, 0.012)          # cheeks
+            d += 0.0055 * g(x, z, sx_ * 0.034, 0.864, 0.016, 0.014)          # cheeks (full, rounded)
         d += 0.0020 * g(x, z, 0, 0.911, 0.008, 0.006)                        # glabella
         d += 0.0060 * g(x, z, 0, 0.8585, 0.014, 0.0038)                      # upper lip
         d += 0.0050 * g(x, z, 0, 0.8495, 0.011, 0.0035)                      # lower lip
@@ -394,10 +409,12 @@ def build_head(M, coll):
     mats = []
     for p in me.polygons:
         c = p.center / H; n = p.normal
-        if c.z < 0.806 or (c.z < 0.82 and n.z < -0.45):
-            mi = 2                                   # neck + underside of the jaw (skin paint)
-        elif -n.y > 0.33 and c.y < 0:
-            mi = 0                                   # painted face
+        if c.z < 0.806:
+            mi = 2                                   # neck (skin paint)
+        elif (-n.y > 0.05 or (n.z < -0.45 and c.y < -0.01)) and c.y < 0:
+            # painted face (its texture carries the side hair too), including under the jaw;
+            # the seam to the tiled hair paint then lies under the hat flaps
+            mi = 0
         else:
             mi = 1                                   # painted hair
         mats.append(mi)
@@ -410,8 +427,27 @@ def build_head(M, coll):
                 uvl.data[li].uv = (ang, v.z * 4)
     me.polygons.foreach_set("material_index", mats)
     set_mats(ob, [M["face"], M["hair"], M["skin"]])
+    write_face_depth(ob, FACE_HALF, FACE_Z0)
     ob.modifiers.new("Subdivision", "SUBSURF").levels = 1
     return ob
+
+
+def write_face_depth(head, face_half, face_z0, n=65):
+    """Front depth of the head (y, H units) on the face texture's projection grid, for
+    tools/extract_textures.py: it projects the 3D face into the (turned) head in photo 3."""
+    bvh = BVHTree.FromObject(head, bpy.context.evaluated_depsgraph_get())
+    grid = []
+    for i in range(n):                                   # rows: v from 0 (chin side) to 1
+        z = face_z0 + (i / (n - 1) - 0.5) * 2 * face_half
+        row = []
+        for j in range(n):
+            x = (j / (n - 1) - 0.5) * 2 * face_half
+            hit = bvh.ray_cast(Vector((x * H, -0.5, z * H)), Vector((0, 1, 0)))
+            row.append(round(hit[0].y / H, 5) if hit[0] else None)
+        grid.append(row)
+    with open(os.path.join(TEX, "head_front_depth.json"), "w") as f:
+        json.dump({"face_half": face_half, "face_z0": face_z0, "units": "H", "rows": "v 0..1", "cols": "u 0..1",
+                   "y": grid}, f)
 
 
 def build_hat(M, coll):
@@ -421,19 +457,25 @@ def build_hat(M, coll):
         (0.950, 0.062, 0.072, 0.077), (0.968, 0.056, 0.062, 0.070), (0.982, 0.042, 0.045, 0.055),
         (0.9905, 0.020, 0.020, 0.028), (0.993, 0.0, 0.0, 0.0)])
     # lower edge of the hat as a function of angle from the front (deg)
+    # (front raised so the painted brown hair band above the forehead shows, as in photo 3)
     edge = pchip([0, 20, 32, 40, 55, 67, 80, 88, 100, 130, 160, 180],
-                 [0.954, 0.952, 0.946, 0.937, 0.900, 0.873, 0.842, 0.824, 0.823, 0.832, 0.840, 0.842])
+                 [0.962, 0.959, 0.951, 0.939, 0.900, 0.873, 0.842, 0.824, 0.823, 0.832, 0.840, 0.842])
     N, R = 128, 34
     cols = []
     for j in range(N):
         t = 2 * math.pi * j / N
         phi = math.degrees(abs(math.pi - t))            # 0 = front centre, 180 = back
-        z_end = float(edge(phi))
+        # soft fabric: the edge droops a little at the sides and back (not on the forehead)
+        side = smoothstep(30, 70, phi)
+        z_end = float(edge(phi)) - side * 0.006 * (0.6 + 0.4 * math.sin(3 * t + 1.3))
         zz = np.linspace(0.993, z_end, 160)
         pts = []
         for z in zz:
             x, y = se_xy(t, prof("a", z), prof("bf", z), prof("bb", z), 2.3, 2.2)
-            pts.append((x, y, z))
+            # gentle outward waves towards the edge (never inwards: the head is underneath)
+            s_ = (0.993 - z) / (0.993 - z_end)
+            k = 1 + side * s_ ** 2 * 0.045 * (0.5 + 0.5 * math.sin(5 * t + 0.7) * math.cos(2 * t))
+            pts.append((x * k, y * k, z))
         col, _ = resample_polyline(pts, R)
         cols.append(col[1:])                            # drop the pole sample
     verts = [(0, 0.0, 0.993)]
@@ -454,7 +496,7 @@ def build_hat(M, coll):
     fix_normals(ob, outward_from=lambda c: Vector((0, 0, 0.9 * H)))
     set_mats(ob, [M["hat"]])
     sol = ob.modifiers.new("Thickness", "SOLIDIFY")
-    sol.thickness = 0.007 * H; sol.offset = 1.0; sol.use_even_offset = True; sol.use_rim = True
+    sol.thickness = 0.003 * H; sol.offset = 1.0; sol.use_even_offset = True; sol.use_rim = True
     ob.modifiers.new("Subdivision", "SUBSURF").levels = 1
 
     # crumpled ribbon rosette on the left side of the crown
@@ -645,7 +687,7 @@ def build_shoe(M, coll, x0, sfx):
               coll=coll)
     me = ob.data
     me.polygons.foreach_set("material_index", [1 if p.normal.z < -0.6 else 0 for p in me.polygons])
-    set_mats(ob, [M["shoe"], M["sole"]])
+    set_mats(ob, [M["shoe"], M["sole"] if sfx == "R" else M["sole_green"]])   # photo 3: lead (R), green (L)
     ob.modifiers.new("Subdivision", "SUBSURF").levels = 1
     return ob
 
@@ -898,30 +940,68 @@ for s, sfx in ((1, "L"), (-1, "R")):
 # String attachment sockets (classic 9-string marionette). Bone head = attach point,
 # tail points up towards the controller.
 SOCKETS = [  # name, parent bone, position (H)
-    ("string_head.L", "head", (0.075, 0.004, 0.885)), ("string_head.R", "head", (-0.075, 0.004, 0.885)),
+    # head strings: on the head's sides above the ears (head surface under the hat flaps, not on
+    # the hat), in line with the head's centre of mass so the head hangs level
+    ("string_head.L", "head", (0.058, 0.0, 0.905)), ("string_head.R", "head", (-0.058, 0.0, 0.905)),
     ("string_shoulder.L", "chest", (0.070, 0.000, 0.756)), ("string_shoulder.R", "chest", (-0.070, 0.000, 0.756)),
     ("string_back", "pelvis", (0.0, 0.068, 0.50)),
     ("string_hand.L", "hand.L", (0.395, -0.004, 0.714)), ("string_hand.R", "hand.R", (-0.395, -0.004, 0.714)),
     ("string_knee.L", "thigh.L", (0.047, -0.032, 0.29)), ("string_knee.R", "thigh.R", (-0.047, -0.032, 0.29)),
 ]
 CTRL_Z = 1.75   # controller height in H units at rest (~26 cm above the hat)
-# Controller (the wooden "airplane" control) - preview / animation rig only.
-CONTROLS = [  # name, head, tail, parent
-    ("CTRL_bar", (0, 0.12, CTRL_Z), (0, -0.12, CTRL_Z), None),
-    ("CTRL_handbar", (-0.42, -0.02, CTRL_Z + 0.04), (0.42, -0.02, CTRL_Z + 0.04), "CTRL_bar"),
-    ("CTRL_legbar", (-0.12, -0.10, CTRL_Z + 0.015), (0.12, -0.10, CTRL_Z + 0.015), "CTRL_bar"),
-    ("CTRL_hand.L", (WRIST_X, SHOULDER[1], SHOULDER[2]), (WRIST_X, SHOULDER[1], SHOULDER[2] + 0.04), "CTRL_handbar"),
-    ("CTRL_hand.R", (-WRIST_X, SHOULDER[1], SHOULDER[2]), (-WRIST_X, SHOULDER[1], SHOULDER[2] + 0.04), "CTRL_handbar"),
-    ("CTRL_knee.L", (HIP[0], 0, KNEE_Z), (HIP[0], -0.04, KNEE_Z), "CTRL_legbar"),
-    ("CTRL_knee.R", (-HIP[0], 0, KNEE_Z), (-HIP[0], -0.04, KNEE_Z), "CTRL_legbar"),
+
+# ---------------------------------------------------------------------------
+# The real SKKG 9-string control cross (photos + hand sketches), in METRES,
+# armature space (front = -Y). Sticks are 9 mm square. Names of the bars match
+# the controller bones; the rocking bars pivot about an axis along the main bar.
+#   main bar 16 cm (front-back) .. rear-end eye: back string
+#   shoulder crossbar 11 cm, fixed, 2.5 cm from the rear end: shoulder strings
+#   head bar ~9 cm, fixed, on a post below the shoulder cross: head strings
+#   leg bar 12 cm on a 5 cm post, pin 3.5 cm down, rocks: knee strings
+#   hand bar 15 cm on a pivot screw at the front tip, rocks: hand strings
+# Estimates (not measured): head bar width and drop, hand bar pivot at its centre.
+# ---------------------------------------------------------------------------
+STICK = 0.009
+CZ = CTRL_Z * H                       # height of the main bar's centreline
+Y_SHOULDER = 0.0                      # shoulder cross right above the shoulders
+Y_REAR = Y_SHOULDER + 0.025           # rear end of the 16 cm main bar
+Y_FRONT = Y_REAR - 0.16
+Y_LEG = Y_REAR - 0.125                # leg-bar post
+HEAD_DROP = 0.04                      # head bar below the main bar (estimate)
+HEAD_HALF, SHOULDER_HALF, LEG_HALF, HAND_HALF = 0.045, 0.055, 0.06, 0.075
+LEG_PIN_DROP, LEG_POST = 0.035, 0.05
+LEG_PIVOT = (0.0, Y_LEG - STICK, CZ - LEG_PIN_DROP)     # the bar sits in front of its post
+HAND_PIVOT = (0.0, Y_FRONT - STICK / 2, CZ)             # the bar sits in front of the tip
+EYE = STICK / 2                                          # eyes on the underside of the sticks
+
+CROSS_BARS = [  # name, parent, pivot (metres), rocking axis or None, ControlInput.rock key
+    ("CTRL_bar", None, (0.0, Y_SHOULDER, CZ), None, None),
+    ("CTRL_legbar", "CTRL_bar", LEG_PIVOT, (0.0, -1.0, 0.0), "legs"),
+    ("CTRL_handbar", "CTRL_bar", HAND_PIVOT, (0.0, -1.0, 0.0), "hands"),
 ]
-# where each string ends on the controller (child of which control bone)
+CROSS_STICKS = [  # bar, a, b (metres): drawn as 9 mm square sticks
+    ("CTRL_bar", (0, Y_REAR, CZ), (0, Y_FRONT, CZ)),
+    ("CTRL_bar", (-SHOULDER_HALF, Y_SHOULDER, CZ), (SHOULDER_HALF, Y_SHOULDER, CZ)),
+    ("CTRL_bar", (0, Y_SHOULDER, CZ), (0, Y_SHOULDER, CZ - HEAD_DROP)),
+    ("CTRL_bar", (-HEAD_HALF, Y_SHOULDER, CZ - HEAD_DROP), (HEAD_HALF, Y_SHOULDER, CZ - HEAD_DROP)),
+    ("CTRL_bar", (0, Y_LEG, CZ), (0, Y_LEG, CZ - LEG_POST)),
+    ("CTRL_legbar", (-LEG_HALF, LEG_PIVOT[1], LEG_PIVOT[2]), (LEG_HALF, LEG_PIVOT[1], LEG_PIVOT[2])),
+    ("CTRL_handbar", (-HAND_HALF, HAND_PIVOT[1], CZ), (HAND_HALF, HAND_PIVOT[1], CZ)),
+]
+# where each string ends on the cross: bar, eye position (metres)
 STRING_TOP = {
-    "string_head.L": "CTRL_bar", "string_head.R": "CTRL_bar", "string_shoulder.L": "CTRL_bar",
-    "string_shoulder.R": "CTRL_bar", "string_back": "CTRL_bar",
-    "string_hand.L": "CTRL_handbar", "string_hand.R": "CTRL_handbar",
-    "string_knee.L": "CTRL_legbar", "string_knee.R": "CTRL_legbar",
+    "string_back": ("CTRL_bar", (0.0, Y_REAR, CZ - EYE)),
+    "string_shoulder.L": ("CTRL_bar", (SHOULDER_HALF, Y_SHOULDER, CZ - EYE)),
+    "string_shoulder.R": ("CTRL_bar", (-SHOULDER_HALF, Y_SHOULDER, CZ - EYE)),
+    "string_head.L": ("CTRL_bar", (HEAD_HALF, Y_SHOULDER, CZ - HEAD_DROP - EYE)),
+    "string_head.R": ("CTRL_bar", (-HEAD_HALF, Y_SHOULDER, CZ - HEAD_DROP - EYE)),
+    "string_knee.L": ("CTRL_legbar", (LEG_HALF, LEG_PIVOT[1], LEG_PIVOT[2] - EYE)),
+    "string_knee.R": ("CTRL_legbar", (-LEG_HALF, LEG_PIVOT[1], LEG_PIVOT[2] - EYE)),
+    "string_hand.L": ("CTRL_handbar", (HAND_HALF, HAND_PIVOT[1], CZ - EYE)),
+    "string_hand.R": ("CTRL_handbar", (-HAND_HALF, HAND_PIVOT[1], CZ - EYE)),
 }
+# rest pose: upper arms rotated down from the generated horizontal arms (degrees)
+ARM_HANG_DEG = 87       # hanging close to the body (the skirt gives way: see settle_dress)
 
 
 def _new_armature(name, coll):
@@ -938,10 +1018,8 @@ def _new_armature(name, coll):
 
 
 def build_armature(coll):
-    """Two armatures: 'MarionetteRig' = the game skeleton (deform bones + string sockets),
-    'MarionetteControls' = the wooden controller used to animate/preview in Blender."""
+    """'MarionetteRig' = the game skeleton (deform bones + string sockets)."""
     v = lambda p: Vector(p) * H
-    # --- game skeleton
     ob, eb = _new_armature("MarionetteRig", coll)
     ob.data.display_type = "STICK"
     for name, hd, tl, parent, conn, deform in BONES:
@@ -958,38 +1036,158 @@ def build_armature(coll):
     cols = {n: ob.data.collections.new(n) for n in ("Deform", "Sockets")}
     for b in ob.data.bones:
         cols["Sockets" if b.name.startswith("string_") else "Deform"].assign(b)
+    return ob
 
-    # --- controller
+
+def rest_pose_arms_down(rig, meshes):
+    """Turn the generated horizontal arms down into the hanging rest pose: pose the upper
+    arms, bake the deformation into every skinned mesh, then make that pose the rest pose."""
+    bpy.context.view_layer.objects.active = rig
+    bpy.ops.object.mode_set(mode="POSE")
+    for sfx, s in (("L", 1), ("R", -1)):
+        pb = rig.pose.bones[f"upper_arm.{sfx}"]
+        head = pb.bone.head_local
+        # about the forward axis through the shoulder: +X arm (L) turns down for +angle about +Y
+        rot = (Matrix.Translation(head) @ Matrix.Rotation(math.radians(s * ARM_HANG_DEG), 4, "Y")
+               @ Matrix.Translation(-head))
+        pb.matrix = rot @ pb.bone.matrix_local
+    bpy.context.view_layer.update()
+    bpy.ops.object.mode_set(mode="OBJECT")
+    for ob in meshes:
+        with bpy.context.temp_override(object=ob, active_object=ob, selected_objects=[ob]):
+            bpy.ops.object.modifier_apply(modifier="Armature")
+    bpy.context.view_layer.objects.active = rig
+    bpy.ops.object.mode_set(mode="POSE")
+    bpy.ops.pose.armature_apply(selected=False)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    for ob in meshes:
+        attach(ob, rig)
+
+
+def settle_dress(dress, bodies, rig, margin=0.0016, radius=0.022, iters=15):
+    """Lowering the arms folds the sleeve roots into the bodice and lays the arms against the
+    skirt: relax the dress around the armpits (Laplacian smoothing), dent the skirt where the
+    arms rest, and push every vertex that ended up inside a body part back out to the surface
+    + margin, so the rest pose is collision-free for the cloth solver."""
+    bm = bmesh.new(); bm.from_mesh(dress.data); bm.verts.ensure_lookup_table()
+    # Taubin smoothing (shrink / inflate) around each shoulder joint: evens out the folded
+    # armpit and the stretched sleeve cap without shrinking the sleeve puff
+    joints = [rig.data.bones[f"upper_arm.{sfx}"].head_local for sfx in ("L", "R")]
+    region = [v for v in bm.verts if v.link_edges and min((v.co - j).length for j in joints) < radius]
+    for i in range(iters * 2):
+        lam = 0.5 if i % 2 == 0 else -0.53
+        new = {}
+        for v in region:
+            nb = [e.other_vert(v).co for e in v.link_edges]
+            new[v] = v.co + (sum(nb, Vector()) / len(nb) - v.co) * lam
+        for v, co in new.items():
+            v.co = co
+    # the skirt / bodice gives way where the forearms and hands rest against it: push those
+    # vertices towards the body axis until they clear the limb (sleeve) capsules
+    dl = bm.verts.layers.deform.verify()
+    arm_groups = {vg.index for vg in dress.vertex_groups if vg.name.startswith(("upper_arm", "forearm", "hand"))}
+    caps = []
+    for sfx in ("L", "R"):
+        for bone, r in ((f"forearm.{sfx}", 0.034 * H), (f"hand.{sfx}", 0.022 * H)):
+            b = rig.data.bones[bone]
+            caps.append((b.head_local.copy(), b.tail_local.copy(), r + margin))
+    dented = []
+    for v in bm.verts:
+        if sum(w for g, w in v[dl].items() if g in arm_groups) > 0.3:
+            continue                                    # the sleeves themselves
+        for a, b, r in caps:
+            ab = b - a
+            t = max(0.0, min(1.0, (v.co - a).dot(ab) / ab.length_squared))
+            c = a + ab * t
+            d = v.co - c
+            if d.length >= r:
+                continue
+            inward = Vector((-v.co.x, -v.co.y, 0)).normalized()
+            for _ in range(40):                         # step inwards until outside the capsule
+                v.co += inward * 0.0003
+                if (v.co - c).length >= r:
+                    break
+            dented.append(v)
+    ring = {e.other_vert(v) for v in dented for e in v.link_edges} | set(dented)
+    for _ in range(4):                                  # soften the dent's rim
+        new = {v: v.co * 0.6 + sum((e.other_vert(v).co for e in v.link_edges), Vector()) / len(v.link_edges) * 0.4
+               for v in ring if v not in dented and v.link_edges}
+        for v, co in new.items():
+            v.co = co
+    dg = bpy.context.evaluated_depsgraph_get()
+    trees = [BVHTree.FromObject(o, dg) for o in bodies]
+    moved = 0
+    for _ in range(3):              # where two bodies meet (waist), pushing out of one can push into the other
+        for v in bm.verts:
+            for t in trees:
+                loc, nrm, _, _ = t.find_nearest(v.co)
+                if loc is None:
+                    continue
+                d = (v.co - loc).dot(nrm)
+                if d < margin and (v.co - loc).length < 0.01:
+                    v.co = loc + nrm * margin; moved += 1
+    bm.to_mesh(dress.data); bm.free(); dress.data.update()
+    return moved
+
+
+def build_controller(rig, coll):
+    """'MarionetteControls' = the real cross, used to animate / preview in Blender.
+    Bars rock about their bone's local Y (along the main bar). The puppet hangs from
+    CTRL_bar; IK targets at the hands and knees rise when their bar end rises (drivers)."""
     ctrl, eb = _new_armature("MarionetteControls", coll)
     ctrl.data.display_type = "OCTAHEDRAL"
-    for name, hd, tl, parent in CONTROLS:
-        b = eb.new(name); b.head = v(hd); b.tail = v(tl); b.use_deform = False
+    for name, parent, pivot, axis, _ in CROSS_BARS:
+        b = eb.new(name); b.head = Vector(pivot); b.use_deform = False
+        b.tail = b.head + Vector(axis or (0, -1, 0)) * 0.03
         if parent:
             b.parent = eb[parent]
-    for name, parent, pos in SOCKETS:                         # where each string ends on the controller
+    for name, (bar, eye) in STRING_TOP.items():                # where each string ends on the cross
         b = eb.new("ATT_" + name[len("string_"):])
-        b.head = v((pos[0], pos[1], CTRL_Z + (0.04 if "hand" in name else 0.015 if "knee" in name else 0)))
-        b.tail = b.head + Vector((0, 0, 0.02 * H)); b.parent = eb[STRING_TOP[name]]; b.use_deform = False
+        b.head = Vector(eye); b.tail = b.head + Vector((0, 0, 0.02 * H))
+        b.parent = eb[bar]; b.use_deform = False
+    # IK targets at the rest hand / knee positions, pointing up (local Y = world Z)
+    targets = {}
+    for sfx in ("L", "R"):
+        for nme, bone in ((f"CTRL_hand.{sfx}", f"forearm.{sfx}"), (f"CTRL_knee.{sfx}", f"thigh.{sfx}")):
+            b = eb.new(nme); b.head = rig.data.bones[bone].tail_local.copy()
+            b.tail = b.head + Vector((0, 0, 0.04 * H)); b.parent = eb["CTRL_bar"]; b.use_deform = False
+            targets[nme] = bone
     bpy.ops.object.mode_set(mode="OBJECT")
     c_att = ctrl.data.collections.new("StringEnds")
     c_ctl = ctrl.data.collections.new("Controls")
     for b in ctrl.data.bones:
         (c_att if b.name.startswith("ATT_") else c_ctl).assign(b)
+    for name in ("CTRL_legbar", "CTRL_handbar"):
+        ctrl.pose.bones[name].rotation_mode = "XYZ"
+    # rocking: +angle about local Y (world -Y) lifts the puppet's left (+X) end. The targets
+    # rise by as much as their eye, and move forward too: the strings run up to bars in front
+    # of the puppet, and a straight hanging limb pulled exactly along itself gives IK no
+    # direction to bend in
+    for nme in targets:
+        bar, half, forward = ("CTRL_handbar", HAND_HALF, 0.6) if "hand" in nme else ("CTRL_legbar", LEG_HALF, 1.5)
+        sign = 1 if nme.endswith(".L") else -1
+        for index, scale in ((1, 1.0), (2, forward)):           # local Y = world Z, local Z = forward
+            fc = ctrl.pose.bones[nme].driver_add("location", index)
+            drv = fc.driver; drv.type = "SCRIPTED"
+            var = drv.variables.new(); var.name = "r"; var.type = "TRANSFORMS"
+            var.targets[0].id = ctrl; var.targets[0].bone_target = bar
+            var.targets[0].transform_type = "ROT_Y"; var.targets[0].transform_space = "LOCAL_SPACE"
+            drv.expression = f"{scale:.2f} * max(0.0, {sign * half:.4f} * sin(r))"   # a string only lifts
 
     # the puppet hangs from the controller
-    pb = ob.pose.bones["root"]
+    pb = rig.pose.bones["root"]
     c = pb.constraints.new("CHILD_OF"); c.target = ctrl; c.subtarget = "CTRL_bar"
     c.inverse_matrix = (ctrl.matrix_world @ ctrl.data.bones["CTRL_bar"].matrix_local).inverted()
-    # IK so pulling the hand / knee strings moves the limbs (preview rig)
+    # IK so lifting the hand / knee strings moves the limbs (preview rig)
     for sfx in ("L", "R"):
-        pb = ob.pose.bones[f"forearm.{sfx}"]
+        pb = rig.pose.bones[f"forearm.{sfx}"]
         c = pb.constraints.new("IK"); c.target = ctrl; c.subtarget = f"CTRL_hand.{sfx}"; c.chain_count = 2
         lim = JOINT_LIMITS[f"forearm.{sfx}"]                 # elbow = hinge about local Z
         pb.lock_ik_y = True; pb.use_ik_limit_x = True; pb.ik_min_x = pb.ik_max_x = 0.0
         pb.use_ik_limit_z = True; pb.ik_min_z = math.radians(lim["min"]); pb.ik_max_z = math.radians(lim["max"])
-        pb = ob.pose.bones[f"thigh.{sfx}"]
+        pb = rig.pose.bones[f"thigh.{sfx}"]
         c = pb.constraints.new("IK"); c.target = ctrl; c.subtarget = f"CTRL_knee.{sfx}"; c.chain_count = 1
-    return ob, ctrl
+    return ctrl
 
 
 def control_shapes(rig, coll):
@@ -1116,24 +1314,19 @@ def build_strings(M, rig, ctrl, coll):
         s.rest_length = L; s.volume = "NO_VOLUME"
         ob.hide_select = True
         objs.append(ob)
-    # wooden controller: main bar, shoulder/head cross bar, hand bar, leg rocking bar
-    def bar(name, bone, p0, p1, r):
-        p0 = Vector(p0) * H; p1 = Vector(p1) * H
-        d = p1 - p0
+    # the wooden cross: 9 mm square sticks on their bar bones
+    for i, (bone, p0, p1) in enumerate(CROSS_STICKS):
+        p0 = Vector(p0); p1 = Vector(p1); d = p1 - p0
         bm = bmesh.new()
-        bmesh.ops.create_cone(bm, cap_ends=True, segments=12, radius1=r * H, radius2=r * H, depth=d.length)
-        me = bpy.data.meshes.new(name); bm.to_mesh(me); bm.free()
-        ob = bpy.data.objects.new(name, me); coll.objects.link(ob); set_mats(ob, [M["wood"]])
-        rot = d.to_track_quat("Z", "Y").to_matrix().to_4x4()
-        world = Matrix.Translation((p0 + p1) / 2) @ rot
+        bmesh.ops.create_cube(bm, size=1.0)
+        bmesh.ops.scale(bm, vec=(STICK, STICK, d.length + STICK), verts=bm.verts)
+        me = bpy.data.meshes.new(f"Controller_{i}"); bm.to_mesh(me); bm.free()
+        ob = bpy.data.objects.new(f"Controller_{bone[5:]}_{i}", me); coll.objects.link(ob)
+        set_mats(ob, [M["wood"]])
+        world = Matrix.Translation((p0 + p1) / 2) @ d.to_track_quat("Z", "Y").to_matrix().to_4x4()
         ob.parent = ctrl; ob.parent_type = "BONE"; ob.parent_bone = bone
         bpy.context.view_layer.update()
         ob.matrix_world = world
-        return ob
-    bar("Controller_Main", "CTRL_bar", (0, 0.15, CTRL_Z + 0.008), (0, -0.16, CTRL_Z + 0.008), 0.009)
-    bar("Controller_Cross", "CTRL_bar", (-0.11, 0.0, CTRL_Z + 0.008), (0.11, 0.0, CTRL_Z + 0.008), 0.008)
-    bar("Controller_HandBar", "CTRL_handbar", (-0.42, -0.02, CTRL_Z + 0.048), (0.42, -0.02, CTRL_Z + 0.048), 0.006)
-    bar("Controller_LegBar", "CTRL_legbar", (-0.12, -0.10, CTRL_Z + 0.023), (0.12, -0.10, CTRL_Z + 0.023), 0.007)
     return objs
 
 
@@ -1156,7 +1349,9 @@ JOINT_LIMITS = {
     "forearm.L": {"type": "hinge", "axis": "Z", "min": -150, "max": 0},
     "forearm.R": {"type": "hinge", "axis": "Z", "min": 0, "max": 150},
     "hand": {"type": "cone", "swing": 60, "twist": 30},
-    "thigh": {"type": "cone", "swing": 95, "twist": 20},
+    # hip as a hinge (local X, like the knee; - lifts the knee forwards): the angled knee
+    # strings of the cross would otherwise twist the legs, and the skirt with them
+    "thigh": {"type": "hinge", "axis": "X", "min": -95, "max": 30},
     "shin": {"type": "hinge", "axis": "X", "min": 0, "max": 140},
     "foot": {"type": "cone", "swing": 35, "twist": 10},
 }
@@ -1166,8 +1361,19 @@ def joint_limit(bone):
     return JOINT_LIMITS.get(bone) or JOINT_LIMITS.get(bone.split(".")[0])
 
 
+# soft parts weighed by area (kg/m2): felt hat, ribbon rosette
+FABRIC_GSM = {"Hat": 0.30, "HatRosette": 0.15}
+
+
+def fabric_mass(ob):
+    bm = bmesh.new(); bm.from_mesh(ob.data)
+    area = sum(f.calc_area() for f in bm.faces)
+    bm.free()
+    return area * FABRIC_GSM[ob.name]
+
+
 def mesh_volume(ob):
-    """Closed meshes: enclosed volume. Open shells (hat): area x solidify thickness."""
+    """Closed meshes: enclosed volume. Open shells: area x solidify thickness."""
     bm = bmesh.new(); bm.from_mesh(ob.data)
     if all(e.is_manifold for e in bm.edges):
         vol = abs(bm.calc_volume(signed=False))
@@ -1230,8 +1436,9 @@ def write_metadata(rig, ctrl, parts, dress, pin, path):
         key = b.name.split(".")[0]
         if b.name in parts:
             ob = parts[b.name]
-            vol = sum(mesh_volume(o) for o in (ob if isinstance(ob, list) else [ob]))
-            mass = vol * DENSITY[PART_MATERIAL.get(key, "wood")]
+            obs = ob if isinstance(ob, list) else [ob]
+            mass = sum(fabric_mass(o) if o.name in FABRIC_GSM else
+                       mesh_volume(o) * DENSITY[PART_MATERIAL.get(key, "wood")] for o in obs)
             co = np.array([v.co for o in (ob if isinstance(ob, list) else [ob]) for v in o.data.vertices])
             hd, tl = np.array(b.head_local), np.array(b.tail_local)
             radius = float(np.percentile(seg_dist(co, hd, tl), 90))
@@ -1248,11 +1455,21 @@ def write_metadata(rig, ctrl, parts, dress, pin, path):
             rig.pose.bones[b.name]["joint"] = json.dumps(jl)
         bones[b.name] = e
     strings = []
+    r5 = lambda p: [round(c, 5) for c in p]
     for name, parent, pos in SOCKETS:
         a = rig.data.bones[name].head_local; t = ctrl.data.bones["ATT_" + name[7:]].head_local
-        strings.append({"socket": name, "bone": parent, "position": [round(c, 5) for c in a],
-                        "controller": STRING_TOP[name], "controller_point": [round(c, 5) for c in t],
+        strings.append({"socket": name, "bone": parent, "position": r5(a),
+                        "controller": STRING_TOP[name][0], "controller_point": r5(t),
                         "rest_length": round((t - a).length, 5)})
+    controller = {
+        "description": "SKKG 9-string cross: main bar with shoulder crossbar and head bar (fixed), "
+                       "leg bar and hand bar rock about 'axis' (right-hand rule; + lifts the .L end)",
+        "stick_size_m": STICK,
+        "bars": [{"name": name, "parent": parent, "pivot": r5(pivot), "axis": list(axis) if axis else None,
+                  "input": key,
+                  "sticks": [{"a": r5(a), "b": r5(b)} for bar, a, b in CROSS_STICKS if bar == name]}
+                 for name, parent, pivot, axis, key in CROSS_BARS],
+    }
     edges = np.array([[dress.data.vertices[i].co for i in e.vertices] for e in dress.data.edges])
     el = np.linalg.norm(edges[:, 0] - edges[:, 1], axis=1)
     area = sum(p.area for p in dress.data.polygons)
@@ -1260,11 +1477,13 @@ def write_metadata(rig, ctrl, parts, dress, pin, path):
         "units": "metres", "up": "+Z", "forward": "-Y", "height_m": H,
         "joint_limit_convention": "degrees about bone-local axes (Blender bone space, +Y along the bone); "
                                   "values are estimates, hinge signs verified in the rig",
-        "assumptions": ["classic 9-string layout (photo 3 only shows head and hand attachments)",
+        "assumptions": ["9-string layout and cross from the SKKG control cross (photos + sketches); "
+                        "head bar size/drop and hand bar pivot estimated",
+                        "rest pose: arms hanging",
                         "lead-weighted shoes (metal plates visible on the soles)",
                         "silk satin ~80 g/m2", "joint ranges"],
         "source": "SKKG Marionettenpuppe 46154 (CC0), 35 x 14 x 7.5 cm",
-        "bones": bones, "strings": strings,
+        "bones": bones, "strings": strings, "controller": controller,
         "cloth": {"mesh": "Dress", "vertices": len(dress.data.vertices), "faces": len(dress.data.polygons),
                   "area_m2": round(area, 5), "fabric": "silk satin ~80 g/m2",
                   "mass_kg": round(area * 0.08, 5),
@@ -1282,39 +1501,26 @@ def write_metadata(rig, ctrl, parts, dress, pin, path):
     return meta
 
 
-def make_demo_action(rig):
-    """Demo of string pulls: T-pose -> arms hang -> left hand string pulled ->
-    left knee string pulled -> whole controller bobs. Used to test skinning + cloth."""
-    if rig.animation_data is None:
-        rig.animation_data_create()
+def make_demo_action(ctrl):
+    """Demo of the cross: rest -> hand bar rocks (left hand up, then right) -> leg bar rocks
+    (walking steps) -> whole cross bobs. Used to test skinning + cloth."""
+    if ctrl.animation_data is None:
+        ctrl.animation_data_create()
     act = bpy.data.actions.get("MAR_DemoPull") or bpy.data.actions.new("MAR_DemoPull")
-    rig.animation_data.action = act
-    rest = {n: rig.data.bones[n].head_local / H for n in ("CTRL_hand.L", "CTRL_hand.R", "CTRL_knee.L")}
-    hang_l, hang_r = Vector((0.13, -0.03, 0.48)), Vector((-0.13, -0.03, 0.48))
-    lift_l, knee_up = Vector((0.22, -0.10, 0.80)), Vector((0.047, -0.11, 0.37))
-    # armature-space offsets (H units) of each control from its rest position; children
-    # inherit CTRL_bar's motion, as on a real controller
-    off = lambda n, p: p - rest[n]
-    keys = {
-        1: {},
-        20: {"CTRL_hand.L": off("CTRL_hand.L", hang_l), "CTRL_hand.R": off("CTRL_hand.R", hang_r)},
-        45: {"CTRL_hand.L": off("CTRL_hand.L", hang_l), "CTRL_hand.R": off("CTRL_hand.R", hang_r)},
-        65: {"CTRL_hand.L": off("CTRL_hand.L", lift_l), "CTRL_hand.R": off("CTRL_hand.R", hang_r)},
-        80: {"CTRL_hand.L": off("CTRL_hand.L", lift_l), "CTRL_hand.R": off("CTRL_hand.R", hang_r),
-             "CTRL_knee.L": off("CTRL_knee.L", knee_up)},
-        95: {"CTRL_hand.L": off("CTRL_hand.L", hang_l), "CTRL_hand.R": off("CTRL_hand.R", hang_r),
-             "CTRL_knee.L": off("CTRL_knee.L", knee_up), "CTRL_bar": Vector((0, 0, 0.08))},
-        110: {"CTRL_hand.L": off("CTRL_hand.L", hang_l), "CTRL_hand.R": off("CTRL_hand.R", hang_r)},
-    }
-    names = ["CTRL_bar", "CTRL_hand.L", "CTRL_hand.R", "CTRL_knee.L", "CTRL_knee.R"]
-    for f, poses in sorted(keys.items()):
-        for n in names:
-            pb = rig.pose.bones[n]
-            d = poses.get(n, Vector((0, 0, 0))) * H
-            pb.location = pb.bone.matrix_local.to_3x3().inverted() @ d     # armature -> bone local
-            pb.keyframe_insert("location", frame=f)
-    for n in names:
-        rig.pose.bones[n].location = (0, 0, 0)
+    ctrl.animation_data.action = act
+    rock = math.radians(30)
+    keys = {  # frame: (hand bar angle, leg bar angle, bar lift in metres)
+        1: (0, 0, 0), 15: (0, 0, 0), 30: (rock, 0, 0), 45: (-rock, 0, 0), 55: (0, 0, 0),
+        65: (0, rock, 0), 75: (0, -rock, 0), 85: (0, rock, 0), 95: (0, 0, 0),
+        105: (0, 0, 0.03), 120: (0, 0, 0)}
+    bar, hands, legs = (ctrl.pose.bones[n] for n in ("CTRL_bar", "CTRL_handbar", "CTRL_legbar"))
+    for f, (h, l, z) in sorted(keys.items()):
+        hands.rotation_euler = (0, h, 0); hands.keyframe_insert("rotation_euler", frame=f)
+        legs.rotation_euler = (0, l, 0); legs.keyframe_insert("rotation_euler", frame=f)
+        bar.location = bar.bone.matrix_local.to_3x3().inverted() @ Vector((0, 0, z))
+        bar.keyframe_insert("location", frame=f)
+    for pb in (bar, hands, legs):
+        pb.location = (0, 0, 0); pb.rotation_euler = (0, 0, 0)
     return act
 
 
@@ -1354,13 +1560,16 @@ def build():
     legs = build_legs(M, body)
     dress, pin, sleeve_info, grid = build_dress(M, cloth_c)
 
-    rig, ctrl = build_armature(coll)
+    rig = build_armature(coll)
     parts = {"head": [head, hat, rosette], "neck": collar, "pelvis": pelvis, "chest": chest}
     parts.update(arms); parts.update(legs)
     for bone, obs in parts.items():
         for ob in (obs if isinstance(obs, list) else [obs]):
             skin_rigid(ob, rig, bone)
     skin_dress(dress, rig, sleeve_info, grid)
+    rest_pose_arms_down(rig, list(arms.values()) + [dress])
+    settle_dress(dress, [chest, pelvis] + [arms[k] for k in arms if k.startswith("upper_arm")], rig)
+    ctrl = build_controller(rig, coll)
     pin_color_attribute(dress, pin)
     remove_loose(dress)                       # grid points inside the armhole cut-outs
     colliders = [pelvis, chest] + [arms[k] for k in arms if not k.startswith("hand")] + \

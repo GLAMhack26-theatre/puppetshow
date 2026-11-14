@@ -7,8 +7,7 @@ from PIL import Image, ImageChops
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 D = sys.argv[1] if len(sys.argv) > 1 else "/tmp"
-PAIRS = {"front": "assets/reference/tpose_front.png", "side": "assets/reference/views_front_side_top.png",
-         "front_hang": "assets/reference/views_front_side_top.png"}
+PAIRS = {"front": "assets/reference/views_front_side_top.png", "side": "assets/reference/views_front_side_top.png"}
 for view, ref in PAIRS.items():
     photo = Image.open(os.path.join(ROOT, ref)).convert("RGBA")
     rend = Image.open(os.path.join(D, f"marionette_check_{view}.png")).convert("RGBA").resize(photo.size)

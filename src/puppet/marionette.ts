@@ -2,7 +2,7 @@ import { Mesh, Vector3 } from "@iwsdk/core";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import marionetteUrl from "../../export/marionette.glb?url";
 import rigData from "../../export/marionette_rig.json";
-import type { StringId } from "../input/control-input";
+import type { RockId, StringId } from "../input/control-input";
 import type { RigDescription, RigJoint } from "./rig";
 
 // The SKKG marionette (README, "Marionette model"): the skinned model from
@@ -23,7 +23,16 @@ interface BoneData {
   joint?: { type: string; axis?: "X" | "Y" | "Z"; min?: number; max?: number };
 }
 
-/** Blender (Z up, facing −Y) → glTF / three.js (Y up, facing +Z) */
+interface BarData {
+  name: string;
+  parent: string | null;
+  pivot: Vec;
+  axis: Vec | null;
+  input: RockId | null;
+  sticks: { a: Vec; b: Vec }[];
+}
+
+/** Blender (Z up, facing −Y) → glTF / three.js (Y up, facing +Z); also for directions */
 const fromBlender = ([x, y, z]: Vec) => new Vector3(x, z, -y);
 const AXES = { X: new Vector3(1, 0, 0), Y: new Vector3(0, 1, 0), Z: new Vector3(0, 0, 1) };
 const rad = (deg: number) => (deg * Math.PI) / 180;
@@ -80,9 +89,23 @@ export async function loadMarionette() {
       id: s.socket.replace(/^string_/, "") as StringId,
       bone: s.bone,
       position: fromBlender(s.position),
+      bar: s.controller,
       barPoint: fromBlender(s.controller_point),
       restLength: s.rest_length,
     })),
+    // The real SKKG cross: main bar (shoulder crossbar and head bar fixed on it),
+    // rocking leg bar and hand bar
+    controller: {
+      stickSize: rigData.controller.stick_size_m,
+      bars: (rigData.controller.bars as BarData[]).map((b) => ({
+        name: b.name,
+        parent: b.parent ?? undefined,
+        pivot: fromBlender(b.pivot),
+        axis: b.axis ? fromBlender(b.axis).normalize() : undefined,
+        input: b.input ?? undefined,
+        sticks: b.sticks.map((s) => ({ a: fromBlender(s.a), b: fromBlender(s.b) })),
+      })),
+    },
   };
   return { root, description };
 }
