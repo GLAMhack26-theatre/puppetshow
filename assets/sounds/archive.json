@@ -2,7 +2,7 @@
   "plays": {
     "default": "ragtime",
     "froschkoenig": "frogs",
-    "haensel": "kaleidoscope",
+    "haensel": "percussion",
     "impro": "percussion"
   },
   "playlists": {
@@ -247,14 +247,6 @@
           "url": "https://archive.org/details/ca364_hls"
         }
       ]
-    },
-    "kaleidoscope": {
-      "label": "Kaleidoscope",
-      "items": [
-        "puls02"
-      ],
-      "shuffle": true,
-      "tracks": []
     },
     "frogs": {
       "label": "Bigfrogs",
