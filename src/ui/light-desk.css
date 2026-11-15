@@ -1,54 +1,87 @@
-/* The light desk (light-desk.ts): a plain panel on the left, between the HUD
-   and the button panel; scrolls when the window is low */
+/* The light desk (light-desk.ts). .light-desk is the block of controls; the
+   panel around it sets its colours through the custom properties: the paper
+   sheet on the Licht page of the scene editor (.impro-light, impro.css), or
+   the plain dark panel of the debug mode below. */
 .light-desk {
-  position: fixed;
-  top: 136px;
-  left: 8px;
-  bottom: 120px;
-  width: min(270px, calc(100vw - 16px));
-  box-sizing: border-box;
-  overflow-y: auto;
-  padding: 8px;
-  border-radius: 6px;
-  background: #000c;
-  color: #f3e9dc;
+  --desk-ink: #f3e9dc;
+  --desk-accent: #e8c478;
+  --desk-line: #f3e9dc33;
+  --desk-field: #ffffff1f;
+  --desk-chosen: #e8c478;
+  --desk-chosen-ink: #1a1208;
+  color: var(--desk-ink);
   font: 12px/1.3 system-ui, sans-serif;
-  z-index: 15;
+  /* The rows lay themselves out by the width of the desk, not of the window */
+  container-type: inline-size;
 }
-.light-desk[hidden] {
-  display: none;
-}
-.light-desk header,
-.light-desk footer {
+.light-desk-scenes {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
 }
-.light-desk header select {
-  flex: 1;
-  min-width: 0;
+.light-desk button,
+.light-desk footer input {
+  color: inherit;
+  background: var(--desk-field);
+  border: 1px solid var(--desk-line);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font: inherit;
+}
+.light-desk button {
+  cursor: pointer;
+}
+.light-desk .light-desk-scene {
+  border-radius: 999px;
+  padding: 3px 9px;
+}
+.light-desk .light-desk-scene[aria-pressed="true"] {
+  color: var(--desk-chosen-ink);
+  background: var(--desk-chosen);
+  border-color: var(--desk-accent);
 }
 .light-desk fieldset {
+  min-width: 0;
   margin: 8px 0 0;
   padding: 4px 8px 6px;
-  border: 1px solid #f3e9dc33;
+  border: 1px solid var(--desk-line);
   border-radius: 6px;
 }
 .light-desk legend {
   padding: 0 4px;
-  color: #e8c478;
+  color: var(--desk-accent);
 }
+/* Narrow (the editor's side panel): name and value on one line, the slider
+   below over the full width. The debug panel is just wide enough for one
+   line per value. */
 .light-desk label {
   display: grid;
-  grid-template-columns: 84px 1fr 50px;
+  grid-template-columns: 1fr auto;
   align-items: center;
-  gap: 6px;
-  min-height: 22px;
+  gap: 0 6px;
+  padding: 2px 0;
+}
+.light-desk label input {
+  grid-column: 1 / -1;
+}
+@container (min-width: 270px) {
+  .light-desk label {
+    grid-template-columns: 92px 1fr 54px;
+    min-height: 22px;
+  }
+  .light-desk label input {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .light-desk label output {
+    grid-column: 3;
+  }
 }
 .light-desk input[type="range"] {
   width: 100%;
   min-width: 0;
   margin: 0;
+  accent-color: var(--desk-accent);
 }
 .light-desk input[type="color"] {
   width: 100%;
@@ -62,25 +95,65 @@
   font-variant-numeric: tabular-nums;
 }
 .light-desk footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   margin-top: 8px;
 }
 .light-desk footer input {
   flex: 1 1 100%;
   min-width: 0;
+  box-sizing: border-box;
 }
-.light-desk select,
-.light-desk button,
-.light-desk footer input {
+.light-desk button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.light-desk-status {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.light-desk-status:empty {
+  display: none;
+}
+.light-desk-status[data-kind="warn"] {
+  color: #e2603a;
+}
+
+/* Debug mode: a plain panel on the left, between the HUD and the button
+   panel; scrolls when the window is low */
+.light-desk-float {
+  position: fixed;
+  top: 136px;
+  left: 8px;
+  bottom: 120px;
+  width: min(290px, calc(100vw - 16px));
+  box-sizing: border-box;
+  overflow-y: auto;
+  padding: 8px;
+  border-radius: 6px;
+  background: #000c;
+  color: #f3e9dc;
+  font: 12px/1.3 system-ui, sans-serif;
+  z-index: 25;
+}
+.light-desk-float[hidden] {
+  display: none;
+}
+.light-desk-float header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.light-desk-close {
   color: inherit;
   background: #ffffff1f;
   border: 0;
   border-radius: 4px;
-  padding: 4px 8px;
+  padding: 2px 8px;
   font: inherit;
-}
-.light-desk option {
-  color: #000;
-}
-.light-desk button:disabled {
-  opacity: 0.4;
+  cursor: pointer;
 }

@@ -1,0 +1,19 @@
+{
+  "name": "Grüne Scene",
+  "values": {
+    "front": 0.02,
+    "frontKelvin": 4500,
+    "spot": 1,
+    "spotKelvin": 5600,
+    "spotAngle": 14,
+    "spotEdge": 0.15,
+    "spotBeam": 0.6,
+    "top": 0,
+    "topColor": "#e4a8ff",
+    "side": 0,
+    "sideKelvin": 5600,
+    "strip": 1,
+    "stripColor": "#0fffd7",
+    "room": 0.06
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "Morgenstimmung",
+  "values": {
+    "front": 0.62,
+    "frontKelvin": 5600,
+    "spot": 0.1,
+    "spotKelvin": 5000,
+    "spotAngle": 36,
+    "spotEdge": 1,
+    "spotBeam": 0,
+    "top": 0.6,
+    "topColor": "#bfe0ff",
+    "side": 0.4,
+    "sideKelvin": 4200,
+    "strip": 0.15,
+    "stripColor": "#ffe9a8",
+    "room": 0.45
+  }
+}

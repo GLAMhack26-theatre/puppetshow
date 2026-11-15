@@ -1,7 +1,9 @@
 import type { World } from "@iwsdk/core";
 import { hidePuppets, showPuppets } from "../puppet/puppet";
 import { arrangeRequisits, type FloorSpot, placedRequisits, requisitsSettled } from "../props/requisits";
+import { slug } from "../slug";
 import { currentBackdrop, loadBackdrops, setBackdrop } from "../stage/backdrops";
+import { lightScenesLoaded, type SceneLight, setStageLight, stageLight } from "../stage/lighting";
 
 // Plays ("Stücke") and their scenes: stage presets built in impro mode
 // (director.ts) and switched with the golden buttons while a play runs
@@ -10,16 +12,18 @@ import { currentBackdrop, loadBackdrops, setBackdrop } from "../stage/backdrops"
 // file name; the signs' plays (signs.ts PLAYS, e.g. "froschkoenig") pick up
 // the file of the same name.
 //
-// A scene holds the backdrop and the props with their spots. "light" and
-// "sound" are reserved for the Licht and Sound pages: kept as they are when
-// a scene is saved again, not applied yet.
+// A scene holds the backdrop, the props with their spots and its light: the
+// id of a lighting scene from the library all plays share (assets/lights/,
+// stage/lighting.ts), chosen on the Licht page. "sound" is reserved for the
+// Sound page: kept as it is when a scene is saved again, not applied yet.
 
 export interface Scene {
   name: string;
   /** Backdrop id (file name without "Background_"), null for none. */
   backdrop: string | null;
   props: FloorSpot[];
-  light?: unknown;
+  /** The lighting scene; without one the scene is lit plainly. */
+  light?: SceneLight;
   sound?: unknown;
 }
 
@@ -93,29 +97,15 @@ export async function savePlay(play: Play): Promise<"saved" | "downloaded"> {
 }
 
 /** "Der Froschkönig" → "der-froschkoenig" (file name of a new play). */
-export function playId(name: string) {
-  return (
-    name
-      .toLowerCase()
-      .replace(/ä/g, "ae")
-      .replace(/ö/g, "oe")
-      .replace(/ü/g, "ue")
-      .replace(/ß/g, "ss")
-      .normalize("NFD")
-      .replace(/[̀-ͯ]/g, "")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 60) || "stueck"
-  );
-}
+export const playId = (name: string) => slug(name, "stueck");
 
-/** The stage as it stands now, as a scene (light and sound taken over from `previous`). */
+/** The stage as it stands now, as a scene (sound taken over from `previous`). */
 export function captureScene(name: string, previous?: Scene): Scene {
   return {
     name,
     backdrop: currentBackdrop()?.id ?? null,
     props: placedRequisits(),
-    ...(previous?.light !== undefined && { light: previous.light }),
+    light: stageLight(),
     ...(previous?.sound !== undefined && { sound: previous.sound }),
   };
 }
@@ -128,17 +118,18 @@ export function onSceneApplied(listener: () => void) {
 }
 
 /**
- * Puts the scene on the stage: backdrop and props, each with its usual
- * animation. The puppet steps aside meanwhile (faded out and pulled up), so
+ * Puts the scene on the stage: backdrop, light (faded) and props, each with
+ * its usual animation. The puppet steps aside meanwhile (faded out and pulled up), so
  * the props come down onto a free stage, and comes back once all have landed.
  */
 export async function applyScene(world: World, scene: Scene) {
   const run = ++applying;
   const hidden = hidePuppets();
-  const backdrops = await loadBackdrops();
+  const [backdrops] = await Promise.all([loadBackdrops(), lightScenesLoaded()]);
   const backdrop = scene.backdrop ? backdrops.find((b) => b.id === scene.backdrop) : null;
   if (scene.backdrop && !backdrop) console.warn(`Scene preset: unknown backdrop ${scene.backdrop}`);
   setBackdrop(world, backdrop ?? null);
+  setStageLight(scene.light);
   // The props only start down once the puppet is out of their way
   await hidden;
   if (run !== applying) return; // another scene was clicked meanwhile
