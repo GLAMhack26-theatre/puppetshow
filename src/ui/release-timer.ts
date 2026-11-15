@@ -17,9 +17,9 @@ export function createReleaseTimer() {
 
   let shown = false;
   return {
-    /** Once per frame. */
-    show(state: HandReleaseState) {
-      const waiting = state.phase === "waiting";
+    /** Once per frame. `onStage`: the play is on (not behind the main curtain, where a hand does nothing yet). */
+    show(state: HandReleaseState, onStage: boolean) {
+      const waiting = onStage && state.phase === "waiting";
       if (waiting !== shown) root.classList.toggle("visible", (shown = waiting));
     },
   };
