@@ -2,6 +2,7 @@ import { defineConfig, type Plugin } from "vite";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { attachSignalRelay } from "./scripts/signal-relay.mjs";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 
@@ -194,6 +195,22 @@ function lights(): Plugin {
   };
 }
 
+// A meeting point for the devices of a room on this server itself, under
+// /relay (scripts/signal-relay.mjs, docs/multiplayer.md): for a network
+// without internet, where the public relays cannot be reached. Always there,
+// in dev and preview; the app only uses it with VITE_SIGNAL_URLS=/relay.
+function signalRelay(): Plugin {
+  return {
+    name: "signal-relay",
+    configureServer(server) {
+      if (server.httpServer) attachSignalRelay(server.httpServer);
+    },
+    configurePreviewServer(server) {
+      attachSignalRelay(server.httpServer);
+    },
+  };
+}
+
 // HTTPS for phones on the LAN: camera, motion sensors and WebXR exist only
 // on secure pages. Self-signed, so the browser warns once. Switched on by
 // `--mode https` (works in every shell, used by `npm run dev:https`) or by
@@ -210,7 +227,7 @@ export default defineConfig(async ({ mode }) => ({
   // treats it as "/". Runtime URLs go through import.meta.env.BASE_URL
   // ("./" in a build), which resolves against the page.
   base: "./",
-  plugins: [wasmRuntimes(), plays(), lights(), ...(await httpsPlugins(mode))],
+  plugins: [wasmRuntimes(), plays(), lights(), signalRelay(), ...(await httpsPlugins(mode))],
   resolve: {
     // One three.js: IWSDK's, also for three/examples/jsm add-ons
     dedupe: ["three"],

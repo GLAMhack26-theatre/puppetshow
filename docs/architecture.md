@@ -15,7 +15,7 @@ The repo is empty apart from the README; this doc defines the setup and architec
 | Physics | **Rapier** (`@dimforge/rapier3d-compat`) as our own system; IWSDK physics stays off (`features.physics: false`) |
 | Gestures | MediaPipe (`@mediapipe/tasks-vision`: HandLandmarker + GestureRecognizer) |
 | Targets | Phone and desktop with a webcam first, the phone running everything itself. VR later |
-| Multiplayer | Several players on one stage, joined by a secret room id in the URL. **Trystero** (WebRTC data channels; peers meet over public Nostr relays, no server of our own). One host device simulates, the others send input and show poses (section 3.3) |
+| Multiplayer | Several players on one stage, joined by a secret room id in the URL. **Trystero** (WebRTC data channels; peers meet over public Nostr relays, no server of our own). One host device simulates, the others send input and show poses (section 3.3). Networks, servers and troubleshooting: `docs/multiplayer.md` |
 | Audio | Web Audio; background music and excerpts **streamed from archive.org** (netlabel releases, `assets/sounds/archive.json`); effects as CC0 samples + **ZzFX**; physics sounds from collision starts, stereo-panned. Music and effects each have a button, both off at every load |
 | Tooling | TypeScript + Vite + HTTPS, run with npm (`npm run dev`, `npm run dev:https` for phones on the LAN); the app is served directly by Vite (no proxy). Docker Compose is set aside for now (later) |
 | Assets | Sources committed in `/assets`, grouped by source, imported directly by Vite (`?url`, `import.meta.glob`); large files on external storage, downloaded by hand into `assets/external/` (git-ignored). A `convert` service that optimizes them into `/public` is planned for later |
@@ -306,7 +306,7 @@ Checked in headless Chrome with a fake camera playing a photo of a person (face,
 
 ### 3.3 Several players (`src/net/`)
 
-Several devices play on one stage; every device shows the whole stage. All open the same `?room=<secret>`.
+Several devices play on one stage; every device shows the whole stage. All open the same `?room=<secret>`. This section is the design; how to set a room up on a given network, which servers help when one is in the way, and how to check them is in `docs/multiplayer.md`.
 
 **Why one device simulates.** Sending only the hands and simulating everywhere does not work: the physics is not the same on two devices (steps per frame, the step at which an input arrives), so puppets that touch each other would drift apart. One device, the **host**, runs the physics for everyone.
 
@@ -318,7 +318,10 @@ Several devices play on one stage; every device shows the whole stage. All open 
 
 - **Reliable messages** (JSON, Trystero action): who plays what, the stage set.
 - **Pose packets** (binary): over our own second data channel on the same connection, unordered and without retransmits (`negotiated`, so Trystero does not see it), because on a congested Wi-Fi one lost packet would otherwise hold back all later ones. Used only after the other side answered on it; until then, and with `&lossy=0`, pose packets use Trystero's ordered channel.
-- **Fallbacks** when a network blocks direct connections: TURN (`VITE_TURN_URLS`, `VITE_TURN_USERNAME`, `VITE_TURN_CREDENTIAL`), or a second `Transport` implementation: a WebSocket relay as a Vite plugin (not built).
+- **When a network is in the way** (`docs/multiplayer.md`), all optional and set at build time:
+  - No direct path between two devices (client isolation, mobile networks): a TURN server (`VITE_TURN_URLS`, `VITE_TURN_USERNAME`, `VITE_TURN_CREDENTIAL`; `scripts/setup-turn.sh` sets up coturn). `&ice=relay` allows only that path, to check the server.
+  - No internet, or the public relays blocked: our own meeting point (`VITE_SIGNAL_URLS`), Trystero's WebSocket relay (`@trystero-p2p/ws-relay`, `scripts/signal-relay.mjs`). The Vite server runs one under `/relay`, so a laptop can serve page and meeting point from one address. Every device of a room has to use the same meeting point.
+  - Neither helps: a second `Transport` implementation that sends the game data through a WebSocket server (not built).
 
 **Messages** (`protocol.ts`):
 
@@ -378,6 +381,8 @@ assets/<source>/        # committed sources (models, sheets, audio, fonts), e.g.
 assets/external/        # large files from external storage, downloaded by hand (git-ignored)
 blender/  export/  tools/   # marionette: Blender build scripts, exported .glb/.fbx + rig JSON, texture tools
 scripts/fetch-mediapipe-models.sh  scripts/index-archive.mjs  scripts/unpack-sounds.sh
+scripts/setup-turn.sh  scripts/signal-relay.mjs   # rooms on difficult networks: a TURN server, our own meeting point (docs/multiplayer.md)
+scripts/test-room.mjs           # a room in headless Chrome: do the tabs meet, over which path
 scripts/test-hand-tracking.ts   # hand-tracking checks on synthetic hands (node, no browser)
 scripts/test-body-frame.ts      # the hand's height on synthetic scenes: cameras, players, faces (node, no browser)
 scripts/replay-recording.mjs    # a recorded hand session through the tracker → CSV (node, no browser)
@@ -428,8 +433,8 @@ Later, with Docker: `converter/` (Dockerfile with Blender LTS, node and ffmpeg; 
 - **A second model for the hand's height (a face or a body), later:** in play only the hand landmarker runs. The height model can already read a face or a body ("Height in metres"), but running one costs frame rate on the page's one thread (while recording, the hand landmarker fell from 29 Hz to 16 … 22 Hz with three body models; a face detector alone, on a stride of frames, is the candidate) and a WebGL context per task. And what it would add rests on assumptions (the hand plays 42 cm below the eyes; the eyes' distance as a ruler, which a face 14 px wide with 2 px of noise no longer is) until recordings with a face or a body in them exist. Until then a pitched camera needs the installer's step ("Kamera einmessen"), and without it the height drifts with the hand's distance.
 - **iOS permissions:** camera, DeviceOrientation and audio all need a user gesture, which the Play button provides.
 - **Self-signed certificates:** phones warn once. For the demo, use a real certificate on the server.
-- **Multiplayer on the venue's Wi-Fi:** not yet tested on real devices. Direct connections fail on networks with client isolation, or where devices only tell each other `.local` names that the network does not resolve (browsers hide the LAN address unless the page has camera permission; Quest ↔ laptop is the hard case). Then TURN or the WebSocket relay is needed (section 3.3). A VPN as the default route does the same even between two tabs on one machine (seen while testing: no connection until the tabs had camera permission, with which the browser offers every network interface). Whether a data channel survives entering VR on a Quest 2 is also untested.
-- **Multiplayer needs the internet** to meet (public Nostr relays), also on a LAN.
+- **Multiplayer on the venue's Wi-Fi:** not yet tested on real devices. Direct connections fail on networks with client isolation, or where devices only tell each other `.local` names that the network does not resolve (browsers hide the LAN address unless the page has camera permission; Quest ↔ laptop is the hard case). Then a TURN server is needed (`docs/multiplayer.md`: its set-up script is only checked locally, not on a rented server). A VPN as the default route does the same even between two tabs on one machine (seen while testing: no connection until the tabs had camera permission, with which the browser offers every network interface). Whether a data channel survives entering VR on a Quest 2 is also untested.
+- **Multiplayer needs the internet** to meet (public Nostr relays), also on a LAN, unless the app is built for our own meeting point (`VITE_SIGNAL_URLS`, section 3.3). The public relays belong to strangers and may go away or be filtered.
 - **The host carries everyone:** it simulates up to six ragdolls (measured: 2.1 ms per step at worst for two puppets in contact, on a desktop), and a hidden host tab stops every stage.
 
 ## 8. Verification
@@ -453,6 +458,7 @@ Results of the third play-test round (what was measured, shortfalls, open questi
   - puppets pushed together collide; a backdrop chosen on one device appears on the other; closing a client removes its puppet; hiding the host's tab shows "Bühne pausiert" on the clients
   - the string length slider and B (the back string) on a client change its puppet on both; a scene preset can be put on the stage on either device, also after a player left
   - a client's nod, head turn and release reach its puppet on the host; with a prop on the host's stage: a puppet cannot take what another one holds, the client's HUD shows what its own hands hold and reach, a prop held by a player who leaves is a full prop again (own mass, `GROUP.prop`), and `flyIn()` on the host lifts only the host's puppet
+  - `node scripts/test-room.mjs <app address>` runs such a room in headless Chrome and reports `signal` and `path` per tab; with `--relay-only` it checks a configured TURN server, with `--offline` our own meeting point (`docs/multiplayer.md`, section 9, lists what was run)
   - on real devices (iPhone, Quest 2, laptop) on the venue's Wi-Fi: not done yet
 - Later, with Docker: `docker compose run --rm convert` produces output for all source types and skips unchanged files on a second run.
 
@@ -464,6 +470,7 @@ Add one line per change to a decision in this doc: date, what changed, why.
 
 | Date | Change | Reason |
 |---|---|---|
+| 2026-11-15 | Rooms on difficult networks (`docs/multiplayer.md`): our own meeting point as an option (`VITE_SIGNAL_URLS`, Trystero's `ws-relay` strategy; `scripts/signal-relay.mjs`, also under `/relay` of the Vite server); a set-up script for a TURN server (`scripts/setup-turn.sh`, coturn); `&ice=relay`; HUD lines `signal` and `path`; `scripts/test-room.mjs`; the Pages build reads the settings from Actions variables. The "WebSocket relay as a Vite plugin" fallback is now two things: the relay for meeting (built) and a WebSocket transport for the game data (still not built) | Cross-check of the set-up: the TURN path had never been run, and without internet there was no way to meet at all. A TURN server answers client isolation and mobile networks without new transport code, also over TCP, so the WebSocket transport is only the last resort |
 | 2026-11-15 | Multiplayer merged with the magnet hands, nod, head turn and fly-in: the input packet also carries `nod`, `turn` and the `release` counters (74 B, protocol 3); the host sends every player what their puppet's hands hold and could take (Hands message → `puppetState`); grab state (held, just released, not yet clear) is kept for all puppets together, and a prop is in one hand at a time; `flyIn()` moves only the local player's puppet, where it is simulated; `GROUP.held` and `GROUP.clearance` are built from the per-puppet collision bits | The new grip is a level that never lets go by itself, so without `release` a client could take a prop and never drop it, and its hand tracking reads `puppetState` to tell a grip from a release; per-puppet grab state let a second puppet take a held prop (and keep its reduced mass); a new hand at the host's camera would have pulled every player's puppet out of the picture |
 | 2026-11-15 | Vite `base: "./"` (relative) instead of `BASE_PATH=/<repo>/` | One build for every place it is served: Pages under `/puppetshow/` or the root, `vite preview`, `npm run dev`; no environment variable to forget |
 | 2026-11-15 | Demo deployed to GitHub Pages by `.github/workflows/deploy.yml` (Pages source: GitHub Actions): built with `BASE_PATH=/<repo>/` (Vite `base`; runtime URLs use `import.meta.env.BASE_URL`), MediaPipe models fetched in CI | A public link for the demo; Pages serves the site under `/puppetshow/`, and `public/` is not in git |

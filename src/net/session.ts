@@ -63,6 +63,8 @@ export interface SessionOptions {
   contact: boolean;
   /** Pose packets over a lossy channel where it works (transport.ts) */
   lossy: boolean;
+  /** Only through the TURN server (&ice=relay): to check that it works */
+  relayOnly: boolean;
   hud: Record<string, string>;
 }
 
@@ -183,6 +185,13 @@ function shareStage(world: World, transport: Transport) {
   });
 }
 
+/**
+ * What a client shows until it has found the host. With our own meeting point
+ * it names it: a device that uses another one (the public relays, another
+ * server) waits forever, and nothing else on the screen says why.
+ */
+const waiting = (transport: Transport) => `Warte auf die Bühne …${transport.signaling.own ? ` (Treffpunkt ${transport.signaling.label})` : ""}`;
+
 /** A line at the top of the screen: the room on the host, what a client waits for */
 function createStatus() {
   const element = document.createElement("div");
@@ -200,11 +209,11 @@ function createStatus() {
  * room is joined (its puppet comes when the host is there).
  */
 export async function startSession(world: World, options: SessionOptions) {
-  const transport = createTransport(options.room, options.lossy);
+  const transport = createTransport(options.room, { lossy: options.lossy, relayOnly: options.relayOnly });
   const status = createStatus();
   const { hud } = options;
   hud.net = "verbinde …";
-  status(options.host ? `Raum ${options.room} …` : "Warte auf die Bühne …");
+  status(options.host ? `Raum ${options.room} …` : waiting(transport));
   transport.onError((message) => {
     console.warn("[net]", message);
     hud.neterr = message.slice(0, 60);
@@ -216,11 +225,16 @@ export async function startSession(world: World, options: SessionOptions) {
 
   const session = options.host ? await runHost(world, transport, selfId, options, status) : await runClient(world, transport, selfId, status);
 
-  // HUD: role, peers, how many of them over the lossy channel, round trip, packets per second
+  // HUD: role, peers, how many of them over the lossy channel, where the
+  // devices meet, how the traffic to each peer travels, round trip, packets
+  // per second (what each line tells about a network: docs/multiplayer.md)
   let last = transport.stats();
+  const { signaling } = transport;
   setInterval(() => {
     const stats = transport.stats();
     hud.net = `${options.host ? "host" : "client"} ${options.room} · ${stats.peers} peers · ${stats.lossy} lossy`;
+    hud.signal = `${signaling.label} ${signaling.open()}/${signaling.total()}`;
+    transport.paths().then((paths) => (hud.path = `${paths.join(" ") || "-"}${options.relayOnly ? " (ice=relay)" : ""}`));
     hud.rate = `in ${stats.received - last.received}/s out ${stats.sent - last.sent}/s lost ${session.lost()}`;
     last = stats;
     const target = session.pingTarget();
@@ -421,7 +435,7 @@ async function runClient(world: World, transport: Transport, selfId: string, sta
   let lastInput = 0;
   addHook(physics.afterSync, () => {
     const now = seconds();
-    status(!hostId ? "Warte auf die Bühne …" : now - lastPose > STALL_AFTER ? "Bühne pausiert" : "");
+    status(!hostId ? waiting(transport) : now - lastPose > STALL_AFTER ? "Bühne pausiert" : "");
     // Not before our puppet stands: until then the input still holds a default place
     if (!hostId || !remotes.get(selfId)?.puppet || now - lastInput < 1 / INPUT_RATE - 0.002) return;
     lastInput = now;

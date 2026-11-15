@@ -58,7 +58,8 @@ setupSoundToggle();
 // Several players on one stage (src/net/, docs/architecture.md §3.3): every
 // device opens the same ?room=<secret>; the one that simulates the stage adds
 // &host (and gets a new room if none is given). &contact=0: puppets pass
-// through each other; &lossy=0: no lossy channel for the poses.
+// through each other; &lossy=0: no lossy channel for the poses; &ice=relay:
+// only through the TURN server (docs/multiplayer.md).
 const isHost = params.has("host");
 if (isHost && !params.get("room")) {
   params.set("room", crypto.randomUUID().slice(0, 8));
@@ -66,7 +67,7 @@ if (isHost && !params.get("room")) {
 }
 const roomId = params.get("room");
 const room = roomId
-  ? { room: roomId, host: isHost, contact: params.get("contact") !== "0", lossy: params.get("lossy") !== "0" }
+  ? { room: roomId, host: isHost, contact: params.get("contact") !== "0", lossy: params.get("lossy") !== "0", relayOnly: params.get("ice") === "relay" }
   : undefined;
 // The test links keep the room: a link without it would leave the others behind
 if (roomId) {
