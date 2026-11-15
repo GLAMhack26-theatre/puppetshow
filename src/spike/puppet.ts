@@ -1,7 +1,9 @@
 import { Euler, Plane, Quaternion, Raycaster, Vector2, Vector3, type World } from "@iwsdk/core";
-import { STRING_IDS, controlInput } from "../input/control-input";
+import RAPIER from "@dimforge/rapier3d-compat";
+import { STRING_IDS, controlInput, puppetState } from "../input/control-input";
 import { loadMarionette } from "../puppet/marionette";
-import { createPuppet } from "../puppet/puppet";
+import { GRAB, grabbables } from "../puppet/grab";
+import { createPuppet, flyIn, hidePuppets, showPuppets } from "../puppet/puppet";
 import type { RigController } from "../puppet/rig";
 import { physics, stepPhysics } from "../systems/rapier-system";
 import { hudLines } from "./world";
@@ -12,8 +14,11 @@ import { hudLines } from "./world";
 // (walk), A / D the hand bar, Y / X the head bar (or the rocker sliders); H
 // takes the hand bar off the cross: pointer and wheel then move and turn it
 // instead, H again lets it snap back; B (held) pushes against the back string,
-// as the other hand or arm would; string sliders pluck single strings; F / G
-// (or the buttons) grip left / right; "Fadenlänge" sets how much longer than
+// as the other hand or arm would; T (held) or the "Kopf vor" slider nods the
+// head (ControlInput.nod), U / I or "Kopf drehen" turn it (ControlInput.turn);
+// string sliders pluck single strings; F / G (or the
+// buttons) held switch on the magnet in the puppet's left / right hand, tapped
+// they let go of what that hand holds; "Fadenlänge" sets how much longer than
 // the rig's the strings are.
 
 /** Where the pointer can move the bar (real scale: puppet 0.35 m) */
@@ -26,6 +31,8 @@ const HOOK_ALONG = 0.5;
 /** Range of the string length slider, m on top of the rig's strings */
 const MAX_STRING_EXTRA = 0.4;
 const STRING_KEY = "string-extra";
+/** F / G or a button held for less than this, s, is a tap: the hand lets go */
+const TAP = 0.3;
 
 /** Returns the puppet's cross (for input sources that need its geometry) */
 export async function setupPuppet(world: World) {
@@ -33,11 +40,14 @@ export async function setupPuppet(world: World) {
   const puppet = createPuppet(world, root, description);
 
   physics.afterSync.push(() => {
-    for (const hand of puppet.grab.status()) hudLines[hand.side] = `${hand.touching} / ${hand.holding}`;
+    // Per hand: the prop in reach / the prop it holds
+    for (const side of ["left", "right"] as const) hudLines[side] = `${puppetState.inReach[side] ?? "-"} / ${puppetState.holding[side] ?? "-"}`;
     hudLines.input = controlInput.source;
   });
-  // ?debug: handles for headless tests (scripted shakes, string stretch, joint angles)
-  if (new URLSearchParams(location.search).has("debug")) Object.assign(globalThis, { controlInput, puppet, description, physics, stepPhysics });
+  // ?debug: handles for headless tests (scripted shakes, string stretch, joint angles, grabbing)
+  if (new URLSearchParams(location.search).has("debug")) {
+    Object.assign(globalThis, { controlInput, puppet, description, physics, stepPhysics, flyIn, hidePuppets, showPuppets, puppetState, grabbables, GRAB, RAPIER });
+  }
   setupPointerAndPanel(world, description.controller);
   return { controller: description.controller };
 }
@@ -157,6 +167,34 @@ function setupPointerAndPanel(world: World, controller: RigController) {
     label.append(text, slider);
     panel.append(label);
   }
+  {
+    // The head goes forward (a nod): slider, or hold T (released: back up)
+    const label = document.createElement("label");
+    const slider = Object.assign(document.createElement("input"), { type: "range", min: "0", max: "1", step: "0.01", value: "0" });
+    const set = (nod: number) => {
+      controlInput.nod = nod;
+      slider.value = String(nod);
+    };
+    slider.addEventListener("input", () => set(Number(slider.value)));
+    addEventListener("keydown", (e) => e.key === "t" && !e.repeat && controlInput.source === "mouse" && set(1));
+    addEventListener("keyup", (e) => e.key === "t" && controlInput.source === "mouse" && set(0));
+    label.append("Kopf vor (T)", slider);
+    panel.append(label);
+  }
+  {
+    // The head turns left / right: slider, or hold U / I (released: straight again)
+    const label = document.createElement("label");
+    const slider = Object.assign(document.createElement("input"), { type: "range", min: "-1", max: "1", step: "0.01", value: "0" });
+    const set = (turn: number) => {
+      controlInput.turn = turn;
+      slider.value = String(turn);
+    };
+    slider.addEventListener("input", () => set(Number(slider.value)));
+    addEventListener("keydown", (e) => (e.key === "u" || e.key === "i") && !e.repeat && controlInput.source === "mouse" && set(e.key === "u" ? 1 : -1));
+    addEventListener("keyup", (e) => (e.key === "u" || e.key === "i") && controlInput.source === "mouse" && set(0));
+    label.append("Kopf drehen (U/I)", slider);
+    panel.append(label);
+  }
   for (const id of STRING_IDS) {
     const label = document.createElement("label");
     const slider = Object.assign(document.createElement("input"), { type: "range", min: "0", max: "1", step: "0.01", value: "0" });
@@ -164,14 +202,28 @@ function setupPointerAndPanel(world: World, controller: RigController) {
     label.append(id, slider);
     panel.append(label);
   }
-  for (const [side, key, text] of [["left", "f", "Links greifen (F)"], ["right", "g", "Rechts greifen (G)"]] as const) {
+  // The magnets in the puppet's hands: held, a hand takes the prop in reach;
+  // tapped, it lets go of the prop it held when the key went down
+  for (const [side, key, text] of [["left", "f", "Links: Magnet (F halten), loslassen (F tippen)"], ["right", "g", "Rechts: Magnet (G halten), loslassen (G tippen)"]] as const) {
     const button = Object.assign(document.createElement("button"), { textContent: text });
-    const set = (on: boolean) => () => (controlInput.grip[side] = on);
-    button.addEventListener("pointerdown", set(true));
-    button.addEventListener("pointerup", set(false));
-    button.addEventListener("pointerleave", set(false));
+    let downAt = 0;
+    let held = false;
+    const down = () => {
+      if (controlInput.grip[side]) return;
+      controlInput.grip[side] = true;
+      downAt = performance.now();
+      held = puppetState.holding[side] !== null;
+    };
+    const up = () => {
+      if (!controlInput.grip[side]) return;
+      controlInput.grip[side] = false;
+      if (held && performance.now() - downAt < TAP * 1000) controlInput.release[side]++;
+    };
+    button.addEventListener("pointerdown", down);
+    button.addEventListener("pointerup", up);
+    button.addEventListener("pointerleave", up);
     panel.append(button);
-    addEventListener("keydown", (e) => e.key === key && set(true)());
-    addEventListener("keyup", (e) => e.key === key && set(false)());
+    addEventListener("keydown", (e) => e.key === key && !e.repeat && controlInput.source === "mouse" && down());
+    addEventListener("keyup", (e) => e.key === key && up());
   }
 }

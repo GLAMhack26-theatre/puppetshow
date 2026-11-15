@@ -21,7 +21,16 @@
         background: radial-gradient(ellipse 75% 70% at 50% 50%, transparent 55%, rgb(18 10 6 / 0.35) 78%, rgb(10 5 3 / 0.85) 100%);
         box-shadow: inset 0 0 6vmin 2vmin rgb(10 5 3 / 0.7);
       }
-      #preview { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); width: min(440px, 46vw); border-radius: 6px; background: #0009; cursor: move; touch-action: none; }
+      #preview { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); width: min(440px, 46vw); border-radius: 6px; background: #0009; cursor: move; touch-action: none; overflow: hidden; }
+      #preview canvas { display: block; width: 100%; }
+      /* Footer of the hand window: the camera's resolution as a segment control (hand-overlay.ts) */
+      .preview-footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 3px 6px; color: #f3e9dccc; font: 11px/1 system-ui, sans-serif; }
+      .preview-footer[hidden] { display: none; }
+      .preview-segments { display: flex; border: 1px solid #d8aa4a99; border-radius: 5px; overflow: hidden; }
+      .preview-segments button { padding: 3px 8px; color: #f3e9dc; background: none; border: 0; font: inherit; cursor: pointer; }
+      .preview-segments button + button { border-left: 1px solid #d8aa4a99; }
+      .preview-segments button[aria-pressed="true"] { color: #1a0f0b; background: #e8c478; }
+      .preview-segments button:disabled { opacity: 0.5; cursor: progress; }
       /* Debug UI only in debug mode (Shift+D or ?debug, src/ui/debug-mode.ts) */
       body:not(.debug) :is(#tests, #panel, #hud) { display: none; }
     </style>

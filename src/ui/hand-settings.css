@@ -1,0 +1,108 @@
+/* The player's settings for the hand control (hand-settings.ts): bottom
+   centre, between the "Stücke" button (left) and the sound buttons (right),
+   in their style: round dark buttons with a gold rim */
+#hand-settings {
+  position: fixed;
+  left: 50%;
+  bottom: max(10px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 22;
+}
+/* The debug panel takes the bottom strip while debug mode is on (as for .play-menu) */
+body.debug #hand-settings {
+  bottom: 64px;
+}
+
+#hand-settings button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  color: #f2d58c;
+  background: none;
+  border: 0;
+  font: italic 400 15px/1 Georgia, serif;
+  text-shadow: 0 1px 3px #000, 0 0 8px #000a;
+  cursor: pointer;
+}
+.hand-settings-icon {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  padding: 7px;
+  box-sizing: border-box;
+  background: radial-gradient(circle at 35% 30%, #4a2e22, #1a0f0b);
+  border: 1.5px solid #d8aa4a;
+  border-radius: 50%;
+  box-shadow: 0 4px 10px #0008;
+  transition: transform 0.15s;
+}
+#hand-settings button:hover .hand-settings-icon,
+#hand-settings button.hand-settings-icon:hover {
+  transform: scale(1.08);
+}
+#hand-settings button:focus-visible {
+  outline: 2px solid #f3e6c8;
+  outline-offset: 3px;
+  border-radius: 22px;
+}
+#hand-settings button.hand-settings-toggle {
+  padding: 7px;
+}
+.hand-settings-toggle[aria-expanded="true"] {
+  border-color: #f3e6c8;
+}
+#hand-settings svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+#hand-settings svg path,
+#hand-settings svg circle {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+#hand-settings .body { stroke: #f3e9dccc; }
+#hand-settings .accent { stroke: #d8aa4a; }
+#hand-settings .knob { fill: #1a0f0b; }
+
+/* The sliders, above the buttons */
+.hand-settings-panel {
+  position: absolute;
+  left: 50%;
+  bottom: 52px;
+  transform: translateX(-50%);
+  width: min(380px, calc(100vw - 24px));
+  box-sizing: border-box;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgb(18 10 6 / 0.88);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.55), inset 0 0 0 1px rgb(232 196 120 / 0.35);
+  color: #f3e9dc;
+  font: 13px/1.3 system-ui, sans-serif;
+}
+.hand-settings-panel[hidden] {
+  display: none;
+}
+.hand-settings-panel label {
+  display: grid;
+  grid-template-columns: 96px 1fr 62px;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+}
+.hand-settings-panel input[type="range"] {
+  width: 100%;
+  min-width: 0;
+  accent-color: #e8c478;
+}
+.hand-settings-panel output {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: #e8c478;
+}
