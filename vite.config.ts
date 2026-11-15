@@ -132,6 +132,10 @@ async function httpsPlugins(mode: string): Promise<Plugin[]> {
 }
 
 export default defineConfig(async ({ mode }) => ({
+  // GitHub Pages serves the site under /<repo>/ (BASE_PATH, set by
+  // .github/workflows/deploy.yml); everywhere else it is the root. Runtime
+  // URLs go through import.meta.env.BASE_URL.
+  base: process.env.BASE_PATH || "/",
   plugins: [wasmRuntimes(), plays(), ...(await httpsPlugins(mode))],
   resolve: {
     // One three.js: IWSDK's, also for three/examples/jsm add-ons

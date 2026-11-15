@@ -36,8 +36,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # public/ is git-ignored: the hand tracking models are fetched here
+      - name: Fetch MediaPipe models
+        run: bash scripts/fetch-mediapipe-models.sh
+
       - name: Build
         run: npm run build
+        env:
+          # The site lives under https://<owner>.github.io/<repo>/
+          BASE_PATH: /${{ github.event.repository.name }}/
 
       - name: Configure Pages
         uses: actions/configure-pages@v6

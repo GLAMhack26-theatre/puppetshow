@@ -329,9 +329,9 @@ const compact = (hand: HandFrame): HandFrame => ({
 async function createLandmarker() {
   // Loaded on demand: the library is not needed before the camera starts
   const { FilesetResolver, HandLandmarker } = await import("@mediapipe/tasks-vision");
-  const fileset = await FilesetResolver.forVisionTasks("/mediapipe/wasm");
+  const fileset = await FilesetResolver.forVisionTasks(`${import.meta.env.BASE_URL}mediapipe/wasm`);
   const options = (delegate: "GPU" | "CPU") => ({
-    baseOptions: { modelAssetPath: "/mediapipe/hand_landmarker.task", delegate },
+    baseOptions: { modelAssetPath: `${import.meta.env.BASE_URL}mediapipe/hand_landmarker.task`, delegate },
     runningMode: "VIDEO" as const,
     numHands: 2, // cross hand + the hand that takes the hand bar
   });
