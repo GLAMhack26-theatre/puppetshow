@@ -1,8 +1,8 @@
-import { type Material, Mesh, Quaternion, type Object3D, type Vector3, type World } from "@iwsdk/core";
+import { type Material, Mesh, Quaternion, Vector3, type Object3D, type World } from "@iwsdk/core";
 import { addFollowSpot } from "../stage/spotlights";
 import { renderPose } from "../systems/rapier-system";
 import { createBodyDrive } from "./body-drive";
-import { createGrab } from "./grab";
+import { createGrab, dropAllHeld, suspendGrab } from "./grab";
 import { buildRig, type RigDescription } from "./rig";
 import { createStrings } from "./strings";
 
@@ -22,18 +22,34 @@ const SETTLE_SECONDS = 0.3;
  * for the physics, which runs per frame.
  */
 const MAX_TRAVEL_FRAMES = 150;
+/**
+ * A new player's puppet (flyIn): the one on the stage is pulled up fast until
+ * its feet are out of the picture, and let down slowly at the new hand. Paces
+ * of the cross, m/s and m/s². Going up it brakes at three times its
+ * acceleration (strings.ts), which has to stay below gravity: at 20 m/s² the
+ * puppet flew on past the cross, tumbled, and came down lying across its
+ * strings. margin: how far above the picture's top edge the
+ * feet go, as a share of the picture's height; MAX: the most it is pulled up, m.
+ */
+const FLY = { up: { speed: 2.5, accel: 3 }, down: { speed: 0.3, accel: 1.5 }, margin: 0.06, max: 2.5 };
+/** Never wait longer than this for the slow descent, in frames */
+const MAX_DESCENT_FRAMES = 900;
 
 interface Presence {
   /** 0 hidden … 1 shown */
   level: number;
   set(level: number): void;
-  setLift(y: number): void;
+  setLift(y: number, pace?: { speed: number; accel: number }): void;
   arrived(): boolean;
+  /** How far the cross has to go up for the feet to leave the picture, m */
+  exitLift(): number;
 }
 
 const puppets: Presence[] = [];
-/** Each hide/show call bumps this; an older call that is still running stops. */
+/** Each hide / show / fly-in call bumps this; an older call that is still running stops. */
 let generation = 0;
+/** Between hidePuppets() and the end of showPuppets(): the scene change has the puppets */
+let sceneChanging = false;
 
 /**
  * The marionette: a skinned model with its rig description (marionette.ts),
@@ -45,13 +61,29 @@ export function createPuppet(world: World, root: Object3D, description: RigDescr
   world.scene.add(root);
   const rig = buildRig(root, description);
   const strings = createStrings(world, root, rig, description.strings, description.controller);
-  const grab = createGrab(rig);
+  const grab = createGrab(world, rig, strings);
   const body = createBodyDrive(root, rig, strings);
   // The spot follows the chest: the middle of the puppet, and calmer than the head
   const center = (rig.byName.get("chest") ?? rig.parts[0]).body;
   const rotation = new Quaternion();
   const spot = addFollowSpot(world, (out: Vector3) => renderPose(center, out, rotation));
-  puppets.push(createPresence(root, strings, spot));
+  // The feet are the lowest part: where they are tells how far up "out of the picture" is
+  const feet = ["foot.L", "foot.R"].flatMap((name) => rig.byName.get(name)?.body ?? []);
+  const point = new Vector3();
+  const exitLift = () => {
+    const camera = world.camera;
+    camera.updateMatrixWorld();
+    let lowest = Infinity;
+    let at = center.translation();
+    for (const foot of feet) if (foot.translation().y < lowest) [lowest, at] = [foot.translation().y, foot.translation()];
+    if (lowest === Infinity) lowest = at.y;
+    // Raised step by step until the feet's place projects above the top edge (NDC y > 1)
+    for (let lift = 0.2; lift < FLY.max; lift += 0.05) {
+      if (point.set(at.x, lowest - 0.03 + lift, at.z).project(camera).y > 1 + 2 * FLY.margin) return lift;
+    }
+    return FLY.max;
+  };
+  puppets.push(createPresence(root, strings, spot, exitLift));
   return { root, rig, strings, grab, body, spot };
 }
 
@@ -61,6 +93,11 @@ export function createPuppet(world: World, root: Object3D, description: RigDescr
  */
 export async function hidePuppets() {
   const run = ++generation;
+  sceneChanging = true;
+  // What the puppet holds stays on the stage (the scene change sorts the props),
+  // and nothing is taken while the puppet hangs above it
+  suspendGrab(true);
+  dropAllHeld();
   await fade(0, run);
   if (run !== generation) return;
   for (const p of puppets) p.setLift(HIDE_LIFT);
@@ -75,12 +112,37 @@ export async function showPuppets() {
   await wait(SETTLE_SECONDS);
   if (run !== generation) return;
   await fade(1, run);
+  if (run === generation) {
+    sceneChanging = false;
+    suspendGrab(false);
+  }
+}
+
+/**
+ * A new player's hand has taken the cross: the puppet on the stage is pulled
+ * up out of the picture, fast, and a "new" one is let down slowly from above
+ * to where the hand holds the cross (the cross follows the hand sideways and
+ * in depth all the while, so it comes down at the hand's place and height).
+ * It used to be dragged across the stage to the new hand and dropped there.
+ * Not during a scene change: that one lets the puppet down itself.
+ */
+export async function flyIn() {
+  if (sceneChanging) return;
+  const run = ++generation;
+  // The puppet that leaves takes nothing with it: its props stay for the next player
+  dropAllHeld();
+  for (const p of puppets) p.setLift(p.exitLift(), FLY.up);
+  await travel(run);
+  if (run !== generation) return;
+  for (const p of puppets) p.setLift(0, FLY.down);
+  await travel(run, MAX_DESCENT_FRAMES);
 }
 
 function createPresence(
   root: Object3D,
   strings: ReturnType<typeof createStrings>,
   spot: ReturnType<typeof addFollowSpot>,
+  exitLift: () => number,
 ): Presence {
   const meshes: Mesh[] = [];
   root.traverse((o) => o instanceof Mesh && meshes.push(o));
@@ -111,6 +173,7 @@ function createPresence(
     },
     setLift: strings.setLift,
     arrived: strings.arrived,
+    exitLift,
   };
 }
 
@@ -136,11 +199,11 @@ function fade(to: number, run: number) {
 }
 
 /** Waits until every cross is where its lift wants it (or a while has passed). */
-function travel(run: number) {
+function travel(run: number, most = MAX_TRAVEL_FRAMES) {
   let frames = 0;
   return new Promise<void>((resolve) => {
     const check = () => {
-      if (run !== generation || puppets.every((p) => p.arrived()) || ++frames > MAX_TRAVEL_FRAMES) resolve();
+      if (run !== generation || puppets.every((p) => p.arrived()) || ++frames > most) resolve();
       else requestAnimationFrame(check);
     };
     // One frame first: the physics step has to pick up the new lift

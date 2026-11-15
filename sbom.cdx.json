@@ -3,7 +3,7 @@
   "specVersion": "1.6",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-11-14T14:02:07.831Z",
+    "timestamp": "2026-11-15T12:21:13.906Z",
     "tools": {
       "components": [
         {
@@ -3874,8 +3874,36 @@
       ]
     },
     {
-      "type": "library",
+      "type": "data",
       "bom-ref": "asset:9",
+      "name": "MediaPipe blaze_face_short_range.tflite, face_landmarker.task, pose_landmarker_lite.task (body models, only loaded while recording with ?record)",
+      "supplier": {
+        "name": "Google"
+      },
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://storage.googleapis.com/mediapipe-models"
+        }
+      ],
+      "properties": [
+        {
+          "name": "puppetshow:location",
+          "value": "public/mediapipe/ (scripts/fetch-mediapipe-models.sh)"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "asset:10",
       "name": "Draco glTF decoder (from three.js examples)",
       "supplier": {
         "name": "Google"
@@ -3903,7 +3931,7 @@
     },
     {
       "type": "data",
-      "bom-ref": "asset:10",
+      "bom-ref": "asset:11",
       "name": "SKKG collection models and photos",
       "supplier": {
         "name": "Stiftung für Kunst, Kultur und Geschichte (SKKG)"
@@ -3934,7 +3962,7 @@
     },
     {
       "type": "data",
-      "bom-ref": "asset:11",
+      "bom-ref": "asset:12",
       "name": "Microscope ETHZ GEOB 0055 (IIIF manifest, model)",
       "supplier": {
         "name": "ETH Zürich"

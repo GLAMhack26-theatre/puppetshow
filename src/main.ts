@@ -1,6 +1,7 @@
 import { SessionMode, World } from "@iwsdk/core";
 import { PhysicsLink } from "./components/physics-link";
 import { setupHandTracking, startHandTracking } from "./input/mediapipe";
+import { flyIn } from "./puppet/puppet";
 import { LightingSystem, addLighting, setStageLight } from "./stage/lighting";
 import { MainCurtainSystem, isMainCurtainDown, isMainCurtainLoaded, loadMainCurtain, lowerMainCurtain, skipMainCurtain } from "./stage/main-curtain";
 import { SignSystem, loadSigns, onPlayChosen, showSigns } from "./stage/signs";
@@ -165,6 +166,9 @@ switch (test) {
         depthRange: stageFloor.isEmpty() ? undefined : [stageFloor.min.z + FLOOR_MARGIN, stageFloor.max.z - FLOOR_MARGIN],
         hud: hudLines,
         panel: document.getElementById("panel")!,
+        // A new player's puppet is pulled up out of the picture and let down at their hand
+        // (the promise: the height at which it stands is taken only once it has landed)
+        onNewPlayer: () => flyIn(),
       });
   }
 }

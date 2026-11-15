@@ -1,7 +1,7 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import { Matrix4, PropertyBinding, Quaternion, Vector3, type Object3D } from "@iwsdk/core";
 import type { RockId, StringId } from "../input/control-input";
-import { GROUP, physics, renderPose, setJointFriction, setJointLimits } from "../systems/rapier-system";
+import { GROUP, physics, renderPose, setJointFriction, setJointLimits, setJointSpring } from "../systems/rapier-system";
 
 // Ragdoll from a rig description (marionette.ts): one capsule body per bone,
 // joints at the child bone heads, and every frame the skeleton's bones
@@ -15,14 +15,16 @@ import { GROUP, physics, renderPose, setJointFriction, setJointLimits } from "..
 // body, spin its head or bend a knee backwards, and without limits the
 // ragdoll does all of that as soon as the cross is shaken.
 
+// Air drag only: the joints have their own limits and friction. A part may ask for more (RigBone.linearDamping, angularDamping)
 const LINEAR_DAMPING = 0.5;
-const ANGULAR_DAMPING = 1; // air drag only: the joints have their own limits and friction
+const ANGULAR_DAMPING = 1;
 /**
  * Resistance of the joints themselves (wood on wire loops): a motor on every
  * free rotation that pulls its speed towards 0. Limbs still dangle and swing,
  * but come to rest after a few beats. Measured after letting a rocker go: an
  * arm swings for 1.7 s instead of 2.6 s, the head wobbles for 1.9 s instead
- * of 4.7 s; at 40 arms and legs stop within a second.
+ * of 4.7 s; at 40 arms and legs stop within a second. The default; a part may
+ * have its own (RigBone.friction).
  */
 export const JOINT_FRICTION = 10;
 
@@ -46,7 +48,17 @@ export interface RigBone {
   b: Vector3;
   radius: number;
   mass: number;
+  /**
+   * The centre of mass lies this far off the capsule's middle (root-local, m):
+   * a part weighted on one side, like a head with lead in its face
+   */
+  massOffset?: Vector3;
   joint?: RigJoint;
+  /** Friction of this part's joint (1/s: how fast its turning dies down); the default if left out */
+  friction?: number;
+  /** Air drag on this part's turning and on its moving (1/s); the defaults if left out */
+  angularDamping?: number;
+  linearDamping?: number;
   /** "limb" parts don't collide with props, so a hand can reach into them to grab */
   group: "body" | "limb";
 }
@@ -98,7 +110,13 @@ export interface RigPart {
   /** A part that is fixed on its parent shares the parent's body */
   body: RAPIER.RigidBody;
   joint?: RAPIER.ImpulseJoint;
-  /** Body-local end of the capsule (hand tips: grab sensors) */
+  /**
+   * A cone joint's twist: turns the part about its own long axis against its
+   * parent by `angle` rad (+ = about the puppet's up axis, right-hand rule: to
+   * its left), held there by a spring (ω² and 2ζω, see setJointSpring).
+   */
+  twistTo?: (angle: number, stiffness: number, damping: number) => void;
+  /** Body-local end of the capsule (hand tips: where they hold props, grab.ts) */
   tail: Vector3;
   // Bone pose relative to its body (the body is unrotated at rest)
   restQuaternion: Quaternion;
@@ -113,6 +131,16 @@ export interface Rig {
 }
 
 const Y = new Vector3(0, 1, 0);
+const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+
+/** Principal inertia of a solid capsule along y (a cylinder and two half balls), as Rapier computes it for setMass */
+function capsuleInertia(mass: number, halfHeight: number, radius: number) {
+  const [r2, cylinder, ball] = [radius * radius, 2 * halfHeight * radius * radius, (4 / 3) * radius ** 3];
+  const [mc, mb] = [(mass * cylinder) / (cylinder + ball), (mass * ball) / (cylinder + ball)];
+  const along = (mc * r2) / 2 + (2 * mb * r2) / 5;
+  const across = mc * (r2 / 4 + (halfHeight * halfHeight) / 3) + mb * ((83 / 320) * r2 + (halfHeight + (3 * radius) / 8) ** 2);
+  return { x: across, y: along, z: across };
+}
 
 export function buildRig(root: Object3D, description: RigDescription): Rig {
   const pw = physics.world;
@@ -134,12 +162,19 @@ export function buildRig(root: Object3D, description: RigDescription): Rig {
     const center = a.clone().add(b).multiplyScalar(0.5);
     const axis = b.clone().sub(a);
 
-    const capsule = RAPIER.ColliderDesc.capsule(Math.max(0.0005, axis.length() / 2), spec.radius)
-      .setRotation(new Quaternion().setFromUnitVectors(Y, axis.clone().normalize()))
+    const halfHeight = Math.max(0.0005, axis.length() / 2);
+    const turned = new Quaternion().setFromUnitVectors(Y, axis.clone().normalize());
+    const capsule = RAPIER.ColliderDesc.capsule(halfHeight, spec.radius)
+      .setRotation(turned)
       .setMass(spec.mass)
       .setCollisionGroups(spec.group === "limb" ? GROUP.limb : GROUP.puppet)
       // Contact starts drive the wooden clatter (audio/impacts.ts)
       .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
+    if (spec.massOffset) {
+      // Same mass and the capsule's own inertia, only the centre moves (in the collider's frame, whose y is the capsule's axis)
+      const offset = spec.massOffset.clone().transformDirection(root.matrixWorld).multiplyScalar(spec.massOffset.length()).applyQuaternion(turned.clone().invert());
+      capsule.setMassProperties(spec.mass, offset, capsuleInertia(spec.mass, halfHeight, spec.radius), { x: 0, y: 0, z: 0, w: 1 });
+    }
 
     // The nearest ancestor that has a body
     let parentName = spec.parent;
@@ -148,6 +183,8 @@ export function buildRig(root: Object3D, description: RigDescription): Rig {
 
     let body: RAPIER.RigidBody;
     let joint: RAPIER.ImpulseJoint | undefined;
+    let twistTo: RigPart["twistTo"];
+    const friction = spec.friction ?? JOINT_FRICTION;
     if (parent && spec.joint?.type === "fixed") {
       // Rigid on its parent: one body with two capsules. Nothing for the solver
       // to hold together, which a fixed joint between two light bodies would be
@@ -158,8 +195,8 @@ export function buildRig(root: Object3D, description: RigDescription): Rig {
       body = pw.createRigidBody(
         RAPIER.RigidBodyDesc.dynamic()
           .setTranslation(center.x, center.y, center.z)
-          .setLinearDamping(LINEAR_DAMPING)
-          .setAngularDamping(ANGULAR_DAMPING),
+          .setLinearDamping(spec.linearDamping ?? LINEAR_DAMPING)
+          .setAngularDamping(spec.angularDamping ?? ANGULAR_DAMPING),
       );
       pw.createCollider(capsule, body);
     }
@@ -178,7 +215,7 @@ export function buildRig(root: Object3D, description: RigDescription): Rig {
           true,
         );
         (joint as RAPIER.RevoluteImpulseJoint).setLimits(...spec.joint.limits);
-        if (JOINT_FRICTION > 0) (joint as RAPIER.RevoluteImpulseJoint).configureMotorVelocity(0, JOINT_FRICTION);
+        if (friction > 0) (joint as RAPIER.RevoluteImpulseJoint).configureMotorVelocity(0, friction);
       } else {
         // Cone: a ball joint (a generic joint with only the position locked)
         // with a limit on each rotation. The joint's x axis is the bone's rest
@@ -202,8 +239,12 @@ export function buildRig(root: Object3D, description: RigDescription): Rig {
         const { swing, twist } = spec.joint;
         ANGULAR_AXES.forEach((angular, i) => {
           setJointLimits(joint!, angular, i === 0 ? -twist : -swing, i === 0 ? twist : swing);
-          if (JOINT_FRICTION > 0) setJointFriction(joint!, angular, JOINT_FRICTION);
+          if (friction > 0) setJointFriction(joint!, angular, friction);
         });
+        // The joint's x axis is the bone's direction, which points up or down the puppet
+        const up = Math.sign(along.y) || 1;
+        const cone = joint;
+        twistTo = (angle, stiffness, damping) => setJointSpring(cone, RAPIER.JointAxis.AngX, clamp(up * angle, -twist, twist), stiffness, damping);
       }
     }
 
@@ -213,6 +254,7 @@ export function buildRig(root: Object3D, description: RigDescription): Rig {
       bone,
       body,
       joint,
+      twistTo,
       tail: b.clone().sub(origin),
       restQuaternion: bone.getWorldQuaternion(new Quaternion()),
       restOffset: bone.getWorldPosition(new Vector3()).sub(origin),

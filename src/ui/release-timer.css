@@ -1,5 +1,5 @@
-/* The little timer for letting go of the puppet (release-timer.ts): top
-   centre, over the vignette, lets all input through */
+/* The little sign that asks for the hand (release-timer.ts): top centre,
+   over the vignette, lets all input through */
 .release-timer {
   position: fixed;
   top: max(64px, 9vh);
@@ -28,22 +28,6 @@
   width: 44px;
   height: 44px;
   flex: none;
-}
-.release-timer-dial svg {
-  width: 100%;
-  height: 100%;
-  transform: rotate(-90deg); /* the ring starts at 12 o'clock */
-}
-.release-timer-dial circle {
-  fill: none;
-  stroke-width: 4;
-}
-.release-timer-track {
-  stroke: rgb(243 233 220 / 0.18);
-}
-.release-timer-ring {
-  stroke: #e8c478;
-  stroke-linecap: round;
 }
 .release-timer-value {
   position: absolute;

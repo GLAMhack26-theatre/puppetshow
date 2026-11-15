@@ -3,7 +3,7 @@ import { Quaternion, Vector3, createSystem, type Object3D, type World } from "@i
 import { PhysicsLink } from "../components/physics-link";
 
 // Rapier as our own system: IWSDK's physics (Havok in a worker) has no
-// joints, sensors or collision events, which the marionette needs.
+// joints and no collision events, which the marionette needs (nor sensors).
 
 export const STEP = 1 / 60;
 const MAX_STEPS = 4; // after a stalled frame, drop time instead of catching up forever
@@ -15,11 +15,15 @@ export const GROUP = {
   // with the stage and props
   puppet: group(0x0001, 0x0006),
   // Hands and arms skip props: they would push a prop away before the hand
-  // sensor can grab it
+  // can take it
   limb: group(0x0001, 0x0002),
   stage: group(0x0002, 0xffff),
   prop: group(0x0004, 0xffff),
-  sensor: group(0x0001, 0x0004), // hand sensors only see props
+  // A prop in the puppet's hand (puppet/grab.ts): still a prop (the sounds go
+  // by membership, audio/impacts.ts), but it meets the stage only. Against the
+  // puppet it would push the body it hangs on, against other props it would
+  // sweep the stage with the puppet's whole weight behind it
+  held: group(0x0004, 0x0002),
 };
 
 export const physics = {
@@ -106,12 +110,23 @@ export function addLinked(
 interface RawJointSet {
   jointSetLimits(handle: number, axis: RAPIER.JointAxis, min: number, max: number): void;
   jointConfigureMotorVelocity(handle: number, axis: RAPIER.JointAxis, targetVel: number, factor: number): void;
+  jointConfigureMotorPosition(handle: number, axis: RAPIER.JointAxis, targetPos: number, stiffness: number, damping: number): void;
 }
 const rawJoints = (joint: RAPIER.ImpulseJoint) => (joint as unknown as { rawSet: RawJointSet }).rawSet;
 
 /** Limit one axis of any joint (rad for angular axes, m for linear ones) */
 export function setJointLimits(joint: RAPIER.ImpulseJoint, axis: RAPIER.JointAxis, min: number, max: number) {
   rawJoints(joint).jointSetLimits(joint.handle, axis, min, max);
+}
+
+/**
+ * A spring on one axis of any joint, towards `target` (rad or m). Rapier's
+ * motors are acceleration based by default, so stiffness is ω² and damping
+ * 2ζω of the motion, whatever the bodies weigh. It takes the place of the
+ * axis's friction motor (one motor per axis); its damping is the friction then.
+ */
+export function setJointSpring(joint: RAPIER.ImpulseJoint, axis: RAPIER.JointAxis, target: number, stiffness: number, damping: number) {
+  rawJoints(joint).jointConfigureMotorPosition(joint.handle, axis, target, stiffness, damping);
 }
 
 /** Friction on one axis of any joint: a motor that pulls its speed towards 0 */

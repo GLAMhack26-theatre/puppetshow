@@ -74,6 +74,12 @@ const ASSETS = [
     url: "https://storage.googleapis.com/mediapipe-models",
   },
   {
+    // Licence as stated on Google's model cards: BlazeFace (short range), Face Mesh V2 and Blendshape V2, BlazePose GHUM 3D
+    type: "data", name: "MediaPipe blaze_face_short_range.tflite, face_landmarker.task, pose_landmarker_lite.task (body models, only loaded while recording with ?record)",
+    supplier: "Google", license: { id: "Apache-2.0" }, scope: "required", where: "public/mediapipe/ (scripts/fetch-mediapipe-models.sh)",
+    url: "https://storage.googleapis.com/mediapipe-models",
+  },
+  {
     type: "library", name: "Draco glTF decoder (from three.js examples)", supplier: "Google",
     license: { id: "Apache-2.0" }, scope: "required", where: "served under /draco/ from node_modules/three/examples/jsm/libs/draco",
     url: "https://github.com/google/draco",
