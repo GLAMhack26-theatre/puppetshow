@@ -1,4 +1,4 @@
-import { InputComponent, Quaternion, Vector3, createSystem } from "@iwsdk/core";
+import { InputComponent, Quaternion, Vector3, createSystem, type XRAssetLoader } from "@iwsdk/core";
 import { controlInput, type ControlSource } from "../input/control-input";
 import { bodyDrives, type BodyDrive } from "../puppet/body-drive";
 import { stageFloor } from "../stage/stage";
@@ -29,6 +29,15 @@ const UP = new Vector3(0, 1, 0);
 /** The camera looks along −z, the puppet's rest pose faces +z; the same half turn fits the hands (WebXR grip space: −z along the thumb). */
 const HALF_TURN = new Quaternion(0, 1, 0, 0);
 
+/**
+ * IWSDK shows a model for every controller and tracked hand and downloads it
+ * from a CDN (cdn.jsdelivr.net, @webxr-input-profiles/assets) when the input
+ * connects. The player sees the puppet's hands instead, and the app loads
+ * nothing from other servers: a loader that has no model. IWSDK then tracks
+ * the input without a visual (and says so in the console, once per input).
+ */
+const NO_MODELS: XRAssetLoader = { loadGLTF: () => Promise.reject(new Error("no controller or hand models")) };
+
 const listeners: Array<(active: boolean) => void> = [];
 /** Called when an XR session starts (true) and ends (false). */
 export function onXrSession(listener: (active: boolean) => void) {
@@ -45,6 +54,14 @@ export class XrEmbodimentSystem extends createSystem({}) {
   private sideways = new Vector3();
 
   init() {
+    // Before any session: the models are asked for as soon as an input connects.
+    // The adapters keep the loader they were built with (IWSDK has no option for it).
+    const adapters = this.input.xr.visualAdapters;
+    for (const side of SIDES) {
+      for (const adapter of [adapters.controller[side], adapters.hand[side]]) {
+        (adapter as unknown as { assetLoader: XRAssetLoader }).assetLoader = NO_MODELS;
+      }
+    }
     // The renderer's events, not world.session: IWSDK sets that only after the session has started
     const xr = this.world.renderer.xr;
     xr.addEventListener("sessionstart", () => this.enter());
@@ -62,13 +79,23 @@ export class XrEmbodimentSystem extends createSystem({}) {
     for (const listener of listeners) listener(true);
   }
 
+  /**
+   * A closed hand is the magnet in the puppet's hand; opening it lets go of
+   * what the hand holds. The engine wants that said (a change of
+   * ControlInput.release): the magnet going off does not drop the prop.
+   */
+  private grip(side: (typeof SIDES)[number], closed: boolean) {
+    if (controlInput.grip[side] && !closed) controlInput.release[side]++;
+    controlInput.grip[side] = closed;
+  }
+
   private leave() {
     this.active = false;
     const body = controlInput.body;
     body.active = false;
     for (const side of SIDES) {
       body.hands[side].tracked = false;
-      controlInput.grip[side] = false;
+      this.grip(side, false);
     }
     controlInput.source = this.previousSource;
     // IWSDK restores the camera, not the origin it hangs on
@@ -117,15 +144,6 @@ export class XrEmbodimentSystem extends createSystem({}) {
   update() {
     if (!this.active) return;
     const xr = this.input.xr;
-    // The player sees the puppet's hands, not controllers. IWSDK shows its
-    // models again every frame (its input system runs before this one).
-    for (const side of SIDES) {
-      for (const kind of ["controller", "hand"] as const) {
-        const model = xr.visualAdapters[kind][side].visual?.model;
-        if (model) model.visible = false;
-      }
-    }
-
     const origin = this.player;
     if (!this.placed) {
       const frame = this.world.xrFrame;
@@ -150,12 +168,13 @@ export class XrEmbodimentSystem extends createSystem({}) {
         grip.getWorldPosition(hand.position);
         grip.getWorldQuaternion(hand.rotation).multiply(HALF_TURN);
       }
-      // Squeeze or trigger closes the puppet's hand; with tracked hands, a pinch
+      // A pinch closes the puppet's hand (tracked hands); with controllers,
+      // squeeze or trigger. Quest reports the pinch as a select and, on the
+      // hand's own gamepad, as the trigger: either counts.
       const pad = xr.gamepads[side];
-      const closed = pad
-        ? pad.getButtonPressed(InputComponent.Squeeze) || pad.getButtonPressed(InputComponent.Trigger)
-        : xr.getSelectState(side).active;
-      controlInput.grip[side] = hand.tracked && closed;
+      const pressed = !!pad && (pad.getButtonPressed(InputComponent.Squeeze) || pad.getButtonPressed(InputComponent.Trigger));
+      const closed = pressed || xr.getSelectState(side).active;
+      this.grip(side, hand.tracked && closed);
     }
     body.active = true;
     controlInput.source = "xr-6dof";

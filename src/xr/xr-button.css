@@ -44,3 +44,10 @@ body.debug #xr-button { top: 44px; }
   stroke-linejoin: round;
 }
 .xr-button-icon circle { stroke: #d8aa4a; }
+/* Waiting for a scene change to finish: dimmed. Then, if the browser no longer
+   counts the click as a gesture, a pulsing rim asks for a second tap. */
+#xr-button[data-state="waiting"] .xr-button-icon { opacity: 0.6; }
+#xr-button[data-state="again"] .xr-button-icon { animation: xr-button-again 1s ease-in-out infinite; }
+@keyframes xr-button-again {
+  50% { box-shadow: 0 0 0 5px #d8aa4a66, 0 4px 10px #0008; }
+}

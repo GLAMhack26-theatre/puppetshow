@@ -411,7 +411,8 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
     // ?? 0: a source that does not know the turn
     [turn, turnSpeed] = followNumber(turn, turnSpeed, clamp(controlInput.turn ?? 0, -1, 1), TURN_FOLLOW);
     if (Math.abs(turn) < 1e-5 && Math.abs(turnSpeed) < 1e-4) turn = turnSpeed = 0;
-    head?.twistTo?.(turn * HEAD_TURN.angle, HEAD_TURN.stiffness, HEAD_TURN.damping);
+    // Not while a player's own head is the puppet's (WebXR): body-drive.ts has a motor on that axis then
+    if (!controlInput.body.active) head?.twistTo?.(turn * HEAD_TURN.angle, HEAD_TURN.stiffness, HEAD_TURN.damping);
 
     // Rocking bars ride on the main bar: pivot follows its pose, and they turn
     // about their axis (in the main bar's frame) on top of its rotation
@@ -496,7 +497,8 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
         worldPoint(s.bar, s.eye, eyeNow);
         worldPoint(s.part.body, s.anchor, socketNow);
         const level = 1 - smoothstep(TAKE_UP.level[0], TAKE_UP.level[1], Math.abs(state.legBar.angle));
-        const wanted = clamp(length - eyeNow.distanceTo(socketNow) - TAKE_UP.slack, 0, TAKE_UP.max);
+        // No take-up of strings that are given slack (a player's body drives the puppet): it would draw that slack in again
+        const wanted = slackWanted > 0 ? 0 : clamp(length - eyeNow.distanceTo(socketNow) - TAKE_UP.slack, 0, TAKE_UP.max);
         if (wanted < s.taken) {
           // Taut: the string carries the knee (drawn in while the leg swung
           // up, or the cross has risen). Let out to slack and a bit more with

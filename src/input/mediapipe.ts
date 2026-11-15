@@ -203,6 +203,8 @@ function startReleaseLoop() {
  * not drop the prop.
  */
 function letGo() {
+  // In WebXR the player's own body drives the puppet: nothing of it is the camera hand's to reset
+  if (controlInput.body.active) return;
   controlInput.grip.left = controlInput.grip.right = false;
   controlInput.rock.legs = controlInput.rock.head = controlInput.rock.hands = 0;
   controlInput.turn = 0;

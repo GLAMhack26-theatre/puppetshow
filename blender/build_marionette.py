@@ -1574,7 +1574,8 @@ JOINT_LIMITS = {
     # one eye-screw joint: nods and tilts, turns further; the two former joints' ranges together
     "head": {"type": "cone", "swing": 45, "twist": 70},
     "chest": {"type": "cone", "swing": 20, "twist": 15},
-    "upper_arm": {"type": "cone", "swing": 110, "twist": 60},
+    # swing 180: free all round, so an arm can be raised straight overhead
+    "upper_arm": {"type": "cone", "swing": 180, "twist": 60},
     "forearm.L": {"type": "hinge", "axis": "Z", "min": -150, "max": 0},
     "forearm.R": {"type": "hinge", "axis": "Z", "min": 0, "max": 150},
     "hand": {"type": "cone", "swing": 60, "twist": 30},

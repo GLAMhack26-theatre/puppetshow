@@ -152,7 +152,7 @@ const puppetState: { holding: { left: string | null; right: string | null }; inR
 | Phone sensors + touch | DeviceOrientation (3DoF) | Open (not decided; e.g. touch sliders) | Open | Touch zones/sliders | Button | now |
 | Mouse/keyboard | Drag, wheel | Q/E legs, A/D hands, Y/X head, T nods the head, U/I turn it, sliders | H, then pointer and wheel | Sliders; B pushes the back string | F / G held, a tap lets go | now (dev) |
 | Remote phone (WebRTC) | Same as phone, streamed | Same | Same | Same | Same | later |
-| WebXR 6DoF (`body`, section 3.3) | Follows above the player's head | None | No | None | Squeeze or trigger; pinch with tracked hands | now (emulator; headset not tuned yet) |
+| WebXR 6DoF (`body`, section 3.3) | Follows above the player's head | None | No | None | Squeeze or trigger; pinch with tracked hands; opening the hand lets go (`release`) | now (emulator; headset not tuned yet) |
 | WebXR 3DoF | Controller orientation | Open (not decided) | Open | Trigger | Grip | later |
 
 #### MediaPipe hands
@@ -311,22 +311,18 @@ Checked in headless Chrome with a fake camera playing a photo of a person (face,
 
 ### 3.3 WebXR: the player is the puppet
 
-The **WebXR** button (top right, `src/xr/xr-button.ts`; only shown where `navigator.xr` supports `immersive-vr`) starts an immersive session on a Quest 2/3. The visitor then stands on the stage as the marionette: the view comes from the puppet's eyes at the puppet's size, and the visitor's head and hands move the puppet's.
+The **WebXR** button (top right, only shown where `navigator.xr` supports `immersive-vr`) starts an immersive session on a Quest 2/3. The visitor then stands on the stage as the marionette: the view comes from the puppet's eyes at the puppet's size, and the visitor's head and hands move the puppet's. **How it is built, the math, the conventions, the measurements and the open points are in [`xr.md`](xr.md).** The decisions:
 
-- **Size:** the puppet stays 0.35 m (its rig only works at scale 1). The player is shrunk instead: IWSDK's XR origin (`world.player`) carries the camera and the hand spaces, and three.js applies its transform and scale to both eyes. `XrEmbodimentSystem` (`src/xr/xr-embodiment.ts`) scales it by puppet eye height / player eye height (about 0.2) on the first head pose, over the puppet's head, facing the audience. A seated player gets a standing puppet. If the headset gives no floor height (reference space `local`), 1.6 m is assumed.
-- **Tracking is head + two hands (6DoF).** IWSDK 1.1 cannot request WebXR body tracking, so torso and legs are not tracked: they hang from the head as a ragdoll, as on the strings.
-- **`ControlInput.body`** holds the targets in world space (plain data, so another player can receive them later). `src/puppet/body-drive.ts` applies them every physics step:
-  - the head body becomes kinematic and follows the eye target with capped speeds (1.5 m/s, 8 rad/s)
-  - the hands get velocities towards their targets, clamped to 97 % of the arm's length from the shoulder, so an unreachable hand cannot drag the torso
-  - the hands turn towards their targets' rotation as far as the wrists allow (cone of 60° swing and 30° twist; the elbow is a hinge); the wrists' friction is off meanwhile. In the emulator a 40° bend is followed to within 10°, a 40° turn about the arm's axis hardly at all
-  - the chest turns after the head once it is turned more than 0.3 rad (a glance leaves the body alone), through the motor of the neck joint
-  - the cross tags along above the head, and every string gets 8 cm of slack, so reaching or bowing does not pull one taut
-- **The camera never follows physics:** it stays on the tracked head, and the puppet follows it. The puppet's `Head`, `Hat` and `HatRosette` meshes are hidden while the session runs (the camera sits inside them).
-- **Grip:** squeeze or trigger closes that puppet hand; with tracked hands, a pinch.
-- **Curtain and signs** hang right in front of a flat screen's camera and are picked with the mouse: from the play choice, entering XR skips them and goes on stage in impro mode. Menus are DOM and not visible in the headset; the stage is set before entering.
-- **While the session runs** the camera hand (MediaPipe) and the mouse stand by; IWSDK's controller and hand models and ray pointers are switched off. Leaving restores the origin, the camera, the head body, the strings and the input source.
-- **Emulator:** `?emu` on the dev server installs IWER's emulated Quest 3 (`src/xr/emulator.ts`, dev only, scripted from the console as `xrDevice`). `@iwsdk/vite-plugin-dev` is not used: it needs Vite 7.
-- **Not built yet:** moving with the thumbstick (the player walks: 1 m in the room is 0.2 m on stage), finger joints, settings per puppet (the eye point and the head and hand bones are constants for the SKKG marionette), a menu in the headset, sending `body` to other players.
+- **The player is shrunk, not the puppet enlarged:** the puppet stays 0.35 m (its rig only works at scale 1); IWSDK's XR origin (`world.player`) is scaled by puppet eye height / player eye height (about 0.2) and placed over the puppet's head, facing the audience.
+- **Tracking is head + two hands (6DoF), tracked hands first:** no controllers are planned (they still work). IWSDK 1.1 cannot request WebXR body tracking, so torso and legs are not tracked.
+- **One more channel on the input model:** `ControlInput.body` holds the head and hand targets in world space (plain data, so another player can receive them later). `src/xr/xr-embodiment.ts` writes it, `src/puppet/body-drive.ts` applies it; the cross and the strings are not the input in this mode, they tag along.
+- **The puppet stays a ragdoll:** the head body is pinned to the tracked head, the hands are drawn to the hand targets within arm's length, and the rest hangs from the head as it does from the strings. Two things are added because only the head is tracked: the **body turns** all the way with the head once it is turned more than a glance (0.3 rad), and the **legs take steps** when the head travels through the room (`src/puppet/body-walk.ts`: a gait on hip and knee motors that advances with the distance covered).
+- **The camera never follows physics:** it stays on the tracked head, and the puppet follows it.
+- **No controller or hand models, nothing from a CDN:** IWSDK downloads a model for every controller and tracked hand from `cdn.jsdelivr.net` with no option to switch that off; its visual adapters get a loader without models.
+- **Entering:** from the play choice, entering XR skips the main curtain and the signs (they hang in front of a flat screen's camera and are picked with the mouse) and goes on stage in impro mode. The button waits while the stage changes, so the player steps onto a set stage; if that takes longer than the browser counts the click as a gesture (about 5 s), it asks for a second tap.
+- **Scene changes run during a session:** everything a scene change waits on is on the world's loop (`src/systems/frames.ts`), not on the page's animation frames, which a headset stops during a session. The puppet with a player inside stays on stage during the change (the other puppets fade out and are pulled up).
+- **Emulator:** `?emu` on the dev server installs IWER's emulated Quest 3 (`src/xr/emulator.ts`, dev only). `@iwsdk/vite-plugin-dev` is not used: it needs Vite 7.
+- **Verified in the emulator only**, not on a headset.
 
 ---
 
@@ -368,7 +364,7 @@ src/
   input/{control-input,mediapipe,hand-tracking,hand-overlay,hand-synthetic,hand-release,body-source,body-frame,scene-synthetic,phone,mouse}.ts
   audio/{audio,ambient,excerpts,sfx,cues,impacts}.ts   # graph + on/off, archive.org playlists and excerpts, effects
   ui/                   # overlay, release timer, hand settings, light desk, sound button, debug mode, styles, Geist fonts
-  xr/{xr-button,xr-embodiment,emulator}.ts   # WebXR: the player as the puppet (section 3.3); puppet side in puppet/body-drive.ts
+  xr/{xr-button,xr-embodiment,emulator}.ts   # WebXR: the player as the puppet (section 3.3, docs/xr.md); puppet side in puppet/body-drive.ts and body-walk.ts
 index.html  vite.config.ts  tsconfig.json  package.json  CLAUDE.md
 ```
 
@@ -406,7 +402,8 @@ Later, with Docker: `converter/` (Dockerfile with Blender LTS, node and ffmpeg; 
 - **A second model for the hand's height (a face or a body), later:** in play only the hand landmarker runs. The height model can already read a face or a body ("Height in metres"), but running one costs frame rate on the page's one thread (while recording, the hand landmarker fell from 29 Hz to 16 … 22 Hz with three body models; a face detector alone, on a stride of frames, is the candidate) and a WebGL context per task. And what it would add rests on assumptions (the hand plays 42 cm below the eyes; the eyes' distance as a ruler, which a face 14 px wide with 2 px of noise no longer is) until recordings with a face or a body in them exist. Until then a pitched camera needs the installer's step ("Kamera einmessen"), and without it the height drifts with the hand's distance.
 - **iOS permissions:** camera, DeviceOrientation and audio all need a user gesture, which the Play button provides.
 - **Self-signed certificates:** phones warn once. For the demo, use a real certificate on the server.
-- **WebXR is verified in the emulator only:** hand orientation, the eye point, drive speeds, string slack and the frame rate with the lighting rig are not judged on a Quest yet. IWSDK loads its controller models from a CDN even though they are hidden.
+- **WebXR is verified in the emulator only:** hand orientation, the eye point, drive speeds, string slack and the frame rate with the lighting rig are not judged on a Quest yet.
+- **Remote hosts:** by design the app only streams music and excerpts from archive.org (after a sound button or a sign click) and fetches what a dropped IIIF manifest points to. Named in bundled libraries but not requested by the app: `unpkg.com` (IWSDK's Draco/Basis decoder paths, used only if IWSDK's own asset manager loads a compressed model, which the app never asks it to), `api.dicebear.com` (default picture of a uikit avatar component, not used), `odml.pa.googleapis.com/v1/log` (a logging call inside MediaPipe tasks-vision; not checked whether it is sent while hand tracking runs).
 
 ## 8. Verification
 
@@ -423,7 +420,7 @@ Results of the third play-test round (what was measured, shortfalls, open questi
   - the puppet follows the mouse, then MediaPipe on desktop and phone
   - a prop can be grabbed, thrown and dropped
   - on a phone the camera and sensors work
-- `?emu` on the dev server: the WebXR button appears; in a session `world.player.scale` is about 0.2, the puppet's head follows `xrDevice.position` / `.quaternion`, its hands follow `xrDevice.controllers.left|right.position` and stop at arm's length, squeeze sets the grip; leaving restores scale 1, the camera and the mouse.
+- `?emu` on the dev server (see `xr.md`, section 10): the WebXR button appears; in a session `world.player.scale` is about 0.2, the puppet's head and hands follow `xrDevice`, a pinch closes the hand, a quarter turn of the headset turns chest, pelvis and legs, moving the headset across the room gives steps (`puppet.body.stepping()`), a number key switches the scene inside the session, and no request leaves localhost; leaving restores scale 1, the camera and the mouse.
 - On a Quest: `adb reverse tcp:5173 tcp:5173`, then `http://localhost:5173` (a secure context without a certificate warning), or `npm run dev:https` over the LAN.
 - Later, with Docker: `docker compose run --rm convert` produces output for all source types and skips unchanged files on a second run.
 
@@ -435,6 +432,10 @@ Add one line per change to a decision in this doc: date, what changed, why.
 
 | Date | Change | Reason |
 |---|---|---|
+| 2026-11-15 | WebXR on the reworked engine (merge of `main`): opening the hand bumps `ControlInput.release`; while a player is inside, the head-turn spring and the knee strings' take-up stand by and fly-in leaves the puppet alone; motors give the joints back each part's own friction (`RigPart.friction`) | The magnet going off no longer drops a prop; the head-turn spring sits on the axis of the body-turn motor; take-up drew in the slack the strings are given; the body drive and the walk restored one global friction where parts now have their own |
+| 2026-11-15 | WebXR: the legs take steps when the player walks (`puppet/body-walk.ts`); scene changes wait on the world's loop (`systems/frames.ts`) instead of the page's animation frames and timers, and a puppet with a player inside stays on stage during a change; implementation notes moved to `docs/xr.md` | The legs dragged behind a walking player. A headset stops the page's frames during a session, so a scene change started there hung, and it would have pulled the cross up against the pinned head |
+| 2026-11-15 | WebXR: tracked hands first (pinch grips), no controller or hand models (IWSDK's visual adapters get a loader without models); the body turns all the way with the head and is held there, pelvis and legs follow; the WebXR button waits for a scene change, the main curtain or the way back to the play choice | No downloads from a CDN (IWSDK fetched four models from jsDelivr on every session start) and no controllers at the venue; turning to walk left or right across the stage left the body up to 25° behind; a session started during a scene change left the puppet faded out |
+| 2026-11-15 | Rig: shoulders free all round (`upper_arm` cone swing 110° → 180°, in `blender/build_marionette.py` and `export/marionette_rig.json`) | In WebXR the player's arms go overhead and the puppet's stopped at 110°. On the strings, ordinary play is unchanged (measured: shaking sideways swings the shoulders 87° instead of 102°, rocking the hand bar 50° instead of 59°, fully pulled hand strings about 50° both ways); a hard up-and-down jerk of the cross now throws the arms right over (174° instead of 136°) |
 | 2026-11-15 | Prop materials in the catalogue (`material`: wood, metal, stone, glass, ceramic, fabric; overrides `bounce`, `friction`, `damping`, `squish`): presets for density, friction, restitution, damping, a visual squash and the impact samples (metal, stone, glass and leather from the committed packs); no shader change. Prop impacts measured with the velocity from before the step, and props now also sound on the stage floor | Props should feel and sound like what they are made of. The scanned models already carry their PBR materials, so a tag would only fight their maps. Soft bodies are not in Rapier; squash as an effect is cheap and stable. Prop impacts on the floor were silent: the floor has no body, and the velocity read after the step was what the impact left over (1.5 m/s in, 0.02 m/s read) |
 | 2026-11-15 | Props: `mass` (kg) and `shape` (`"ball"`) in `assets/catalogue.json` reach the physics: a set mass replaces the size estimate (density 80), a ball gets a ball collider with angular damping 4 | The Kugel is to roll and the Brunnen to be heavy; Rapier has no rolling resistance, with damping 0.4 a ball rolled at 0.2 m/s went over a metre and off the stage, with 4 it stops within 17 cm |
 | 2026-11-15 | Vite `base: "./"` (relative) instead of `BASE_PATH=/<repo>/` | One build for every place it is served: Pages under `/puppetshow/` or the root, `vite preview`, `npm run dev`; no environment variable to forget |

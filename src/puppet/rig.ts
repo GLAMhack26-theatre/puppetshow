@@ -110,6 +110,8 @@ export interface RigPart {
   /** A part that is fixed on its parent shares the parent's body */
   body: RAPIER.RigidBody;
   joint?: RAPIER.ImpulseJoint;
+  /** Friction of this part's joint, for whoever puts a motor on it and gives it back (body-drive.ts, body-walk.ts) */
+  friction: number;
   /**
    * A cone joint's twist: turns the part about its own long axis against its
    * parent by `angle` rad (+ = about the puppet's up axis, right-hand rule: to
@@ -254,6 +256,7 @@ export function buildRig(root: Object3D, description: RigDescription): Rig {
       bone,
       body,
       joint,
+      friction,
       twistTo,
       tail: b.clone().sub(origin),
       restQuaternion: bone.getWorldQuaternion(new Quaternion()),

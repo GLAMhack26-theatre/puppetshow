@@ -3,17 +3,27 @@ import { PhysicsLink } from "./components/physics-link";
 import { setupHandTracking, startHandTracking } from "./input/mediapipe";
 import { flyIn } from "./puppet/puppet";
 import { LightingSystem, addLighting, setStageLight } from "./stage/lighting";
-import { MainCurtainSystem, isMainCurtainDown, isMainCurtainLoaded, loadMainCurtain, lowerMainCurtain, skipMainCurtain } from "./stage/main-curtain";
+import {
+  MainCurtainSystem,
+  isMainCurtainDown,
+  isMainCurtainLoaded,
+  isMainCurtainMoving,
+  loadMainCurtain,
+  lowerMainCurtain,
+  skipMainCurtain,
+} from "./stage/main-curtain";
 import { SignSystem, loadSigns, onPlayChosen, showSigns } from "./stage/signs";
 import { startImpro } from "./impro/impro";
 import { startDirector } from "./plays/director";
 import { addPlayMenu } from "./plays/play-menu";
+import { isSceneChanging } from "./plays/plays";
 import { startPlay } from "./plays/scene-buttons";
 import { setupPresentation } from "./presentation/presentation";
 import { BackdropSystem, setBackdrop } from "./stage/backdrops";
 import { RequisitSystem, arrangeRequisits } from "./props/requisits";
 import { SpotlightSystem } from "./stage/spotlights";
 import { StageSystem, isCurtainOpen, loadStage, setCurtain, stageFloor } from "./stage/stage";
+import { FrameSystem } from "./systems/frames";
 import { RapierSystem, initPhysics } from "./systems/rapier-system";
 import { FpsSystem, hudLines } from "./spike/world";
 import { addLightDesk } from "./ui/light-desk";
@@ -76,6 +86,7 @@ world.camera.lookAt(0, 0.4, -0.1);
 
 world.registerComponent(PhysicsLink);
 world.registerSystem(RapierSystem);
+world.registerSystem(FrameSystem);
 world.registerSystem(StageSystem);
 world.registerSystem(FpsSystem);
 world.registerSystem(MainCurtainSystem);
@@ -133,18 +144,24 @@ stageLoaded();
 
 // Back to the choice: the curtain comes down, behind it the play's UI goes and
 // the stage is cleared, then the signs drop in again
+let leaving = false;
 addPlayMenu(async () => {
   if (!running.every((r) => r.canLeave?.() ?? true)) return;
-  if (!isMainCurtainLoaded()) await loadChoice(); // ?test=nocurtain: loaded only now, still raised
-  for (const r of running) r.stop();
-  running = [];
-  setAmbientPlay("default");
-  await lowerMainCurtain();
-  setBackdrop(world, null);
-  setStageLight(undefined); // back to the plain light
-  void arrangeRequisits(world, []);
-  setCurtain(true);
-  showSigns();
+  leaving = true;
+  try {
+    if (!isMainCurtainLoaded()) await loadChoice(); // ?test=nocurtain: loaded only now, still raised
+    for (const r of running) r.stop();
+    running = [];
+    setAmbientPlay("default");
+    await lowerMainCurtain();
+    setBackdrop(world, null);
+    setStageLight(undefined); // back to the plain light
+    void arrangeRequisits(world, []);
+    setCurtain(true);
+    showSigns();
+  } finally {
+    leaving = false;
+  }
 });
 addLighting(world);
 addLightDesk();
@@ -181,4 +198,9 @@ onXrSession((active) => {
   skipMainCurtain();
   chosenPlay("impro");
 });
-void addXrButton(world);
+// The button waits for whatever is changing the stage: the main curtain on its
+// way (it hangs in front of a flat screen's camera), a scene change, the way
+// back to the play choice. The player then steps onto a set stage and into a
+// puppet that is there. (A scene change during a session works too: it runs
+// on the world's loop, systems/frames.ts.)
+void addXrButton(world, () => leaving || isMainCurtainMoving() || isSceneChanging());
