@@ -9,6 +9,7 @@ import {
 } from "@iwsdk/core";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { RectAreaLightUniformsLib } from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
+import { slug } from "../slug";
 import { setBackdropTint } from "./backdrops";
 import { setSpotLook } from "./spotlights";
 import { stageBounds } from "./stage";
@@ -28,8 +29,9 @@ import { stageBounds } from "./stage";
 // The top, side and strip lights are area lights (RectAreaLight): soft, with
 // no visible source (no "wall of light"), and they fall off with distance,
 // so they light the stage and not the room. A lighting scene is a set of
-// values for the parameters of this rig (LIGHT_PARAMS): the built-in ones
-// below, and those saved from the light desk (ui/light-desk.ts).
+// values for the parameters of this rig (LIGHT_PARAMS): the plain one below,
+// and the library in assets/lights/, filled from the light desk
+// (ui/light-desk.ts). A play's scene names the lighting scene it is lit with.
 //
 // Lights are never added or removed when switching: a changed light count
 // recompiles every lit material (a visible hitch); a light that is not used
@@ -154,125 +156,125 @@ export interface LightScene {
   values: LightValues;
 }
 
-/** The built-in scenes, in the order L steps through them; the first is the start. Chosen directly with ?light=<key>. */
-const PRESETS: Record<string, LightScene> = {
-  // Plain stage light: even from the front, the top light at 40 %
-  neutral: {
-    label: "Neutral",
-    values: {
-      front: 0.5,
-      frontKelvin: 5600,
-      spot: 0.27,
-      spotKelvin: 5200,
-      spotAngle: 17,
-      spotEdge: 0.25,
-      spotBeam: 0.25,
-      top: 0.4,
-      topColor: 0xfff2e0,
-      side: 0.3,
-      sideKelvin: 5000,
-      strip: 0.1,
-      stripColor: 0xffe6c4,
-      room: 0.3,
-    },
-  },
-  // Evening: little, warm front light, warm side light as from a low sun,
-  // the violet of dusk from above, an orange glow from the strip
-  abend: {
-    label: "Abendstimmung",
-    values: {
-      front: 0.3,
-      frontKelvin: 3000,
-      spot: 0.22,
-      spotKelvin: 3200,
-      spotAngle: 20,
-      spotEdge: 0.6,
-      spotBeam: 0.18,
-      top: 0.55,
-      topColor: 0x5a48e8,
-      side: 0.5,
-      sideKelvin: 3000,
-      strip: 0.3,
-      stripColor: 0xff6a3a,
-      room: 0.15,
-    },
-  },
-  // Morning, outdoors: daylight everywhere. Cool, bright front light, a lot
-  // of sky blue from above; the spot wide, soft and weak, without haze
-  morgen: {
-    label: "Morgenstimmung",
-    values: {
-      front: 0.8,
-      frontKelvin: 5600,
-      spot: 0.1,
-      spotKelvin: 5000,
-      spotAngle: 36,
-      spotEdge: 1,
-      spotBeam: 0,
-      top: 0.7,
-      topColor: 0xbfe0ff,
-      side: 0.4,
-      sideKelvin: 5600,
-      strip: 0.2,
-      stripColor: 0xffe9a8,
-      room: 0.5,
-    },
-  },
-  // Dramatic: next to no front light. Cold side light for hard modelling,
-  // red from above, the spot narrow and hard, its beam clearly in the air
-  dramatisch: {
-    label: "Dramatisch",
-    values: {
-      front: 0.03,
-      frontKelvin: 4500,
-      spot: 0.4,
-      spotKelvin: 5600,
-      spotAngle: 14,
-      spotEdge: 0.15,
-      spotBeam: 0.6,
-      top: 0.85,
-      topColor: 0xff2010,
-      side: 0.35,
-      sideKelvin: 5600,
-      strip: 0,
-      stripColor: 0xff2010,
-      room: 0.06,
-    },
+/** The scene the stage starts in, and the one a play's scene without a light of its own gets */
+const START = "neutral";
+// Plain stage light: even from the front, the top light at 40 %. Built in,
+// so there is light without the library, and a value for every parameter a
+// file does not give.
+const NEUTRAL: LightScene = {
+  label: "Neutral",
+  values: {
+    front: 0.5,
+    frontKelvin: 5600,
+    spot: 0.27,
+    spotKelvin: 5200,
+    spotAngle: 17,
+    spotEdge: 0.25,
+    spotBeam: 0.25,
+    top: 0.4,
+    topColor: 0xfff2e0,
+    side: 0.3,
+    sideKelvin: 5000,
+    strip: 0.1,
+    stripColor: 0xffe6c4,
+    room: 0.3,
   },
 };
-const START = Object.keys(PRESETS)[0];
 
-// Scenes saved from the desk live in this browser (localStorage). One saved
-// under the name of a built-in scene replaces it, until it is deleted.
+// The library of lighting scenes, shared by all plays: one JSON file per
+// scene in assets/lights/<id>.json ({ "name", "values" }, colours as
+// "#rrggbb"), served and written by the "lights" plugin in vite.config.ts.
+// Fetched at runtime, not imported: saving from the desk would otherwise
+// reload the page (and lose the director's unsaved play). Only the dev
+// server can write; elsewhere (a build) a saved scene is kept in this
+// browser (localStorage) and downloaded as a file, to be put there by hand.
+// A scene in the browser stands in front of the file of the same id, a file
+// "neutral" in front of the built-in plain scene.
+const base = import.meta.env.BASE_URL;
 const STORAGE_KEY = "puppetshow.lightScenes";
+const files: Record<string, LightScene> = {};
+const local = loadLocal();
 
-function loadSaved(): Record<string, LightScene> {
+const hex = (value: number) => `#${Math.round(value).toString(16).padStart(6, "0")}`;
+
+/**
+ * A scene's values from JSON. A missing or broken one is taken from the
+ * plain scene (a NaN brightness would break the shaders); all are kept
+ * within their range.
+ */
+export function lightValuesFromJson(json: unknown): LightValues {
+  const given = (json && typeof json === "object" ? json : {}) as Record<string, unknown>;
+  const values = { ...NEUTRAL.values };
+  for (const { key, kind, min, max } of LIGHT_PARAMS) {
+    const raw = given[key];
+    const value = kind === "color" && typeof raw === "string" ? parseInt(raw.replace("#", ""), 16) : raw;
+    if (typeof value === "number" && Number.isFinite(value)) values[key] = Math.min(max, Math.max(min, value));
+  }
+  return values;
+}
+
+/** The values as they stand in a file: colours as "#rrggbb", numbers rounded. */
+export function lightValuesToJson(values: LightValues) {
+  return Object.fromEntries(
+    LIGHT_PARAMS.map(({ key, kind }) => [key, kind === "color" ? hex(values[key]) : +values[key].toFixed(3)]),
+  ) as Record<LightParam, number | string>;
+}
+
+function loadLocal(): Record<string, LightScene> {
   try {
-    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as Record<string, LightScene>;
-    // A scene saved before a parameter existed gets the start scene's value for it
-    for (const scene of Object.values(stored)) scene.values = { ...PRESETS[START].values, ...scene.values };
-    return stored;
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as Record<string, Partial<LightScene>>;
+    return Object.fromEntries(
+      Object.entries(stored).map(([id, s]) => [id, { label: s.label ?? id, values: lightValuesFromJson(s.values) }]),
+    );
   } catch {
-    return {}; // no storage (private mode) or broken data: the built-in scenes only
+    return {}; // no storage (private mode) or broken data: the library only
   }
 }
 
-const saved = loadSaved();
-
-function store() {
+function storeLocal() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(local));
   } catch (e) {
     console.warn("Lighting scenes could not be stored", e);
   }
 }
 
-const scene = (id: string): LightScene | undefined => saved[id] ?? PRESETS[id];
+let loading: Promise<void> | null = null;
 
-/** All scenes: the built-in ones in their order, then the saved ones. */
+/** Resolves once the library is read (or could not be: then there is only the plain scene). */
+export function lightScenesLoaded() {
+  loading ??= (async () => {
+    try {
+      const response = await fetch(`${base}lights/index.json`, { cache: "no-store" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const all = (await response.json()) as Record<string, { name?: string; values?: unknown } | null>;
+      for (const [id, json] of Object.entries(all))
+        files[id] = { label: json?.name || id, values: lightValuesFromJson(json?.values) };
+    } catch (e) {
+      console.warn("Lighting scenes could not be loaded: the plain scene only", e);
+    }
+    changed();
+  })();
+  return loading;
+}
+
+const scene = (id: string): LightScene | undefined => local[id] ?? files[id] ?? (id === START ? NEUTRAL : undefined);
+
+/** All scenes: the plain one first, then by name. */
 export function lightScenes() {
-  const ids = [...Object.keys(PRESETS), ...Object.keys(saved).filter((id) => !PRESETS[id])];
-  return ids.map((id) => ({ id, label: scene(id)!.label, saved: id in saved, builtIn: id in PRESETS }));
+  const ids = [...new Set([START, ...Object.keys(files), ...Object.keys(local)])];
+  return ids
+    .map((id) => ({
+      id,
+      label: scene(id)!.label,
+      /** Kept in this browser only, not (or not in this form) in assets/lights/ */
+      local: id in local,
+      /** Can be deleted here: the browser's own scenes anywhere, files only through the dev server */
+      removable: id in local || (id in files && import.meta.env.DEV),
+      /** Deleting it brings back the scene it stands in front of */
+      resets: id === START || (id in local && id in files),
+    }))
+    .sort((a, b) => Number(b.id === START) - Number(a.id === START) || a.label.localeCompare(b.label, "de"));
 }
 
 interface Rig {
@@ -288,10 +290,12 @@ let sceneId = START;
 /** The desk's values differ from the scene they came from */
 let modified = false;
 /** What is shown right now, the fade's two ends, and how far it is (1: done) */
-let shown = { ...PRESETS[START].values };
+let shown = { ...NEUTRAL.values };
 let from = shown;
 let to = shown;
 let fade = 1;
+/** Something chose the light already, before the library arrived */
+let touched = false;
 const listeners: (() => void)[] = [];
 
 /** The state of the desk: the scene and the values it is set to (the end of a running fade). */
@@ -359,24 +363,62 @@ export function addLighting(world: World) {
   world.scene.add(...front, top, ...sides, strip);
   rig = { world, front, top, sides, strip };
 
-  const chosen = new URLSearchParams(location.search).get("light");
-  if (chosen && scene(chosen)) sceneId = chosen;
-  shown = from = to = { ...scene(sceneId)!.values };
   apply(shown);
-  changed();
+  // The library arrives a moment later: until then the plain scene. ?light=
+  // chooses the scene to start in, unless a play's scene was faster.
+  const chosen = new URLSearchParams(location.search).get("light");
+  void lightScenesLoaded().then(() => {
+    if (touched) return;
+    if (chosen && scene(chosen)) sceneId = chosen;
+    shown = from = to = { ...scene(sceneId)!.values };
+    apply(shown);
+    changed();
+  });
 }
 
 /** Fades to another lighting scene. */
 export function setLightingScene(id: string) {
   const next = scene(id);
-  if (!next) return;
+  if (next) fadeTo(id, next.values, false);
+}
+
+function fadeTo(id: string, values: LightValues, changedValues: boolean) {
   sceneId = id;
-  modified = false;
+  modified = changedValues;
+  touched = true;
   // From what is shown now, not from the last scene: no jump when switching during a fade
   from = shown;
-  to = { ...next.values };
+  to = { ...values };
   fade = 0;
   changed();
+}
+
+/**
+ * The light of a play's scene (plays/plays.ts): a scene of the library, by
+ * its id, and the desk's values if they were changed without being saved as
+ * a lighting scene, so the scene looks as it was set up either way.
+ */
+export interface SceneLight {
+  scene: string;
+  values?: Record<string, number | string>;
+}
+
+/** The light as it stands now, for a play's scene. */
+export function stageLight(): SceneLight {
+  return { scene: sceneId, ...(modified && { values: lightValuesToJson(to) }) };
+}
+
+/**
+ * Fades to the light of a play's scene. A scene without one is lit plainly,
+ * so its light does not depend on the scene shown before. Needs the library
+ * (lightScenesLoaded).
+ */
+export function setStageLight(light: SceneLight | undefined) {
+  const known = !!light && typeof light.scene === "string" && !!scene(light.scene);
+  if (light && !known) console.warn(`Scene preset: unknown lighting scene ${String(light.scene)}`);
+  const id = known ? light!.scene : START;
+  if (light?.values) fadeTo(id, lightValuesFromJson(light.values), true);
+  else fadeTo(id, scene(id)!.values, false);
 }
 
 /** The next scene in the list (the L key). */
@@ -392,47 +434,65 @@ export function setLight(key: LightParam, value: number) {
   to = { ...to, [key]: value };
   shown = { ...shown, [key]: value };
   modified = true;
+  touched = true;
   apply(shown);
   changed();
 }
 
 /**
- * Saves the desk's values as a scene and makes it the current one. A name
- * that is already there (also a built-in one) replaces that scene.
+ * Saves the desk's values as a lighting scene of the library and makes it
+ * the current one. A name that is already there replaces that scene, in
+ * every play's scene that uses it; without a name the current one is saved.
+ * Returns how: written to assets/lights/ (dev server), or kept in this
+ * browser and downloaded as a file to put there (a build).
  */
-export function saveLightScene(name: string) {
+export async function saveLightScene(name: string): Promise<{ id: string; how: "saved" | "downloaded" }> {
   const label = name.trim() || lighting.label;
   const existing = lightScenes().find((s) => s.label.toLowerCase() === label.toLowerCase());
-  const slug = label
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-  const id = existing?.id ?? (slug || "szene");
-  saved[id] = { label: existing?.label ?? label, values: { ...to } };
-  store();
+  const id = existing?.id ?? slug(label, "licht");
+  const saved: LightScene = { label: existing?.label ?? label, values: { ...to } };
+  const file = `${JSON.stringify({ name: saved.label, values: lightValuesToJson(saved.values) }, null, 2)}\n`;
+  if (import.meta.env.DEV) {
+    const response = await fetch(`${base}lights/${id}.json`, {
+      method: "PUT",
+      body: file,
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!response.ok) throw new Error(`Speichern fehlgeschlagen (${response.status})`);
+    files[id] = saved;
+    delete local[id]; // the file is what counts now
+  } else {
+    local[id] = saved;
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([file], { type: "application/json" }));
+    link.download = `${id}.json`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  }
+  storeLocal();
   sceneId = id;
   modified = false;
+  touched = true;
   changed();
+  return { id, how: import.meta.env.DEV ? "saved" : "downloaded" };
 }
 
-/** Deletes a saved scene; a replaced built-in scene comes back as it was. */
-export function deleteLightScene(id: string) {
-  if (!(id in saved)) return;
-  delete saved[id];
-  store();
-  if (id === sceneId) setLightingScene(PRESETS[id] ? id : START);
+/**
+ * Deletes a lighting scene: the browser's own, or (dev server) its file. The
+ * scene it stood in front of comes back; a play's scene that used it is lit
+ * plainly from then on.
+ */
+export async function deleteLightScene(id: string) {
+  if (id in local) {
+    delete local[id];
+    storeLocal();
+  } else if (id in files && import.meta.env.DEV) {
+    const response = await fetch(`${base}lights/${id}.json`, { method: "DELETE" });
+    if (!response.ok) throw new Error(`Löschen fehlgeschlagen (${response.status})`);
+    delete files[id];
+  } else return;
+  if (id === sceneId) setLightingScene(scene(id) ? id : START);
   else changed();
-}
-
-/** The desk's values as an entry for PRESETS: the way a tuned scene gets into the code. */
-export function lightSceneSource() {
-  const lines = LIGHT_PARAMS.map(({ key, kind }) => {
-    const value = to[key];
-    return `    ${key}: ${kind === "color" ? `0x${value.toString(16).padStart(6, "0")}` : +value.toFixed(2)},`;
-  });
-  // The key quoted: a saved scene's key can have hyphens
-  return `${JSON.stringify(sceneId)}: {\n  label: ${JSON.stringify(lighting.label)},\n  values: {\n${lines.join("\n")}\n  },\n},`;
 }
 
 // The colour of a white light of a colour temperature (Tanner Helland's fit

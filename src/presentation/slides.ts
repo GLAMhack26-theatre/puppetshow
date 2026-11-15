@@ -19,6 +19,7 @@ import type { RigDescription } from "../puppet/rig";
 import { createHandDemo, handIcon } from "./hand-demo";
 import { lineIcon } from "./icons";
 import { OBJECTS } from "./objects";
+import { loadPralines } from "./pralines";
 import { addView } from "./views";
 
 // The three slides (English) and their 3D content.
@@ -179,12 +180,27 @@ export function buildSlides() {
     ]),
   ]);
 
-  return { slides: [collection, controls, outlook], objectViews, marionetteView, handCanvas };
+  // Only the chocolate box and its camera flight (pralines.ts)
+  const pralinesView = html("div", "view stage");
+  pralinesView.setAttribute("aria-label", "Your Selection of Pralines: a chocolate box with the collection objects as miniatures");
+  const pralines = html("section", "slide", [html("h1", "", "Your Selection of Pralines"), pralinesView]);
+
+  return { slides: [collection, controls, outlook, pralines], objectViews, marionetteView, handCanvas, pralinesView };
 }
 
 /** Loads all models (once) into the views. */
-export async function load3D(objectViews: HTMLElement[], marionetteView: HTMLElement, handCanvas: HTMLCanvasElement) {
+export async function load3D(
+  objectViews: HTMLElement[],
+  marionetteView: HTMLElement,
+  handCanvas: HTMLCanvasElement,
+  pralinesView: HTMLElement,
+) {
   const loader = new GLTFLoader();
+  // 14 MB: loads alongside, not after, the slide 1 and 2 models
+  const pralines = loadPralines(pralinesView).catch((e) => {
+    console.warn("Presentation: the chocolate box failed to load", e);
+    pralinesView.classList.add("failed");
+  });
   const marionette = loadMarionette();
   const rnd = random(41);
   await Promise.all(OBJECTS.map(async (o, i) => {
@@ -206,6 +222,7 @@ export async function load3D(objectViews: HTMLElement[], marionetteView: HTMLEle
   const demo = demoPuppet(puppet, description, createHandDemo(handCanvas));
   // No turning here: a fixed three-quarter view keeps the hand demo readable
   addView(marionetteView, demo.group, { spin: 0, angle: 0.35, overlay: [skeleton(puppet)], update: demo.update });
+  await pralines;
 }
 
 function skeleton(puppet: Object3D) {

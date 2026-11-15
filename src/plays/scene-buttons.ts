@@ -6,8 +6,8 @@ import "./plays.css";
 
 // A play with scene presets (plays.ts), e.g. the Froschkönig sign: once the
 // main curtain is up, the first scene stands on the stage and a column of
-// golden buttons on the left switches between the scenes. A switch is a
-// real scene change: the stage curtain comes down, the set changes behind
+// golden buttons on the left switches between the scenes; the number keys
+// 1–9 do the same as the numbered buttons. A switch is a real scene change: the stage curtain comes down, the set changes behind
 // it (backdrop, props), and the curtain goes up again.
 
 /** How long the closed curtain stays down while the set changes, s. */
@@ -22,7 +22,7 @@ const CHANGE_PAUSE = 0.6;
  */
 export function startPlay(world: World, id: string, stageReady: Promise<unknown>) {
   let stopped = false;
-  let nav: HTMLElement | null = null;
+  let nav: ReturnType<typeof showSceneButtons> | null = null;
   void (async () => {
     const play = await loadPlay(id).catch(() => null);
     if (!play?.scenes.length) return;
@@ -82,10 +82,33 @@ function showSceneButtons(world: World, play: Play) {
     changing = false;
   };
 
+  // Number keys pick a scene like its button. Not while typing (the
+  // director's name dialog and selects), and not with a modifier (Shift+P
+  // and the like belong to others); the open presentation takes its digits
+  // in the capture phase before they get here.
+  const keys = new AbortController();
+  addEventListener(
+    "keydown",
+    (e) => {
+      if (!/^[1-9]$/.test(e.key) || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+      if ((e.target as HTMLElement | null)?.closest?.("input, textarea, select, [contenteditable]")) return;
+      const index = Number(e.key) - 1;
+      if (index >= play.scenes.length) return;
+      e.preventDefault();
+      void change(index);
+    },
+    { signal: keys.signal },
+  );
+
   mark();
   document.body.append(nav);
   requestAnimationFrame(() => nav.classList.add("ready"));
-  return nav;
+  return {
+    remove() {
+      keys.abort();
+      nav.remove();
+    },
+  };
 }
 
 function until(done: () => boolean) {

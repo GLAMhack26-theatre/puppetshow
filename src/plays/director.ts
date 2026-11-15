@@ -7,7 +7,7 @@ import "./plays.css";
 //   2. "+ Szene" asks for the scene's name and starts from the stage as it
 //      stands,
 //   3. set the stage with the impro panels (backdrop, props and where they
-//      stand; light and sound once those pages exist),
+//      stand, the lighting scene; sound once that page exists),
 //   4. "Speichern" stores the stage in the chosen scene and writes the play
 //      to assets/plays/<id>.json (dev server; a build downloads the file).
 // A click on a scene puts it on the stage, to look at or change it; a
