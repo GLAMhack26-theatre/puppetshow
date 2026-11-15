@@ -23,13 +23,15 @@ import {
 } from "@iwsdk/core";
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { catalogueEntry } from "../catalogue";
+import { type PropShape, catalogueEntry, propMass, propNumber, propShape } from "../catalogue";
 import { PhysicsLink } from "../components/physics-link";
 import { grabbables } from "../puppet/grab";
 import { stageBounds } from "../stage/stage";
 import { GROUP, physics } from "../systems/rapier-system";
 import { cuePropLanded, cueRope } from "../audio/cues";
 import type { IiifObject } from "./iiif";
+import { BALL_ROLL_DAMPING, type PropMaterial, colliderSounds, propMaterial } from "./materials";
+import { addSquish, removeSquish, updateSquish } from "./squish";
 
 // Props ("Requisiten") for the impro mode: every .glb in
 // assets/digital.skkg.ch/requisits/ is offered in the left-hand slider. A
@@ -100,6 +102,12 @@ export interface Requisit {
   /** Scale shown on the card; may shrink once the model is loaded (MAX_SIZE). */
   scale: number;
   onScale?: (scale: number) => void;
+  /** kg (assets/catalogue.json); without it the mass comes from the size and the material's density. */
+  mass?: number;
+  /** Physics, sound and squash (assets/catalogue.json "material" and its overrides, props/materials.ts) */
+  material: PropMaterial;
+  /** Collider: a box around the model, or a ball that rolls. */
+  shape: PropShape;
   /** Called when a rendered thumbnail arrives. */
   onThumbnail?: (url: string) => void;
 }
@@ -153,6 +161,14 @@ export function loadRequisits(): Requisit[] {
         thumbnail: picture,
         source: entry.source ?? "",
         scale: entry.scale ?? 1,
+        mass: propMass(entry.mass),
+        shape: propShape(entry.shape),
+        material: propMaterial(entry.material, id, {
+          bounce: propNumber(entry.bounce, 0, 1),
+          friction: propNumber(entry.friction, 0, 2),
+          damping: propNumber(entry.damping, 0, 50),
+          squish: propNumber(entry.squish, 0, 1),
+        }),
       };
     });
   const missing = catalogue.filter((r) => !r.thumbnail);
@@ -188,6 +204,8 @@ export function addIiifRequisit(object: IiifObject): Requisit {
     thumbnail: object.thumbnail,
     source: object.homepage,
     scale: 1, // IIIF models are in metres: real size next to the 0.35 m puppet
+    shape: "box",
+    material: propMaterial(undefined, id),
   };
   all.push(requisit);
   if (!requisit.thumbnail) {
@@ -356,29 +374,50 @@ async function placeRequisit(world: World, requisit: Requisit, at?: FloorSpot) {
   const model = await loadModel(requisit);
   if (placed.has(requisit)) return; // clicked twice while loading
   const { size } = model;
-  const radius = Math.hypot(size.x, size.z) / 2;
+  const ball = requisit.shape === "ball";
+  // A ball's radius is the mean of the half extents: a round model has a near cubic box
+  const ballRadius = (size.x + size.y + size.z) / 6;
+  const halfHeight = ball ? ballRadius : size.y / 2;
+  const radius = ball ? ballRadius : Math.hypot(size.x, size.z) / 2;
   const target = at ? fromFloor(at, radius) : null;
   const spot = target ? new Vector2(target.x, target.z) : freeSpot(radius);
   const yaw = target ? target.yaw : (Math.random() - 0.5) * 0.6; // a little askew, like set down by hand
 
   const holder = new Group();
   holder.name = requisit.id;
-  holder.add(model.object); // the model is reused when it is picked again
+  // The squash on impact (props/squish.ts) sits between the physics pose and the model
+  const soft = new Group();
+  holder.add(soft);
+  soft.add(model.object); // the model is reused when it is picked again
+  const material = requisit.material;
+  // Rapier has no rolling resistance: an undamped ball rolls off the stage. A rolling
+  // solid ball slows at about 0.29 times its angular damping (measured in the page)
+  const angularDamping = ball ? Math.max(BALL_ROLL_DAMPING, material.angularDamping) : material.angularDamping;
 
   const body = physics.world.createRigidBody(
     RAPIER.RigidBodyDesc.kinematicPositionBased()
-      .setTranslation(spot.x, size.y / 2 + DROP, spot.y)
+      .setTranslation(spot.x, halfHeight + DROP, spot.y)
       .setRotation(yawQuat(yaw))
+      .setAngularDamping(angularDamping)
+      .setLinearDamping(material.linearDamping)
       .setCcdEnabled(true),
   );
-  // Low density: the box is much bigger than the wood, and props must stay light against a 0.15 kg puppet
+  const shape = ball ? RAPIER.ColliderDesc.ball(ballRadius) : RAPIER.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2);
+  // A mass from the catalogue replaces the estimate; grab.ts swaps it while held and gives it back
+  if (requisit.mass !== undefined) shape.setMass(requisit.mass);
+  else shape.setDensity(material.density);
   const collider = physics.world.createCollider(
-    RAPIER.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2)
-      .setDensity(80)
+    shape
+      .setFriction(material.friction)
+      .setRestitution(material.bounce)
+      // The floor and the puppet have no bounce: averaged, a prop's would be halved
+      .setRestitutionCombineRule(RAPIER.CoefficientCombineRule.Max)
       .setCollisionGroups(GROUP.prop)
       .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS), // impact sounds, audio/impacts.ts
     body,
   );
+  colliderSounds.set(collider.handle, material.sound);
+  addSquish(collider, soft, size.clone().multiplyScalar(0.5), material.squish);
   const entity = world.createTransformEntity(holder);
   entity.addComponent(PhysicsLink, { body: body.handle });
 
@@ -389,7 +428,7 @@ async function placeRequisit(world: World, requisit: Requisit, at?: FloorSpot) {
     body,
     collider,
     radius,
-    halfHeight: size.y / 2,
+    halfHeight,
     localBox: new Box3().setFromCenterAndSize(new Vector3(), size),
     mode: "lower",
     t: 0,
@@ -417,6 +456,8 @@ function liftOff(p: Placed) {
 function remove(p: Placed) {
   const index = grabbables.findIndex((g) => g.body === p.body);
   if (index >= 0) grabbables.splice(index, 1);
+  colliderSounds.delete(p.collider.handle);
+  removeSquish(p.collider);
   physics.world.removeRigidBody(p.body);
   // Keep the model's geometry and textures: it is reused when picked again
   p.entity.dispose({ disposeResources: false });
@@ -480,6 +521,7 @@ const yawOf = (r: RAPIER.Rotation) => new Euler().setFromQuaternion(new Quaterni
 
 export class RequisitSystem extends createSystem({}) {
   update(delta: number) {
+    updateSquish(delta);
     for (const p of placed.values()) {
       if (p.mode === "lower" || p.mode === "lift") {
         const seconds = p.mode === "lower" ? LOWER_SECONDS : LIFT_SECONDS;
