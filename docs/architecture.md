@@ -326,6 +326,7 @@ Add one line per change to a decision in this doc: date, what changed, why.
 
 | Date | Change | Reason |
 |---|---|---|
+| 2026-11-15 | Vite `base: "./"` (relative) instead of `BASE_PATH=/<repo>/` | One build for every place it is served: Pages under `/puppetshow/` or the root, `vite preview`, `npm run dev`; no environment variable to forget |
 | 2026-11-15 | Demo deployed to GitHub Pages by `.github/workflows/deploy.yml` (Pages source: GitHub Actions): built with `BASE_PATH=/<repo>/` (Vite `base`; runtime URLs use `import.meta.env.BASE_URL`), MediaPipe models fetched in CI | A public link for the demo; Pages serves the site under `/puppetshow/`, and `public/` is not in git |
 | 2026-11-14 | Docker Compose, the `convert` service and `dev.sh` set aside (later): the app runs with npm and Vite alone, assets are imported directly from `assets/`; fonts row corrected (self-hosted in `assets/fonts/`) | Not needed for the hackathon; the doc described files the repo does not have |
 | 2026-11-14 | Engine followers: bar pose, rock angles, free hand bar and hook follow their input through a critically damped spring with an acceleration cap instead of a speed cap alone; the hand bar returns in about 1 s instead of 0.4 s | An input step became a full-speed sweep (90 m/s² at the bar); now 12 m/s², and a spike of two steps moves the bar 12 mm instead of 50 mm |

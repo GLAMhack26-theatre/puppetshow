@@ -42,9 +42,6 @@ jobs:
 
       - name: Build
         run: npm run build
-        env:
-          # The site lives under https://<owner>.github.io/<repo>/
-          BASE_PATH: /${{ github.event.repository.name }}/
 
       - name: Configure Pages
         uses: actions/configure-pages@v6
