@@ -135,7 +135,7 @@ export interface Recording {
 
 /**
  * A scripted session at 30 fps with jitter: one hand attaches, moves, tilts,
- * reaches forward, walks the leg bar, tilts the head bar and grips; then a
+ * comes closer, walks the leg bar, pinches for the head and grips; then a
  * second hand takes the hand bar, moves and turns it and lets it go, takes the
  * head bar and turns it, and at last pushes against the back string.
  */
@@ -150,15 +150,16 @@ export function demoRecording(): Recording {
   const crossAt = (t: number): SyntheticHand => ({
     hand: "right",
     x: 0.34 + 0.1 * wave(t, 2, 5, 1),
-    y: 0.45 - 0.08 * pulse(t, 2, 5),
+    y: 0.5 - 0.15 * pulse(t, 2, 5), // at the camera's height the puppet stands; up lifts it
     distance: 0.6 - 0.14 * pulse(t, 11, 14),
     roll: 0.4 * wave(t, 5, 8, 1),
     pitch: 0.8 + 0.4 * wave(t, 8, 11, 1),
     index: Math.max(0, wave(t, 14, 17, 2)) * 0.5 + pulse(t, 20, 22),
     middle: Math.max(0, -wave(t, 14, 17, 2)) * 0.5 + pulse(t, 20, 22),
-    ring: 0.5 * pulse(t, 17, 18.5) + pulse(t, 20, 22),
-    pinky: 0.5 * pulse(t, 17, 18.5) + pulse(t, 20, 22),
-    thumb: 0.9 * pulse(t, 18.5, 20) + 0.6 * pulse(t, 20, 22),
+    ring: pulse(t, 20, 22),
+    pinky: pulse(t, 20, 22),
+    thumb: 0.6 * pulse(t, 20, 22),
+    pinch: pulse(t, 17, 19.5), // thumb and index close and open again: the head goes forward
   });
   // Where the tracker puts the bars' handles and the back string for this hand
   // (it rests from 22 s on): a dry run tells. They are in the mirrored picture,

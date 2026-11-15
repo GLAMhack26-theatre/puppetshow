@@ -20,7 +20,7 @@ const std = (values: number[]) => {
   return Math.sqrt(values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length);
 };
 const f = (v: number, digits = 3) => v.toFixed(digits);
-const snapshot = (out: TrackerOutput) => structuredClone({ status: out.status, calibrated: out.calibrated, bar: out.bar, rock: out.rock, grip: out.grip, handBar: out.handBar, headBar: out.headBar, hook: out.hook });
+const snapshot = (out: TrackerOutput) => structuredClone({ status: out.status, calibrated: out.calibrated, bar: out.bar, rock: out.rock, nod: out.nod, grip: out.grip, handBar: out.handBar, headBar: out.headBar, hook: out.hook });
 type Snapshot = ReturnType<typeof snapshot>;
 
 /** Run hands(t) through a tracker from `from` to `to` seconds; returns one snapshot per frame */
@@ -149,12 +149,13 @@ console.log("2b rest pose");
   const tilted = run(other, 0, 4, () => [synthesize({ ...REST, pitch: 0.4, roll: 0.25 }, CAMERA, noise)]);
   const steps = tilted.slice(1).map((o, i) => Math.abs(o.bar.pitch - tilted[i].bar.pitch));
   check("another rest pose: level after its pause, eased without a jump", Math.abs(tilted[tilted.length - 1].bar.pitch) < 0.05 && Math.abs(tilted[tilted.length - 1].bar.roll) < 0.05 && Math.max(...steps.slice(10)) < 0.09, `before ${f(tilted[20].bar.pitch)}, after ${f(tilted[tilted.length - 1].bar.pitch)}, largest step ${f(Math.max(...steps.slice(10)))}`);
-  // N takes the pose at once, also while the hand moves
+  // The reset button (N) takes the pose without a pause, also while the hand moves
   const moving = new HandTracker();
   run(moving, 0, 2, (t) => [synthesize({ ...REST, pitch: 0.5, x: 0.4 + 0.1 * Math.sin(3 * t) }, CAMERA, noise)]);
-  moving.recenter();
+  moving.reset();
   const after = run(moving, 2, 3.5, (t) => [synthesize({ ...REST, pitch: 0.5, x: 0.4 + 0.1 * Math.sin(3 * t) }, CAMERA, noise)]);
-  check("N takes the current pose without waiting for a pause", after[after.length - 1].calibrated && Math.abs(after[after.length - 1].bar.pitch) < 0.06, f(after[after.length - 1].bar.pitch));
+  const resetSteps = after.slice(1).map((o, i) => Math.abs(o.bar.pitch - after[i].bar.pitch));
+  check("reset takes the current pose without waiting for a pause, and the cross goes level without a jump", after[after.length - 1].calibrated && Math.abs(after[after.length - 1].bar.pitch) < 0.06 && Math.max(...resetSteps) < 0.06, `pitch ${f(after[0].bar.pitch)} → ${f(after[after.length - 1].bar.pitch)}, largest step ${f(Math.max(...resetSteps))}`);
   // A level palm is nearly edge-on to the camera and may tip through it: the tilt carries on, it does not turn back
   let handed = 0;
   const pose = (pitch: number) => {
@@ -168,19 +169,22 @@ console.log("2b rest pose");
   check("tipping through edge-on: the tilt keeps growing", through.every((v, i) => Math.abs(v - (0.3 + 0.25 * i)) < 0.12), through.map((v) => f(v, 2)).join(" "));
 }
 
-console.log("3 depth: quick reach acts, a new seat is absorbed");
+console.log("3 depth: closer is the front of the stage, and stays it");
 {
   const tracker = attached();
-  // The player reaches towards the screen: the puppet goes upstage (−z)
-  const expected = -TUNING.depth.gain * Math.log(0.6 / 0.48);
+  // The player steps towards the camera: the puppet comes to the front of the stage (+z)
+  const expected = TUNING.depth.gain * (Math.log(0.6 / 0.48) - TUNING.depth.dead);
   const out = run(tracker, 2, 40, (t) => [synthesize({ ...REST, distance: 0.6 - 0.12 * ramp(t, 3, 3.3) })]);
   const at = (t: number) => out[Math.round((t - 2) * FPS)].bar.z;
-  check("reach of 12 cm in 0.3 s: ≥ 80 % of the move 0.2 s later", at(3.5) < 0.8 * (expected + TUNING.depth.gain * TUNING.depth.dead), `z ${f(at(3.5))} of ${f(expected)} m`);
-  check("held there: back near the middle after 30 s", Math.abs(at(33)) < 0.03, `z ${f(at(33))} m; after 5 s ${f(at(8))}, 10 s ${f(at(13))}`);
-  const seat = attached();
-  const drift = run(seat, 2, 62, (t) => [synthesize({ ...REST, distance: 0.6 - 0.1 * ramp(t, 2, 62) })]);
-  const worst = Math.max(...drift.map((o) => Math.abs(o.bar.z)));
-  check("player leans in 10 cm over a minute: puppet stays within 5 cm", worst < 0.05, `max |z| ${f(worst)} m`);
+  check("12 cm closer in 0.3 s: ≥ 80 % of the move 0.2 s later, to the front", at(3.5) > 0.8 * expected, `z ${f(at(3.5))} of ${f(expected)} m`);
+  check("held there: the puppet stays at the front", Math.abs(at(8) - expected) < 0.02 && Math.abs(at(39) - expected) < 0.02, `z after 5 s ${f(at(8))}, after 36 s ${f(at(39))}`);
+  // The reset button makes where the hand is now the middle of the stage's depth
+  tracker.reset();
+  const centred = run(tracker, 40, 42, () => [synthesize({ ...REST, distance: 0.48 })]);
+  const steps = centred.slice(1).map((o, i) => Math.abs(o.bar.z - centred[i].bar.z));
+  check("reset: back to the middle of the depth, without a jump", Math.abs(centred[centred.length - 1].bar.z) < 0.01 && Math.max(...steps) < 0.02, `z ${f(centred[centred.length - 1].bar.z)}, largest step ${f(Math.max(...steps))} m`);
+  const back = run(tracker, 42, 44, (t) => [synthesize({ ...REST, distance: 0.48 + 0.2 * ramp(t, 42, 43) })]);
+  check("stepping back sends the puppet upstage", back[back.length - 1].bar.z < -0.1, f(back[back.length - 1].bar.z));
 }
 
 console.log("4 hand roles");
@@ -254,8 +258,8 @@ console.log("5 dropouts");
 console.log("6 mirror");
 {
   const script = (t: number): SyntheticHand => ({
-    ...REST, x: 0.4 - 0.1 * ramp(t, 2, 3), y: 0.5 - 0.1 * ramp(t, 2, 3), distance: 0.6 - 0.1 * ramp(t, 3, 3.3),
-    roll: 0.3 * ramp(t, 2, 3), yaw: 0.3 * ramp(t, 2, 3), pitch: 0.3 * ramp(t, 2, 3), index: 0.7 * ramp(t, 3.3, 3.6), ring: 0.8 * ramp(t, 3.6, 3.9), pinky: 0.8 * ramp(t, 3.6, 3.9),
+    ...REST, x: 0.4 - 0.1 * ramp(t, 2, 3), y: 0.5 - 0.2 * ramp(t, 2, 3), distance: 0.6 - 0.1 * ramp(t, 3, 3.3),
+    roll: 0.3 * ramp(t, 2, 3), yaw: 0.3 * ramp(t, 2, 3), pitch: 0.3 * ramp(t, 2, 3), index: 0.7 * ramp(t, 3.3, 3.6),
   });
   const results = [false, true].map((mirror) => {
     const tracker = new HandTracker();
@@ -263,38 +267,42 @@ console.log("6 mirror");
     const out = run(tracker, 0, 3.9, (t) => [synthesize(script(t))]);
     return { legs: out[Math.round(3.6 * FPS) - 1].rock.legs, last: out[out.length - 1] };
   });
-  // The two modes are the same mapping turned half round about the vertical (the
-  // player in front of the screen, or on the far side of the stage): everything
-  // sideways and front-to-back flips, up and turning about the vertical stay.
-  // Pitch stays too: tipping the hand forward bows the puppet in both (TUNING.tipForwardBows)
+  // The two modes (the player in front of the screen, or on the far side of the
+  // stage): everything sideways flips; up, turning about the vertical and depth
+  // stay (closer to the camera is the front of the stage for both). Pitch stays
+  // too: tipping the hand forward bows the puppet in both (TUNING.tipForwardBows)
   const [face, selfie] = results;
   const flips: [string, number, number][] = [
-    ["x", face.last.bar.x, selfie.last.bar.x], ["z", face.last.bar.z, selfie.last.bar.z], ["roll", face.last.bar.roll, selfie.last.bar.roll],
-    ["legs", face.legs, selfie.legs], ["head", face.last.rock.head, selfie.last.rock.head],
+    ["x", face.last.bar.x, selfie.last.bar.x], ["roll", face.last.bar.roll, selfie.last.bar.roll], ["legs", face.legs, selfie.legs],
   ];
   for (const [name, a, b] of flips) check(`${name} flips`, Math.abs(a) > 0.1 && Math.abs(a + b) < 0.03, `${f(a)} / ${f(b)}`);
-  const same: [string, number, number][] = [["y", face.last.bar.y, selfie.last.bar.y], ["yaw", face.last.bar.yaw, selfie.last.bar.yaw], ["pitch", face.last.bar.pitch, selfie.last.bar.pitch]];
+  const same: [string, number, number][] = [
+    ["y", face.last.bar.y, selfie.last.bar.y], ["z", face.last.bar.z, selfie.last.bar.z], ["yaw", face.last.bar.yaw, selfie.last.bar.yaw], ["pitch", face.last.bar.pitch, selfie.last.bar.pitch],
+  ];
   const restHeight = new HandTracker().restHeight;
   for (const [name, a, b] of same) check(`${name} stays`, Math.abs(a - b) < 0.03 && Math.abs(a - (name === "y" ? restHeight : 0)) > 0.05, `${f(a)} / ${f(b)}`);
   // In front of the screen (mirror, the default): the hand moves to the image's left = the player's own right
-  // = screen right (stage +x); it comes closer to the camera = towards the screen = upstage (−z)
-  check("mirror: the player's right is stage +x, towards the screen is upstage", selfie.last.bar.x > 0.1 && selfie.last.bar.z < -0.05, `x ${f(selfie.last.bar.x)} z ${f(selfie.last.bar.z)}`);
+  // = screen right (stage +x); it comes closer to the camera = the front of the stage (+z)
+  check("mirror: the player's right is stage +x, closer to the camera is the front of the stage", selfie.last.bar.x > 0.1 && selfie.last.bar.z > 0.05, `x ${f(selfie.last.bar.x)} z ${f(selfie.last.bar.z)}`);
   check("mirror is the default", new HandTracker().mirror);
-  check("far side of the stage: image left = stage −x, closer = downstage", face.last.bar.x < -0.1 && face.last.bar.z > 0.05);
+  check("far side of the stage: image left = stage −x, closer = the front as well", face.last.bar.x < -0.1 && face.last.bar.z > 0.05);
   const frame = synthesize(REST);
   check("toDisplay(mirror) reflects image and world x", toDisplay(frame, true).image[0].x === 1 - frame.image[0].x && toDisplay(frame, true).world[5].x === -frame.world[5].x);
 }
 
 console.log("7 fingers do not cross-trigger");
 {
+  const still = (o: Snapshot) => Math.abs(o.rock.legs) < 0.05 && Math.abs(o.rock.head) < 0.05;
   const cases: [string, Partial<SyntheticHand>, (o: Snapshot) => boolean][] = [
-    ["index alone → legs only", { index: 0.8 }, (o) => Math.abs(o.rock.legs) > 0.6 && Math.abs(o.rock.head) < 0.05 && !o.grip],
-    ["middle alone → legs the other way", { middle: 0.8 }, (o) => Math.abs(o.rock.legs) > 0.6 && Math.abs(o.rock.head) < 0.05 && !o.grip],
-    ["ring + pinky → head only", { ring: 0.8, pinky: 0.8 }, (o) => Math.abs(o.rock.head) > 0.6 && Math.abs(o.rock.legs) < 0.05 && !o.grip],
-    ["thumb tucked → head the other way", { thumb: 0.9 }, (o) => Math.abs(o.rock.head) > 0.6 && Math.abs(o.rock.legs) < 0.05 && !o.grip],
-    ["fist → grip only", { index: 1, middle: 1, ring: 1, pinky: 1, thumb: 0.6 }, (o) => o.grip && Math.abs(o.rock.legs) < 0.05 && Math.abs(o.rock.head) < 0.05],
-    ["all four fingers half closed together → no rocker", { index: 0.35, middle: 0.35, ring: 0.35, pinky: 0.35 }, (o) => !o.grip && Math.abs(o.rock.legs) < 0.1 && Math.abs(o.rock.head) < 0.1],
-    ["moving and tilting the hand → no finger function", { x: 0.6, y: 0.35, distance: 0.5, roll: 0.5, pitch: 0.4, yaw: 0.4 }, (o) => !o.grip && Math.abs(o.rock.legs) < 0.05 && Math.abs(o.rock.head) < 0.05],
+    ["index alone → legs only", { index: 0.5 }, (o) => Math.abs(o.rock.legs) > 0.6 && Math.abs(o.rock.head) < 0.05 && o.nod < 0.05 && !o.grip],
+    ["middle alone → legs the other way", { middle: 0.8 }, (o) => Math.abs(o.rock.legs) > 0.6 && Math.abs(o.rock.head) < 0.05 && o.nod < 0.05 && !o.grip],
+    ["ring + pinky → nothing", { ring: 0.8, pinky: 0.8 }, (o) => still(o) && o.nod < 0.05 && !o.grip],
+    ["thumb tucked → nothing", { thumb: 0.9 }, (o) => still(o) && o.nod < 0.05 && !o.grip],
+    ["thumb and index tip together → the head goes forward, no step", { pinch: 1 }, (o) => o.nod > 0.9 && still(o) && !o.grip],
+    ["fist → grip only", { index: 1, middle: 1, ring: 1, pinky: 1, thumb: 0.6 }, (o) => o.grip && still(o) && o.nod < 0.05],
+    ["fist with the thumb on the index → grip only", { index: 1, middle: 1, ring: 1, pinky: 1, pinch: 1 }, (o) => o.grip && still(o) && o.nod < 0.05],
+    ["all four fingers half closed together → nothing", { index: 0.35, middle: 0.35, ring: 0.35, pinky: 0.35 }, (o) => !o.grip && Math.abs(o.rock.legs) < 0.1 && o.nod < 0.05],
+    ["moving and tilting the hand → no finger function", { x: 0.6, y: 0.35, distance: 0.5, roll: 0.5, pitch: 0.4, yaw: 0.4 }, (o) => !o.grip && still(o) && o.nod < 0.05],
   ];
   const signs: number[] = [];
   for (const [name, pose, expect] of cases) {
@@ -306,12 +314,25 @@ console.log("7 fingers do not cross-trigger");
       return [synthesize({ ...REST, ...blend }, CAMERA, noise)];
     });
     const last = out[out.length - 1];
-    const transient = Math.max(...out.map((o) => Math.max(Math.abs(o.rock.legs), Math.abs(o.rock.head))));
-    signs.push(Math.sign(last.rock.legs), Math.sign(last.rock.head));
-    check(name, expect(last), `legs ${f(last.rock.legs, 2)} head ${f(last.rock.head, 2)} grip ${last.grip}; largest rock on the way ${f(transient, 2)}`);
+    const transient = Math.max(...out.map((o) => Math.abs(o.rock.legs)));
+    signs.push(Math.sign(last.rock.legs));
+    check(name, expect(last), `legs ${f(last.rock.legs, 2)} head ${f(last.rock.head, 2)} nod ${f(last.nod, 2)} grip ${last.grip}; largest leg rock on the way ${f(transient, 2)}; largest nod ${f(Math.max(...out.map((o) => o.nod)), 2)}`);
   }
-  check("index / middle and ring+pinky / thumb pull opposite ways", signs[0] === -signs[2] && signs[5] === -signs[7]);
-  check("mapping table names the rockers", MAPPING.rock.legs !== null && MAPPING.rock.head !== null);
+  check("index and middle finger pull opposite ways", signs[0] === -signs[1] && signs[0] !== 0);
+  check("mapping table: fingers rock the leg bar only", MAPPING.rock.legs !== null && MAPPING.rock.head === null && MAPPING.rock.hands === null);
+  // The closer thumb and index, the further forward the head
+  const nods = [0.3, 0.45, 0.6, 1].map((pinch) => {
+    const out = run(attached(), 2, 4, (t) => [synthesize({ ...REST, pinch: pinch * ramp(t, 2, 3) })]);
+    return out[out.length - 1].nod;
+  });
+  check("pinch is graded: the closer the tips, the further the head", nods.every((v, i) => i === 0 || v > nods[i - 1] + 0.1) && nods[0] < 0.2 && nods[3] > 0.9, nods.map((v) => f(v, 2)).join(" "));
+  // On the way into a pinch the index bends as for a step: the leg bar must not kick
+  for (const pitch of [0, 0.9]) {
+    const level: SyntheticHand = { ...REST, pitch };
+    const out = run(attached(level), 2, 4, (t) => [synthesize({ ...level, pinch: ramp(t, 2, 3) })]);
+    const kick = Math.max(...out.map((o) => Math.abs(o.rock.legs)));
+    check(`closing thumb and index (palm leaning ${pitch} rad): the leg bar only twitches on the way`, kick < 0.5 && out[out.length - 1].nod > 0.9, `largest leg rock ${f(kick, 2)}`);
+  }
 }
 
 console.log("8 second hand takes the hand bar");
@@ -342,7 +363,7 @@ console.log("8 second hand takes the hand bar");
     const moved = at(6.8).handBar;
     // Hand moved 0.1 of the width (right in the camera image = left for the player) and 0.1 of the height up, then rolled 0.5 rad in the image
     check("the free bar follows the second hand", Math.abs(moved.x + 0.1 * CAMERA.aspect * TUNING.handBar.gain) < 0.01 && Math.abs(moved.y - 0.1 * TUNING.handBar.gain) < 0.01 && Math.abs(Math.abs(moved.roll) - 0.5) < 0.08, `x ${f(moved.x)} y ${f(moved.y)} z ${f(moved.z)} roll ${f(moved.roll)}`);
-    check("the cross hand is not disturbed by the second", out.every((o) => o.status === "attached" && Math.abs(o.rock.legs) < 0.05 && !o.grip));
+    check("the cross hand is not disturbed by the second", out.every((o) => o.status === "attached" && Math.abs(o.rock.legs) < 0.05 && !o.grip), `largest leg rock ${f(Math.max(...out.map((o) => Math.abs(o.rock.legs))))}, nod ${f(Math.max(...out.map((o) => o.nod)))}`);
   }
   {
     const { tracker, near } = start();
@@ -387,10 +408,10 @@ console.log("8b second hand: head bar, back string, a pinch that dips");
     const steps = out.slice(1).map((o, i) => Math.abs(o.rock.head - out[i].rock.head));
     check("pinch at the head bar's handle takes the head bar, not the hand bar", at(3.8).headBar.held && out.every((o) => !o.handBar.detached));
     check("turning the hand rocks the head bar", Math.abs(at(5.5).rock.head) > 0.5 && Math.abs(at(3.8).rock.head) < 0.1, `${f(at(5.5).rock.head, 2)} of the bar's range for 0.5 rad`);
-    check("let go: back to the fingers without a jump", !at(7.9).headBar.held && Math.abs(at(7.9).rock.head) < 0.05 && Math.max(...steps) < 0.12, `largest step ${f(Math.max(...steps), 2)} per frame; head ${f(at(7.9).rock.head, 2)} afterwards`);
-    // The cross hand's own fingers still rock it while the second hand does not hold it
+    check("let go: level again without a jump", !at(7.9).headBar.held && Math.abs(at(7.9).rock.head) < 0.05 && Math.max(...steps) < 0.12, `largest step ${f(Math.max(...steps), 2)} per frame; head ${f(at(7.9).rock.head, 2)} afterwards`);
+    // The head bar is the second hand's alone: the cross hand's fingers do not rock it
     const fingersOnly = run(tracker, 8, 9.5, (t) => [cross({ ring: 0.3 * ramp(t, 8, 8.5), pinky: 0.3 * ramp(t, 8, 8.5) })]);
-    check("the cross hand's ring + little finger still rock it", Math.abs(fingersOnly[fingersOnly.length - 1].rock.head) > 0.5, f(fingersOnly[fingersOnly.length - 1].rock.head, 2));
+    check("the cross hand's ring + little finger do not rock it", Math.max(...fingersOnly.map((o) => Math.abs(o.rock.head))) < 0.05, f(fingersOnly[fingersOnly.length - 1].rock.head, 2));
   }
   {
     // The pinch reading dips for a few frames while the bar is carried: it must not drop
@@ -399,6 +420,24 @@ console.log("8b second hand: head bar, back string, a pinch that dips");
     const out = run(tracker, 2.1, 5, (t) => [synthesize(second(t), CAMERA, noise), cross()]);
     const from = out.findIndex((o) => o.handBar.detached);
     check("a pinch that opens for 5 frames keeps the bar", from > 0 && out.slice(from).every((o) => o.handBar.detached));
+  }
+  {
+    // A fist that holds the hand bar turns edge-on (unreadable as a fist) on its way
+    // over to the head bar's handle and arrives there closed: it keeps the hand bar
+    const { tracker, hand, head } = start();
+    const fist = { index: 1, middle: 1, ring: 1, pinky: 1, thumb: 0.6 };
+    const closing = (t: number) => Object.fromEntries(Object.entries(fist).map(([k, v]) => [k, v * ramp(t, 3, 3.3) * (1 - ramp(t, 8, 8.3))]));
+    const move = (t: number) => ramp(t, 4.5, 5.5);
+    const second = (t: number): SyntheticHand => ({
+      hand: "left", distance: 0.6, x: hand.x + (head.x - hand.x) * move(t), y: hand.y + (head.y - hand.y) * move(t),
+      pitch: 1.35 * (ramp(t, 4, 4.4) - ramp(t, 5.6, 6)), ...closing(t),
+    });
+    const out = run(tracker, 2.1, 9.5, (t) => [synthesize(second(t), CAMERA, noise), cross()]);
+    const at = (t: number) => out[Math.round((t - 2.1) * FPS)];
+    const from = out.findIndex((o) => o.handBar.detached);
+    const until = Math.round((8 - 2.1) * FPS);
+    check("a fist moved edge-on into the other handle's circle keeps its bar", from > 0 && out.slice(from, until).every((o) => o.handBar.detached && !o.headBar.held), `taken at ${f(2.1 + from / FPS, 1)} s; at 7 s: hand bar ${at(7).handBar.detached}, head bar ${at(7).headBar.held}`);
+    check("opening the hand lets the bar go, and nothing else is taken", !at(9.4).handBar.detached && !at(9.4).headBar.held);
   }
   {
     // An open hand below the cross hand moves in from the side, pushes the back string and draws back
@@ -420,7 +459,7 @@ console.log("8b second hand: head bar, back string, a pinch that dips");
   }
 }
 
-console.log("8c fingers as angles, height, pitch correction");
+console.log("8c fingers as angles, height, pitch correction, far hands");
 {
   // The same bend of the index finger at different leans of the palm: about the same rock
   const legs = [0.5, 0.8, 1.1, 1.3].map((lean) => {
@@ -440,33 +479,73 @@ console.log("8c fingers as angles, height, pitch correction");
     return out[out.length - 1].rock.legs;
   });
   check("left and right cross hand: the same bend rocks alike, mirrored", Math.abs(leftRight[0]) > 0.25 && Math.abs(leftRight[0] + leftRight[1]) < 0.03, leftRight.map((v) => f(v, 2)).join(" / "));
-  // Legs and head together: index down for a step while ring and little finger tilt the head
-  const both = run(attached({ ...REST, pitch: 0.9 }), 2, 4, (t) => [synthesize({ ...REST, pitch: 0.9, index: 0.2 * ramp(t, 2, 3), ring: 0.2 * ramp(t, 2, 3), pinky: 0.2 * ramp(t, 2, 3) })]);
-  check("leg bar and head bar can be rocked together", Math.abs(both[both.length - 1].rock.legs) > 0.5 && Math.abs(both[both.length - 1].rock.head) > 0.3, `legs ${f(both[both.length - 1].rock.legs, 2)} head ${f(both[both.length - 1].rock.head, 2)}`);
+  // An open palm shown to the camera (lean 0) and a palm at 45°: the image hardly shows a finger bending
+  // towards the camera there, the 3D landmarks do. The same walking fingers rock the leg bar as for a level palm
+  const noisy = (lean: number, finger: "index" | "middle") => {
+    const level: SyntheticHand = { ...REST, pitch: lean };
+    const noise = gaussian(31);
+    const out = run(attached(level, noise), 2, 4.5, (t) => [synthesize({ ...level, [finger]: 0.2 * ramp(t, 2, 3) }, CAMERA, noise)]);
+    return Math.abs(out[out.length - 1].rock.legs);
+  };
+  const byLean = [0, 0.4, 0.78, 1.2].map((lean) => [noisy(lean, "index"), noisy(lean, "middle")]);
+  check("walking fingers at an open palm (0), at 0.4, at 45° (0.78) and at a level palm (1.2): the same bend steps alike", byLean.every(([i, m]) => i > 0.6 && m > 0.8), byLean.map(([i, m]) => `${f(i, 2)}/${f(m, 2)}`).join("  "));
+  const flatNoise = gaussian(8);
+  const idle = run(attached(REST, flatNoise), 2, 22, () => [synthesize(REST, CAMERA, flatNoise)]);
+  check("an open palm at rest for 20 s: the leg bar stays level", Math.max(...idle.map((o) => Math.abs(o.rock.legs))) < 0.12, f(Math.max(...idle.map((o) => Math.abs(o.rock.legs))), 2));
+  // Rest pose taken with a level palm, the hand then turned to show its palm, without a reset
+  const turned = new HandTracker();
+  const turning = run(turned, 0, 7.5, (t) => [synthesize({ ...REST, pitch: 1.2 - 1.2 * ramp(t, 3, 4), index: 0.2 * ramp(t, 5.5, 6.5) })]);
+  check("rest pose at a level palm, then the palm turned to the camera: at rest no step, the index still steps", Math.abs(turning[Math.round(5.3 * FPS)].rock.legs) < 0.1 && Math.abs(turning[turning.length - 1].rock.legs) > 0.6, `${f(turning[Math.round(5.3 * FPS)].rock.legs, 2)} → ${f(turning[turning.length - 1].rock.legs, 2)}`);
 
-  // Height is relative to where the hand rests: high or low in the picture, the cross is at its rest height
+  // The middle finger does not bend far on its own: it needs less for the same step
+  const lead = (finger: "index" | "middle") => {
+    const level: SyntheticHand = { ...REST, pitch: 0.9 };
+    const out = run(attached(level), 2, 4, (t) => [synthesize({ ...level, [finger]: 0.06 * ramp(t, 2, 3) })]);
+    return Math.abs(out[out.length - 1].rock.legs);
+  };
+  const [byIndex, byMiddle] = [lead("index"), lead("middle")];
+  check("the middle finger rocks the leg bar further than the index for the same bend", byIndex > 0.05 && byMiddle > 1.4 * byIndex, `index ${f(byIndex, 2)}, middle ${f(byMiddle, 2)}`);
+
+  // Height follows the hand's real height: at the standing height (the camera's, by default) the puppet stands
   const rest = new HandTracker().restHeight;
-  for (const y of [0.3, 0.7]) {
-    const tracker = attached({ ...REST, y });
-    const out = run(tracker, 2, 4, (t) => [synthesize({ ...REST, y: y - 0.1 * ramp(t, 2.5, 3) })]);
-    check(`hand resting at y ${y}: cross at its rest height, 0.1 up lifts it ${f(0.1 * TUNING.position.yGain, 2)} m`, Math.abs(out[0].bar.y - rest) < 0.005 && Math.abs(out[out.length - 1].bar.y - rest - 0.1 * TUNING.position.yGain) < 0.01, `${f(out[0].bar.y)} → ${f(out[out.length - 1].bar.y)}`);
+  const row = (metres: number, distance: number) => 0.5 - (metres * CAMERA.focal) / distance; // a hand this far above the camera's axis
+  for (const distance of [0.6, 1.8]) {
+    const out = run(attached({ ...REST, distance }), 2, 4, (t) => [synthesize({ ...REST, distance, y: row(0.1 * ramp(t, 2.5, 3), distance) })]);
+    // (the synthetic hand's y is not quite the palm's centre: 1 cm of the hand itself)
+    check(`${distance} m from the camera: at the standing height the cross is at its rest height, 10 cm up lifts it 10 cm`, Math.abs(out[0].bar.y - rest) < 0.015 && Math.abs(out[out.length - 1].bar.y - out[0].bar.y - 0.1 * TUNING.position.yGain) < 0.005, `${f(out[0].bar.y - rest)} → ${f(out[out.length - 1].bar.y - rest)}`);
   }
-  // A hand that comes up into the picture and only then pauses must not fling the puppet up
-  const rising = new HandTracker();
-  const up = run(rising, 0, 6, (t) => [synthesize({ ...REST, y: 0.9 - 0.45 * ramp(t, 0.2, 3) })]);
-  const highest = Math.max(...up.map((o) => o.bar.y));
-  check("a hand rising 0.45 of the picture before it pauses lifts the cross far less", highest - rest < 0.25 * 0.45 * TUNING.position.yGain && Math.abs(up[up.length - 1].bar.y - rest) < 0.01, `peak +${f(highest - rest)} m of ${f(0.45 * TUNING.position.yGain)}, then ${f(up[up.length - 1].bar.y - rest)}`);
+  // Walking towards the camera with the hand held 15 cm below the camera's height: the height stays
+  const walk = (t: number) => 1.8 - 0.9 * ramp(t, 3, 6);
+  const walking = run(new HandTracker(), 0, 7, (t) => [synthesize({ ...REST, distance: walk(t), y: row(-0.15, walk(t)) })]).slice(3 * FPS);
+  const heights = walking.map((o) => o.bar.y - rest);
+  check("walking from 1.8 m to 0.9 m with the hand held low: the cross keeps its height", Math.min(...heights) > -0.18 && Math.max(...heights) < -0.12, `${f(Math.min(...heights))} … ${f(Math.max(...heights))} m for a hand 0.15 m below`);
+  check("… and the puppet comes to the front", walking[walking.length - 1].bar.z > 0.2, f(walking[walking.length - 1].bar.z));
+  // The slider: the standing height. Lower than the hand lifts the puppet, higher lets the strings go slack
+  const slider = attached();
+  const level = run(slider, 2, 2.1, () => [synthesize(REST)])[0].bar.y;
+  slider.standHeight = 0.85;
+  const lifted = run(slider, 2, 2.5, () => [synthesize(REST)]);
+  slider.standHeight = 1.5;
+  const slack = run(slider, 2.5, 3, () => [synthesize(REST)]);
+  check("standing height below the hand lifts the cross, far above it lets it down to its limit", Math.abs(lifted[lifted.length - 1].bar.y - level - 0.15) < 0.005 && Math.abs(slack[slack.length - 1].bar.y - rest + TUNING.position.down) < 0.001, `${f(lifted[lifted.length - 1].bar.y - rest)} / ${f(slack[slack.length - 1].bar.y - rest)}`);
+  // A hand that attaches high above the standing height: the cross goes up to it, it does not jump
+  const high = run(new HandTracker(), 0, 2, () => [synthesize({ ...REST, y: row(0.3, 0.6) })]);
+  const rise = high.slice(1).map((o, i) => Math.abs(o.bar.y - high[i].bar.y));
+  check("a hand attaching 30 cm above the standing height: the cross rises without a jump", Math.abs(high[high.length - 1].bar.y - rest - 0.3) < 0.02 && Math.max(...rise) < 0.03, `to +${f(high[high.length - 1].bar.y - rest)} m in steps of at most ${f(Math.max(...rise))}`);
 
-  // The player's pitch correction adds to the cross's pitch and survives a new rest pose
+  // The player's pitch correction adds to the cross's pitch and survives a reset
   const trimmed = attached();
   trimmed.pitchTrim = 0.3;
   const before = run(trimmed, 2, 2.5, () => [synthesize(REST)]);
-  trimmed.recenter();
-  const after = run(trimmed, 2.5, 3.5, () => [synthesize(REST)]);
-  trimmed.heightTrim = -0.05;
-  const lowered = run(trimmed, 3.5, 4, () => [synthesize(REST)]);
-  check("height correction lowers the cross with the hand at rest", Math.abs(lowered[lowered.length - 1].bar.y - rest + 0.05) < 0.005, f(lowered[lowered.length - 1].bar.y - rest));
-  check("pitch correction is added, and N does not swallow it", Math.abs(before[before.length - 1].bar.pitch - 0.3) < 0.02 && Math.abs(after[after.length - 1].bar.pitch - 0.3) < 0.02, `${f(before[before.length - 1].bar.pitch)} / ${f(after[after.length - 1].bar.pitch)}`);
+  trimmed.reset();
+  const after = run(trimmed, 2.5, 4, () => [synthesize(REST)]);
+  check("pitch correction is added, and a reset does not swallow it", Math.abs(before[before.length - 1].bar.pitch - 0.3) < 0.02 && Math.abs(after[after.length - 1].bar.pitch - 0.3) < 0.02, `${f(before[before.length - 1].bar.pitch)} / ${f(after[after.length - 1].bar.pitch)}`);
+
+  // A hand three times further away is a third as fast across the picture: it must not count as still while it moves
+  const far = new HandTracker();
+  const swaying = run(far, 0, 4, (t) => [synthesize({ ...REST, distance: 1.8, x: 0.4 + 0.05 * Math.sin(3 * t), pitch: 0.9 + 0.3 * Math.sin(3 * t) })]);
+  const paused = run(far, 4, 6, () => [synthesize({ ...REST, distance: 1.8, x: 0.4, pitch: 0.9 })]);
+  check("a far hand that keeps moving has no rest pose taken; its first pause takes it", swaying.every((o) => !o.calibrated) && paused[paused.length - 1].calibrated);
 }
 
 console.log("9 demo recording end to end");
@@ -478,7 +557,7 @@ console.log("9 demo recording end to end");
   const spans: [string, number[], number][] = [
     ["bar x", range((o) => o.bar.x), 0.2], ["bar y", range((o) => o.bar.y), 0.05], ["bar z", range((o) => o.bar.z), 0.12],
     // The hand is held level (leaning 0.8 rad from flat to the camera): turning it in the picture is part roll, part yaw of the cross
-    ["roll + yaw", range((o) => o.bar.roll + o.bar.yaw), 0.6], ["pitch", range((o) => o.bar.pitch), 0.6], ["legs", range((o) => o.rock.legs), 1.5], ["head", range((o) => o.rock.head), 1.5],
+    ["roll + yaw", range((o) => o.bar.roll + o.bar.yaw), 0.6], ["pitch", range((o) => o.bar.pitch), 0.6], ["legs", range((o) => o.rock.legs), 1.5], ["nod", range((o) => o.nod), 0.8],
   ];
   for (const [name, [min, max], span] of spans) check(`${name} moves`, max - min > span, `${f(min, 2)} … ${f(max, 2)}`);
   check("grip closes and opens", out.some((o) => o.grip) && !out[out.length - 1].grip);

@@ -1,6 +1,7 @@
 import type { HandLandmarker } from "@mediapipe/tasks-vision";
 import { Quaternion, Vector3 } from "@iwsdk/core";
 import type { RigController } from "../puppet/rig";
+import { addHandSettings } from "../ui/hand-settings";
 import { createReleaseTimer } from "../ui/release-timer";
 import { MAX_ROCK, controlInput, type RockId } from "./control-input";
 import { createHandOverlay } from "./hand-overlay";
@@ -14,10 +15,12 @@ import { HandTracker, TUNING, quatFromTilt, type HandFrame, type TrackerOutput }
 // (hand-tracking.ts: all the mapping and filtering, testable without a
 // browser), writes its output to ControlInput and draws the overlay.
 //
-// Letting go (hand-release.ts): the cross hand's fist grips at once; held for
-// 3 s it lets go of the puppet instead (the cross stays, the puppet's hands
-// open), and after a countdown a hand above the low zone connects again.
-// Nothing is written to ControlInput while no hand is connected.
+// Connecting (hand-release.ts): a hand above the low zone of the picture
+// connects to the puppet; a hand that leaves the picture lets go (the cross
+// stays, the puppet's hands open). Nothing is written to ControlInput while
+// no hand is connected. The player's own settings (ui/hand-settings.ts): a
+// button that sets the cross right, and sliders for the height the hand is
+// held at, the tilt of the cross and the length of the strings.
 //
 // Two calls: startHandTracking() starts the camera, straight from a user
 // gesture (the click on a sign, main.ts), possibly before the puppet has
@@ -115,9 +118,8 @@ let sample: HandSample | null = null;
 let sampleAt = 0;
 let releaseLoop = false;
 
-// The release state runs on its own frame loop, not on camera frames: the
-// countdown must go on when the camera stalls, and a stalled camera must
-// count as "no hand"
+// The release state runs on its own frame loop, not on camera frames: a
+// stalled camera must count as "no hand"
 function startReleaseLoop() {
   if (releaseLoop) return;
   releaseLoop = true;
@@ -133,10 +135,11 @@ function startReleaseLoop() {
   tick();
 }
 
-/** The cross stays where it is (nothing writes the bar any more); hands open, bars level, the hand bar goes back, the back string is let go */
+/** The cross stays where it is (nothing writes the bar any more); hands open, bars level, head up, the hand bar goes back, the back string is let go */
 function letGo() {
   controlInput.grip.left = controlInput.grip.right = false;
   controlInput.rock.legs = controlInput.rock.head = controlInput.rock.hands = 0;
+  controlInput.nod = 0;
   controlInput.handBar.detached = false;
   controlInput.hook.id = null; // the engine eases the back string out
 }
@@ -169,11 +172,34 @@ function createSession(options: HandTrackingOptions, panel: HTMLElement) {
     tracker.restHeight = mainBar.pivot.y;
   }
   tracker.headLimit = limits.head;
-  // The player's corrections. Pitch: for a camera that looks at the hand from
-  // above or below, or a hand held tilted because it tracks better that way.
-  // Height: when the puppet hangs in the air or sags with the hand at rest.
-  addTrimSlider(panel, "Kreuz heben", "hand-height-trim", 20, "cm", (cm) => (tracker.heightTrim = cm / 100));
-  addTrimSlider(panel, "Kreuz neigen", "hand-pitch-trim", 45, "°", (degrees) => (tracker.pitchTrim = (degrees * Math.PI) / 180));
+  // The player's settings, always in view (the debug panel is hidden in play).
+  // Height: at which height of the hand the puppet stands; below it the strings
+  // go slack, above it they lift the puppet. Tilt: for a camera that looks at
+  // the hand from above or below, or a hand held tilted because it tracks
+  // better that way. String length: how far above the puppet the cross hangs.
+  addHandSettings({
+    reset: () => tracker.reset(),
+    sliders: [
+      {
+        label: "Spielhöhe", title: "Auf dieser Höhe der Hand über dem Boden steht die Puppe (Kamera auf 1 m Höhe angenommen): tiefer hängen die Fäden durch, höher heben sie die Puppe",
+        key: "hand-stand-height", min: 0.4, max: 1.6, step: 0.01, initial: 1,
+        format: (m) => `${m.toFixed(2).replace(".", ",")} m`,
+        apply: (m) => (tracker.standHeight = m),
+      },
+      {
+        label: "Kreuz neigen", title: "Neigt das Kreuz nach vorn oder hinten: gleicht eine Kamera aus, die von oben oder unten auf die Hand schaut",
+        key: "hand-pitch-trim", min: -45, max: 45, step: 1, initial: 0,
+        format: (degrees) => `${degrees > 0 ? "+" : ""}${degrees}°`,
+        apply: (degrees) => (tracker.pitchTrim = (degrees * Math.PI) / 180),
+      },
+      {
+        label: "Fadenlänge", title: "Längere Fäden: das Kreuz hängt höher über der Puppe",
+        key: "string-extra", min: 0, max: 0.4, step: 0.01, initial: 0.15,
+        format: (m) => `+${Math.round(m * 100)} cm`,
+        apply: (m) => (controlInput.stringExtra = m),
+      },
+    ],
+  });
 
   let mirrorAllowed = true;
   const setMirror = (on: boolean) => {
@@ -183,7 +209,7 @@ function createSession(options: HandTrackingOptions, panel: HTMLElement) {
   setMirror(params.get("mirror") !== "0");
   addEventListener("keydown", (e) => {
     if (e.key === "m") setMirror(!tracker.mirror);
-    if (e.key === "n") tracker.recenter();
+    if (e.key === "n") tracker.reset();
   });
 
   const recording: Recording | undefined = params.has("record") ? { version: 1, aspect: 4 / 3, frames: [] } : undefined;
@@ -216,6 +242,7 @@ function createSession(options: HandTrackingOptions, panel: HTMLElement) {
     controlInput.rock.legs = out.rock.legs * limits.legs;
     controlInput.rock.head = out.rock.head * limits.head;
     controlInput.rock.hands = out.rock.hands * limits.hands;
+    controlInput.nod = out.nod;
     controlInput.grip.left = controlInput.grip.right = out.grip;
 
     // Hand bar in the second hand: its pose when it was taken, plus how the hand has moved since
@@ -245,12 +272,7 @@ function createSession(options: HandTrackingOptions, panel: HTMLElement) {
   }
 
   /** What the overlay says while no hand is connected */
-  function releaseNote() {
-    const { phase, countdown } = release.state;
-    if (phase === "released") return `Losgelassen – ${Math.ceil(countdown)} s`;
-    if (phase === "waiting") return "Hand höher heben zum Spielen";
-    return undefined;
-  }
+  const releaseNote = () => (release.state.phase === "waiting" ? "Hand höher heben zum Spielen" : undefined);
 
   return {
     /** Called before the first frame: the back camera of a phone is never mirrored */
@@ -267,8 +289,7 @@ function createSession(options: HandTrackingOptions, panel: HTMLElement) {
       // The tracker always runs, so its filters and roles stay current while the puppet hangs free
       const out = tracker.update(timeMs, hands, aspect);
       const cross = out.cross && !out.cross.held ? out.cross : undefined;
-      // The cross hand's fist (the grip) is also the gesture that lets go when held
-      sample = cross ? { fist: out.grip, wristY: cross.landmarks[0].y } : null;
+      sample = cross ? { wristY: cross.landmarks[0].y } : null;
       sampleAt = performance.now();
       if (release.state.phase === "attached") apply(out);
       hud.hand = `${release.state.phase}: ${out.status}${out.second ? " + 2" : ""}${out.handBar.detached ? " Handkreuz" : ""}${out.headBar.held ? " Kopfkreuz" : ""}${out.hook.active ? " Rückenfaden" : ""}`;
@@ -278,43 +299,6 @@ function createSession(options: HandTrackingOptions, panel: HTMLElement) {
   };
 }
 type Session = ReturnType<typeof createSession>;
-
-/**
- * A slider for one of the player's own corrections (± max around 0, whole
- * units), remembered across visits; a double click puts it back to 0, like
- * the overlay's place.
- */
-function addTrimSlider(panel: HTMLElement, text: string, key: string, max: number, unit: string, apply: (value: number) => void) {
-  let stored = 0;
-  try {
-    stored = Number(localStorage.getItem(key)) || 0;
-  } catch {
-    // No storage (private mode): starts at 0
-  }
-  stored = Math.max(-max, Math.min(max, stored));
-  const label = document.createElement("label");
-  const slider = Object.assign(document.createElement("input"), { type: "range", min: String(-max), max: String(max), step: "1", value: String(stored) });
-  const shown = document.createElement("span");
-  const set = (value: number) => {
-    apply(value);
-    shown.textContent = `${value > 0 ? "+" : ""}${value}${unit === "°" ? "" : " "}${unit}`;
-  };
-  set(stored);
-  slider.addEventListener("input", () => {
-    set(Number(slider.value));
-    try {
-      localStorage.setItem(key, slider.value);
-    } catch {
-      // Not remembered then
-    }
-  });
-  label.addEventListener("dblclick", () => {
-    slider.value = "0";
-    slider.dispatchEvent(new Event("input"));
-  });
-  label.append(text, slider, shown);
-  panel.prepend(label);
-}
 
 /** Five decimals are far below landmark noise and keep recordings small */
 const round = (v: number) => Math.round(v * 1e5) / 1e5;

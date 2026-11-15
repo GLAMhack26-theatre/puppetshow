@@ -4,7 +4,8 @@
 //     node scripts/replay-recording.mjs <recording.json> [out.csv] [--mirror=0]
 // Columns: raw measurements of the first hand (palm position, size, lean,
 // finger signals) next to the tracker's outputs (bar pose, the cross hand's
-// finger angles, rockers, grip, what the second hand holds or pushes).
+// finger angles, leg bar, nod with the thumb-to-index gap behind it, the hand's
+// height, grip, what the second hand holds or pushes).
 // It also lists the largest steps of the cross from one frame to the next:
 // where a jerk comes from the tracking, it shows here.
 import fs from "node:fs";
@@ -21,7 +22,7 @@ tracker.mirror = !process.argv.includes("--mirror=0");
 const columns = [
   "t", "hands", "status", "handedness", "score", "palm_x", "palm_y", "raw_log_size", "raw_lean",
   "index", "middle", "ring", "pinky", "thumb", "fist", "pinch",
-  "x", "y", "z", "pitch", "yaw", "roll", "flex_index", "flex_middle", "flex_ring", "flex_pinky", "legs", "head", "grip", "log_size", "baseline",
+  "x", "y", "z", "pitch", "yaw", "roll", "flex_index", "flex_middle", "flex_ring", "flex_pinky", "legs", "head", "nod", "gap", "thumb_moved", "hand_height", "grip", "log_size", "baseline",
   "second", "detached", "head_held", "hook_push",
 ];
 const rows = [columns.join(",")];
@@ -41,7 +42,7 @@ for (const frame of recording.frames) {
     t: frame.t / 1000, hands: frame.hands.length, status: o.status,
     x: o.bar.x, y: o.bar.y, z: o.bar.z, pitch: o.bar.pitch, yaw: o.bar.yaw, roll: o.bar.roll,
     flex_index: o.cross?.flex.index, flex_middle: o.cross?.flex.middle, flex_ring: o.cross?.flex.ring, flex_pinky: o.cross?.flex.pinky,
-    legs: o.rock.legs, head: o.rock.head, grip: +o.grip, log_size: o.depth.scale, baseline: o.depth.baseline,
+    legs: o.rock.legs, head: o.rock.head, nod: o.nod, gap: o.cross?.gap, thumb_moved: o.cross?.thumbMoved, hand_height: o.height.hand, grip: +o.grip, log_size: o.depth.scale, baseline: o.depth.baseline,
     second: +!!o.second, detached: +o.handBar.detached, head_held: +o.headBar.held, hook_push: o.hook.push,
   };
   const hand = frame.hands[0];

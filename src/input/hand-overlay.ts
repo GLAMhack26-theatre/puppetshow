@@ -7,14 +7,15 @@ import { HAND_BONES, TUNING, rotateByTilt, type HandView, type TrackerOutput } f
 // the tracked hands, the cross lying in the cross hand (rear end at the wrist,
 // front tip at the fingertips; every bar as the rig defines it, rocked as
 // ControlInput says), the handles where the second hand takes the hand bar or
-// the head bar, the back string it can push, and meters for depth and the
-// rocking bars. One colour per function: the fingers that drive a bar
-// have the bar's colour, so a glance shows what moves what.
+// the head bar, the back string it can push, the height at which the puppet
+// stands, and meters for depth, the leg bar and the head. One colour per
+// function: the fingers that drive something have its colour, so a glance
+// shows what moves what.
 
 const COLOR = {
   cross: "#f0d49a", // main bar, shoulder bar, palm of the cross hand
   legs: "#ff8a3d", // index + middle finger, leg bar
-  head: "#4fd1ff", // ring + little finger and thumb, head bar
+  head: "#4fd1ff", // thumb (towards the index: the head goes forward), head bar
   hands: "#9be36b", // second hand, hand bar
   active: "#ffe14d",
   text: "#f3e9dc",
@@ -22,10 +23,10 @@ const COLOR = {
 };
 /** Finger of each landmark: 0 palm, then thumb, index, middle, ring, little */
 const fingerOf = (landmark: number) => (landmark === 0 ? 0 : Math.ceil(landmark / 4));
-const FINGER_COLOR = [COLOR.cross, COLOR.head, COLOR.legs, COLOR.legs, COLOR.head, COLOR.head];
+const FINGER_COLOR = [COLOR.cross, COLOR.head, COLOR.legs, COLOR.legs, COLOR.cross, COLOR.cross];
 const STATUS = { none: "Hand zeigen", attached: "verbunden", lost: "Hand verloren" };
 /** Shown until the hand has paused once: only then is the cross level in the player's own hand pose */
-const REST_HINT = "Hand flach und kurz ruhig halten: Kreuz waagrecht, Finger aktiv (N: neu)";
+const REST_HINT = "Hand flach und kurz ruhig halten: Kreuz waagrecht, Finger aktiv";
 
 export interface OverlayState {
   mirror: boolean;
@@ -261,6 +262,20 @@ export function createHandOverlay(controller?: RigController) {
       }
     }
 
+    // Where the puppet stands: the row of the picture the hand has to be at, at its distance
+    if (out.status === "attached") {
+      const row = out.height.standRow * height;
+      const inView = row > 30 * unit && row < height - 56 * unit;
+      const label = `Puppe steht${inView ? "" : row < height / 2 ? " ↑ (über dem Bild)" : " ↓ (unter dem Bild)"} · Hand ${out.height.hand.toFixed(2).replace(".", ",")} m`;
+      const y = Math.max(30 * unit, Math.min(height - 56 * unit, row));
+      if (inView) {
+        ctx.setLineDash([6 * unit, 5 * unit]);
+        line(22 * unit, row, width - 8 * unit, row, COLOR.dim, 1);
+        ctx.setLineDash([]);
+      }
+      text(label, width - 8 * unit, y - 4 * unit, COLOR.dim, "right", 7.5);
+    }
+
     // Status, top left
     text(`${STATUS[out.status]} · ${state.mirror ? "Spiegel" : "Gegenüber"}`, 8 * unit, 14 * unit, out.status === "attached" ? COLOR.text : COLOR.active, "left", 10);
     if (state.note) text(state.note, 8 * unit, 26 * unit, COLOR.dim);
@@ -281,19 +296,20 @@ export function createHandOverlay(controller?: RigController) {
     ctx.fill();
     text(`${(out.bar.z * 100).toFixed(0)} cm`, gauge.x + 8 * unit, zToY(out.bar.z) + 3 * unit, COLOR.cross, "left", 8);
 
-    // Meters, bottom: each rocker from −limit to +limit, and the cross's tilt
-    const meters: [string, number, string][] = [
-      ["Beine · Zeige- / Mittelfinger", out.rock.legs, COLOR.legs],
-      [head.held ? "Kopf · 2. Hand dreht" : "Kopf · Ring + kl. Finger / Daumen", out.rock.head, head.held ? COLOR.active : COLOR.head],
+    // Meters, bottom: the leg bar from −limit to +limit; the head, forward 0…1
+    // (or the head bar's rocking while the second hand holds it); and the cross's tilt
+    const meters: [string, number, string, boolean][] = [
+      ["Beine · Zeige- / Mittelfinger", out.rock.legs, COLOR.legs, true],
+      head.held ? ["Kopf · 2. Hand dreht", out.rock.head, COLOR.active, true] : ["Kopf vor · Daumen zum Zeigefinger", out.nod, COLOR.head, false],
     ];
-    meters.forEach(([label, value, color], i) => {
+    meters.forEach(([label, value, color, centred], i) => {
       const y = height - (36 - i * 18) * unit;
       const [left, right] = [8 * unit, 150 * unit];
-      const middle = (left + right) / 2;
+      const zero = centred ? (left + right) / 2 : left;
       text(label, left, y - 5 * unit, color, "left", 7.5);
       line(left, y, right, y, COLOR.dim, 3);
-      line(middle, y - 3 * unit, middle, y + 3 * unit, COLOR.text, 1);
-      line(middle, y, middle + (value * (right - left)) / 2, y, color, 3);
+      line(zero, y - 3 * unit, zero, y + 3 * unit, COLOR.text, 1);
+      line(zero, y, zero + value * (right - zero), y, color, 3);
     });
     const degrees = (rad: number) => `${rad >= 0 ? "+" : "−"}${Math.abs((rad * 180) / Math.PI).toFixed(0)}°`;
     const tilt = `neigen ${degrees(out.bar.pitch)}   kippen ${degrees(out.bar.roll)}   drehen ${degrees(out.bar.yaw)}`;

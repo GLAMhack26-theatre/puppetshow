@@ -12,9 +12,10 @@ import { hudLines } from "./world";
 // (walk), A / D the hand bar, Y / X the head bar (or the rocker sliders); H
 // takes the hand bar off the cross: pointer and wheel then move and turn it
 // instead, H again lets it snap back; B (held) pushes against the back string,
-// as the other hand or arm would; string sliders pluck single strings; F / G
-// (or the buttons) grip left / right; "Fadenlänge" sets how much longer than
-// the rig's the strings are.
+// as the other hand or arm would; T (held) or the "Kopf vor" slider nods the
+// head (ControlInput.nod); string sliders pluck single strings; F / G (or the
+// buttons) grip left / right; "Fadenlänge" sets how much longer than the rig's
+// the strings are.
 
 /** Where the pointer can move the bar (real scale: puppet 0.35 m) */
 const BAR_X = 0.55;
@@ -155,6 +156,20 @@ function setupPointerAndPanel(world: World, controller: RigController) {
     addEventListener("keydown", (e) => (isPlus(e.key) ? set(limit) : e.key === minus ? set(-limit) : undefined));
     addEventListener("keyup", (e) => (isPlus(e.key) || e.key === minus) && set(0));
     label.append(text, slider);
+    panel.append(label);
+  }
+  {
+    // The head goes forward (a nod): slider, or hold T (released: back up)
+    const label = document.createElement("label");
+    const slider = Object.assign(document.createElement("input"), { type: "range", min: "0", max: "1", step: "0.01", value: "0" });
+    const set = (nod: number) => {
+      controlInput.nod = nod;
+      slider.value = String(nod);
+    };
+    slider.addEventListener("input", () => set(Number(slider.value)));
+    addEventListener("keydown", (e) => e.key === "t" && !e.repeat && controlInput.source === "mouse" && set(1));
+    addEventListener("keyup", (e) => e.key === "t" && controlInput.source === "mouse" && set(0));
+    label.append("Kopf vor (T)", slider);
     panel.append(label);
   }
   for (const id of STRING_IDS) {

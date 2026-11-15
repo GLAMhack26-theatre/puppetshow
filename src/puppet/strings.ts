@@ -25,7 +25,8 @@ import type { Rig, RigController, RigPart, RigString } from "./rig";
 // eye on its bar to the socket on the puppet. The puppeteer's moves come from
 // ControlInput: the main bar's pose (tilting it bows or turns the puppet), the
 // rocking angles, the hand bar taken off the cross and moved freely, a string
-// caught by the other hand (hook), and per-string pulls on top (plucking).
+// caught by the other hand (hook), the head let forward (nod), and per-string
+// pulls on top (plucking).
 //
 // Nothing here teleports. Every input is followed by a critically damped
 // spring with a cap on speed and on acceleration (Follow): a tracker spike or a
@@ -64,6 +65,20 @@ const MAX_EXTRA = 0.5; // m: ControlInput.stringExtra beyond this is ignored
 const EXTRA_SPEED = 0.25; // m/s: the string length follows its setting (a slider), cross and strings together
 const MAX_PUSH = 0.25; // m: how far a caught string can be pushed off its line (further, a tracker glitch would haul the puppet into the air)
 const MIN_STRING = 0.05; // m: what is left of a string however far it is pulled, and below a hook
+/**
+ * ControlInput.nod: the head strings are let out, as tipping a real cross
+ * forward slackens them, and the head, weighted at the front (marionette.ts),
+ * drops forward until they hold it again. The length let out is what the
+ * sockets need to turn about the head's joint by an angle between `rest` (nod
+ * just above 0: about where the head hangs anyway) and `full` (nod = 1), rad;
+ * the joint stops at 45°. Measured: head pitch 0.41 rad at nod 0.5, 0.71 at 1,
+ * chest and pelvis within 0.02 rad of where they were.
+ *
+ * Tried and dropped: moving the head strings' eyes forward instead (5 cm gave
+ * 0.36 rad and dragged chest and pelvis along by 0.07 to 0.09 rad).
+ */
+const NOD = { rest: 0.1, full: 0.7 };
+const NOD_FOLLOW: Follow = { omega: 12, speed: 4, accel: 30 }; // 0…1: a nod takes about 0.4 s
 const SEGMENTS = 12; // points per drawn string
 const SAG = 0.5; // drawn sag per metre of slack
 
@@ -101,6 +116,8 @@ interface StringState {
   socketAtRest: Vector3;
   /** m drawn in by ControlInput.pulls */
   pulled: number;
+  /** A head string: its socket seen from the head's joint at rest (world), for ControlInput.nod */
+  fromJoint?: Vector3;
   /** Caught by the other hand: where on the string (0 eye … 1 socket), and how far it is pushed off the straight line (world, m) */
   hooked: boolean;
   along: number;
@@ -256,6 +273,8 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
     objects.push(line);
     const string = { id: s.id, part, bar: bar.body, anchor, eye, barAnchor: { ...eye }, rest: s.restLength, length: s.restLength, joint: null as unknown as RAPIER.ImpulseJoint, line };
     const state: StringState = { string, bar, eyeAtRest, socketAtRest, pulled: 0, hooked: false, along: 0.5, push: new Vector3(), pushSpeed: new Vector3() };
+    // The bone's origin is its joint (rig.ts: restOffset is the bone seen from its body)
+    if (s.bone === "head" && part.joint) state.fromJoint = socketAtRest.clone().sub(part.restOffset).sub(new Vector3().copy(part.body.translation()));
     string.length = lengthAt(state, extra);
     string.joint = pw.createImpulseJoint(RAPIER.JointData.rope(string.length, eye, anchor), bar.body, part.body, true);
     strings.push(string);
@@ -281,6 +300,23 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
   const eyeNow = new Vector3();
   const socketNow = new Vector3();
   const hookNow = new Vector3();
+  let nod = 0;
+  let nodSpeed = 0;
+  /**
+   * How much longer a head string has to be for the head to tip forward by
+   * `angle`: its socket turns about the head's joint, forwards and down
+   */
+  const nodSlack = (state: StringState, angle: number) => {
+    const r = state.fromJoint!;
+    const [c, sn] = [Math.cos(angle), Math.sin(angle)];
+    // The socket's way: about the puppet's left–right axis (x), up towards the front (+z)
+    const dy = r.y * c - r.z * sn - r.y;
+    const dz = r.y * sn + r.z * c - r.z;
+    const eye = state.eyeAtRest;
+    const socket = state.socketAtRest;
+    const tipped = Math.hypot(eye.x - socket.x, eye.y + extra - socket.y - dy, eye.z - socket.z - dz);
+    return tipped - Math.hypot(eye.x - socket.x, eye.y + extra - socket.y, eye.z - socket.z);
+  };
   const handBar = controlInput.handBar;
   handBar.detached = false;
   handBar.position.copy(rocking.find((r) => r.detachable)?.pose.position ?? main.position);
@@ -374,11 +410,16 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
     // is that limit: set it instead of recreating the joint (which pulled in
     // 5 mm steps and threw the solver's state away)
     const hook = controlInput.hook;
+    // ?? 0: a source that does not know the nod
+    [nod, nodSpeed] = followNumber(nod, nodSpeed, clamp(controlInput.nod ?? 0, 0, 1), NOD_FOLLOW);
+    if (nod < 1e-5 && Math.abs(nodSpeed) < 1e-4) nod = nodSpeed = 0; // exactly the rig's strings again
     for (const state of states) {
       const s = state.string;
       const pull = PULL_RANGE * controlInput.pulls[s.id];
       state.pulled += clamp(pull - state.pulled, -MAX_PULL_SPEED * STEP, MAX_PULL_SPEED * STEP);
       let length = Math.max(MIN_STRING, lengthAt(state, extra) - state.pulled);
+      // A nod: the head strings are let out
+      if (state.fromJoint && nod > 0) length += Math.max(0, nodSlack(state, NOD.rest + nod * (NOD.full - NOD.rest)));
 
       // Caught by the other hand: the string runs eye → hook → socket. The rope
       // joint then holds on to the bar at the hook (the bar is kinematic, so a

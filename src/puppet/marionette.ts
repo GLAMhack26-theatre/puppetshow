@@ -35,6 +35,15 @@ const WEIGHTS: [RegExp, number][] = [
   [/^thigh\./, 0.012],
 ];
 const weight = (name: string) => WEIGHTS.find(([part]) => part.test(name))?.[1] ?? 0;
+/**
+ * Lead in the face: the head's centre of mass lies this far in front of its
+ * middle, m (the head is 5 cm across). A marionette's head is weighted so that
+ * it drops forward when its strings go slack (ControlInput.nod, or a lowered
+ * cross). With the weight in the middle it balanced on the neck and fell to
+ * whichever side the strings happened to lean: with the cross pitched 0.3 rad
+ * a nod threw the head back by 0.6 rad as often as forward.
+ */
+const HEAD_LEAD = 0.005;
 const LIMBS = /^(upper_arm|forearm|hand)\./;
 
 type Vec = number[];
@@ -106,6 +115,8 @@ export async function loadMarionette() {
             b: fromBlender(b.collider.b),
             radius: b.collider.radius,
             mass: Math.max(b.mass_kg ?? 0, weight(name), MASS_FLOOR * heaviest),
+            // Root-local: the puppet faces +z
+            massOffset: name === "head" ? new Vector3(0, 0, HEAD_LEAD) : undefined,
             joint: joint(b.joint),
             group: LIMBS.test(name) ? ("limb" as const) : ("body" as const),
           }]

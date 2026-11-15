@@ -38,6 +38,12 @@ export const controlInput = {
    */
   rock: { hands: 0, legs: 0, head: 0 } as Record<RockId, number>,
   /**
+   * 0…1: the head goes forward (the puppet looks down, a nod), as far as the
+   * engine lets it at 1 (strings.ts). Separate from rock.head, which tilts the
+   * head sideways.
+   */
+  nod: 0,
+  /**
    * The hand bar sits on the front tip of the main bar like on a magnet and
    * can be taken off. While `detached`, the source writes its world pose here
    * and the bar leaves the cross (its strings stay on it, so the puppet's

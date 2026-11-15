@@ -46,6 +46,11 @@ export interface RigBone {
   b: Vector3;
   radius: number;
   mass: number;
+  /**
+   * The centre of mass lies this far off the capsule's middle (root-local, m):
+   * a part weighted on one side, like a head with lead in its face
+   */
+  massOffset?: Vector3;
   joint?: RigJoint;
   /** "limb" parts don't collide with props, so a hand can reach into them to grab */
   group: "body" | "limb";
@@ -114,6 +119,15 @@ export interface Rig {
 
 const Y = new Vector3(0, 1, 0);
 
+/** Principal inertia of a solid capsule along y (a cylinder and two half balls), as Rapier computes it for setMass */
+function capsuleInertia(mass: number, halfHeight: number, radius: number) {
+  const [r2, cylinder, ball] = [radius * radius, 2 * halfHeight * radius * radius, (4 / 3) * radius ** 3];
+  const [mc, mb] = [(mass * cylinder) / (cylinder + ball), (mass * ball) / (cylinder + ball)];
+  const along = (mc * r2) / 2 + (2 * mb * r2) / 5;
+  const across = mc * (r2 / 4 + (halfHeight * halfHeight) / 3) + mb * ((83 / 320) * r2 + (halfHeight + (3 * radius) / 8) ** 2);
+  return { x: across, y: along, z: across };
+}
+
 export function buildRig(root: Object3D, description: RigDescription): Rig {
   const pw = physics.world;
   root.updateMatrixWorld(true);
@@ -134,12 +148,19 @@ export function buildRig(root: Object3D, description: RigDescription): Rig {
     const center = a.clone().add(b).multiplyScalar(0.5);
     const axis = b.clone().sub(a);
 
-    const capsule = RAPIER.ColliderDesc.capsule(Math.max(0.0005, axis.length() / 2), spec.radius)
-      .setRotation(new Quaternion().setFromUnitVectors(Y, axis.clone().normalize()))
+    const halfHeight = Math.max(0.0005, axis.length() / 2);
+    const turned = new Quaternion().setFromUnitVectors(Y, axis.clone().normalize());
+    const capsule = RAPIER.ColliderDesc.capsule(halfHeight, spec.radius)
+      .setRotation(turned)
       .setMass(spec.mass)
       .setCollisionGroups(spec.group === "limb" ? GROUP.limb : GROUP.puppet)
       // Contact starts drive the wooden clatter (audio/impacts.ts)
       .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
+    if (spec.massOffset) {
+      // Same mass and the capsule's own inertia, only the centre moves (in the collider's frame, whose y is the capsule's axis)
+      const offset = spec.massOffset.clone().transformDirection(root.matrixWorld).multiplyScalar(spec.massOffset.length()).applyQuaternion(turned.clone().invert());
+      capsule.setMassProperties(spec.mass, offset, capsuleInertia(spec.mass, halfHeight, spec.radius), { x: 0, y: 0, z: 0, w: 1 });
+    }
 
     // The nearest ancestor that has a body
     let parentName = spec.parent;
