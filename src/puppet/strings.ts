@@ -79,6 +79,35 @@ const MIN_STRING = 0.05; // m: what is left of a string however far it is pulled
  */
 const NOD = { rest: 0.1, full: 0.7 };
 const NOD_FOLLOW: Follow = { omega: 12, speed: 4, accel: 30 }; // 0…1: a nod takes about 0.4 s
+/**
+ * ControlInput.turn: the head turns about the vertical. On the real cross the
+ * small head bar turns on its post and rubber strings take the head along. Here
+ * the head bar turns by `angle` at turn = ±1 (rad; the head's joint stops at
+ * 70°), so its eyes stay above the head's sockets, and a spring on the twist
+ * of the head's joint stands in for the rubber strings (ω² and 2ζω of the
+ * motion): two plain strings 25 cm long turn a head by a fraction of what
+ * their bar turns, and the joint's friction eats the rest.
+ */
+const HEAD_TURN = { angle: Math.PI / 3, stiffness: 220, damping: 26 };
+const TURN_FOLLOW: Follow = { omega: 12, speed: 4, accel: 30 }; // −1…1
+/**
+ * Take-up of the knee strings. They are the first to go slack when the cross
+ * sinks (measured: 1.9 cm of slack at 1 cm, 4.4 cm at 3 cm, where a full rock
+ * of the leg bar lifts no knee any more; the other strings stay taut, the body
+ * hangs on them), and a hand cannot hold its height to that centimetre. So
+ * while the leg bar is level, each knee string is drawn in until it is just
+ * taut (`slack` is left, so it never lifts the knee by itself), and let out
+ * again as the cross rises; while the bar rocks (its angle beyond `level`,
+ * rad, fading between the two) the length is held, and the rock lifts the knee
+ * by as much as the bar's end rises, at any height of the cross, also with the
+ * puppet sitting. Not what a real string does: a puppeteer does it with the
+ * wrist. max: the most that is drawn in, m; in / out: how fast, m/s (let out
+ * faster than the cross can rise, or the knees would come up with it); calm:
+ * s a string has to be slack before it is drawn in.
+ */
+const TAKE_UP = { slack: 0.002, max: 0.2, in: 0.5, out: 3, level: [0.05, 0.15] as [number, number], calm: 0.15 };
+/** The extra lift of the whole cross (setLift): as fast as the cross itself moves, unless the caller says otherwise */
+const LIFT: Follow = { omega: 24, speed: 1.5, accel: 12 };
 const SEGMENTS = 12; // points per drawn string
 const SAG = 0.5; // drawn sag per metre of slack
 
@@ -95,6 +124,8 @@ interface PuppetString {
   rest: number;
   /** The rope joint's limit right now: what is free between barAnchor and the socket */
   length: number;
+  /** m drawn in by the take-up (TAKE_UP; knee strings only) */
+  taken: number;
   joint: RAPIER.ImpulseJoint;
   line: Line;
 }
@@ -118,6 +149,11 @@ interface StringState {
   pulled: number;
   /** A head string: its socket seen from the head's joint at rest (world), for ControlInput.nod */
   fromJoint?: Vector3;
+  /** A knee string: the leg bar, whose angle says whether the take-up may adapt (TAKE_UP) */
+  legBar?: RockingBar;
+  /** … how fast it is being let out while it stays taut, m/s, and for how long it has been slack since, s */
+  falling: number;
+  calm: number;
   /** Caught by the other hand: where on the string (0 eye … 1 socket), and how far it is pushed off the straight line (world, m) */
   hooked: boolean;
   along: number;
@@ -153,7 +189,12 @@ const vec = (v: Vector3): RAPIER.Vector => ({ x: v.x, y: v.y, z: v.z });
 const UP = new Vector3(0, 0, 1);
 const ZERO = new Vector3();
 const IDENTITY = new Quaternion();
+const UPRIGHT = new Vector3(0, 1, 0);
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+const smoothstep = (a: number, b: number, v: number) => {
+  const t = clamp((v - a) / (b - a), 0, 1);
+  return t * t * (3 - 2 * t);
+};
 
 // Scratch for the followers
 const fe = new Vector3();
@@ -271,8 +312,9 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
     line.frustumCulled = false;
     world.scene.add(line);
     objects.push(line);
-    const string = { id: s.id, part, bar: bar.body, anchor, eye, barAnchor: { ...eye }, rest: s.restLength, length: s.restLength, joint: null as unknown as RAPIER.ImpulseJoint, line };
-    const state: StringState = { string, bar, eyeAtRest, socketAtRest, pulled: 0, hooked: false, along: 0.5, push: new Vector3(), pushSpeed: new Vector3() };
+    const string = { id: s.id, part, bar: bar.body, anchor, eye, barAnchor: { ...eye }, rest: s.restLength, length: s.restLength, taken: 0, joint: null as unknown as RAPIER.ImpulseJoint, line };
+    const state: StringState = { string, bar, eyeAtRest, socketAtRest, pulled: 0, falling: 0, calm: 0, hooked: false, along: 0.5, push: new Vector3(), pushSpeed: new Vector3() };
+    state.legBar = rocking.find((r) => r.pose === bar && r.input === "legs");
     // The bone's origin is its joint (rig.ts: restOffset is the bone seen from its body)
     if (s.bone === "head" && part.joint) state.fromJoint = socketAtRest.clone().sub(part.restOffset).sub(new Vector3().copy(part.body.translation()));
     string.length = lengthAt(state, extra);
@@ -288,10 +330,18 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
   const barSpin = new Vector3();
   const barTarget = new Vector3();
   // Extra height of the cross on top of the input: pulls the whole puppet up
-  // out of the way while a scene changes (puppet.ts). Separate from `lift`,
-  // which raises the cross with the string length.
-  let sceneLift = 0;
+  // out of the way while a scene changes, or out of view before a new player's
+  // puppet is let down (puppet.ts). Separate from `lift`, which raises the
+  // cross with the string length, and with its own pace: up fast, down slowly.
+  let liftTarget = 0;
+  let liftNow = 0;
+  let liftSpeed = 0;
+  let liftFollow = LIFT;
   const rockQ = new Quaternion();
+  const turnQ = new Quaternion();
+  let turn = 0;
+  let turnSpeed = 0;
+  const head = rig.byName.get("head");
   const p = new Vector3();
   const q = new Quaternion();
   const target = new Vector3();
@@ -342,13 +392,21 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
       }
     }
 
-    barTarget.copy(controlInput.bar.position).setY(controlInput.bar.position.y + sceneLift);
+    barTarget.copy(controlInput.bar.position);
     followVector(barPosition, barVelocity, barTarget, BAR_MOVE);
     followRotation(barRotation, barSpin, controlInput.bar.rotation, BAR_TURN);
+    [liftNow, liftSpeed] = followNumber(liftNow, liftSpeed, liftTarget, liftFollow);
     main.position.copy(barPosition).add(lift);
+    main.position.y += liftNow;
     main.rotation.copy(barRotation);
     main.body.setNextKinematicTranslation(main.position);
     main.body.setNextKinematicRotation(main.rotation);
+
+    // The head turns: its bar about the cross's upright, its joint by the same angle
+    // ?? 0: a source that does not know the turn
+    [turn, turnSpeed] = followNumber(turn, turnSpeed, clamp(controlInput.turn ?? 0, -1, 1), TURN_FOLLOW);
+    if (Math.abs(turn) < 1e-5 && Math.abs(turnSpeed) < 1e-4) turn = turnSpeed = 0;
+    head?.twistTo?.(turn * HEAD_TURN.angle, HEAD_TURN.stiffness, HEAD_TURN.damping);
 
     // Rocking bars ride on the main bar: pivot follows its pose, and they turn
     // about their axis (in the main bar's frame) on top of its rotation
@@ -356,7 +414,9 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
       // ?? 0: a rig may name a rocker this build has no input for yet
       [r.angle, r.angleSpeed] = followNumber(r.angle, r.angleSpeed, clamp(controlInput.rock[r.input] ?? 0, -r.limit, r.limit), ROCK);
       p.copy(r.offset).applyQuaternion(barRotation).add(main.position);
-      q.copy(barRotation).multiply(rockQ.setFromAxisAngle(r.axis, r.angle));
+      q.copy(barRotation);
+      if (r.input === "head") q.multiply(turnQ.setFromAxisAngle(UPRIGHT, turn * HEAD_TURN.angle));
+      q.multiply(rockQ.setFromAxisAngle(r.axis, r.angle));
       if (r.detachable) {
         // p, q: its seat on the cross. Taken off, it follows ControlInput.handBar
         // instead (like the main bar, and on a leash so the strings stay sane);
@@ -420,6 +480,33 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
       let length = Math.max(MIN_STRING, lengthAt(state, extra) - state.pulled);
       // A nod: the head strings are let out
       if (state.fromJoint && nod > 0) length += Math.max(0, nodSlack(state, NOD.rest + nod * (NOD.full - NOD.rest)));
+      // Take-up (TAKE_UP): against the length it has without it, so a string
+      // that is plucked taut is not drawn in further
+      if (state.legBar) {
+        // Eye and socket as they are now, both before this step: measured
+        // against where the bar is sent in this step, a cross on its way down
+        // looked 5 mm nearer in every step, and the knees were reeled up
+        // until the puppet hung across its knee strings
+        worldPoint(s.bar, s.eye, eyeNow);
+        worldPoint(s.part.body, s.anchor, socketNow);
+        const level = 1 - smoothstep(TAKE_UP.level[0], TAKE_UP.level[1], Math.abs(state.legBar.angle));
+        const wanted = clamp(length - eyeNow.distanceTo(socketNow) - TAKE_UP.slack, 0, TAKE_UP.max);
+        if (wanted < s.taken) {
+          // Taut: the string carries the knee (drawn in while the leg swung
+          // up, or the cross has risen). Let out to slack and a bit more with
+          // every step, as much as a falling knee needs: let out only to
+          // "just slack", the string caught the knee again in every other
+          // step, and a leg that had swung up came down at 10 cm/s
+          state.calm = 0;
+          state.falling = Math.min(TAKE_UP.out, state.falling + 9.81 * STEP);
+          s.taken = Math.max(0, s.taken - Math.min(TAKE_UP.out * STEP, s.taken - wanted + state.falling * STEP) * level);
+        } else if ((state.calm += STEP) > TAKE_UP.calm) {
+          // Slack and at rest for a moment: drawn in. Not sooner: a knee on its way down must not be caught
+          state.falling = 0;
+          s.taken += Math.min(wanted - s.taken, TAKE_UP.in * STEP * level);
+        }
+        length = Math.max(MIN_STRING, length - s.taken);
+      }
 
       // Caught by the other hand: the string runs eye → hook → socket. The rope
       // joint then holds on to the bar at the hook (the bar is kinematic, so a
@@ -487,11 +574,18 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
     /** The cross and the strings, for fading them with the puppet. */
     objects,
     materials: [wood, material],
-    /** Raises the cross by `y` metres above where the input holds it (0: back down). */
-    setLift(y: number) {
-      sceneLift = y;
+    /**
+     * Raises the cross by `y` metres above where the input holds it (0: back
+     * down). pace: how fast it goes there (speed m/s, accel m/s²).
+     */
+    setLift(y: number, pace?: { speed: number; accel: number }) {
+      liftTarget = y;
+      // omega: a lag of 2 / omega s behind an even climb; slow paces get a soft landing
+      liftFollow = pace ? { omega: Math.min(24, 20 * pace.speed + 4), ...pace } : LIFT;
     },
     /** Whether the cross has arrived where input and lift want it. */
-    arrived: () => barPosition.distanceTo(barTarget) < 0.005,
+    arrived: () => barPosition.distanceTo(barTarget) < 0.005 && Math.abs(liftNow - liftTarget) < 0.005,
+    /** Whether a bar that was let go is on its way back to its seat: it moves fast then, and nobody is throwing (grab.ts) */
+    returning: () => rocking.some((r) => r.returning),
   };
 }

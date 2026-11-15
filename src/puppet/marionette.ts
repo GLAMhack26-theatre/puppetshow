@@ -44,6 +44,31 @@ const weight = (name: string) => WEIGHTS.find(([part]) => part.test(name))?.[1] 
  * a nod threw the head back by 0.6 rad as often as forward.
  */
 const HEAD_LEAD = 0.005;
+/**
+ * Parts that are damped more than the rest (rig.ts: joint friction 10, air
+ * drag 0.5 on moving and 1 on turning), 1/s. After a step of the cross the
+ * puppet went on wobbling for seconds: waist and hips in many small swings
+ * (3 to 6 s), the head nodding (up to 5 s, more since it carries lead in its
+ * face), and the whole body swinging and twisting under the cross.
+ *
+ * Measured on five input steps (cross 10 cm sideways, in depth, there and
+ * back, rolled 0.3 rad, a full leg rock), summed over eight signals (swing of
+ * the pelvis under the cross, body twist, waist, head, hip): 136 s of settling
+ * time and 308 swings as it was; 124 s / 272 with more joint friction alone;
+ * 67 s / 157 with the drag below on top. So most of it is not the joints but
+ * the body swinging on its strings, which bends the joints as it goes: joint
+ * friction takes little out of that, drag on the body takes it out directly.
+ * Body and head only: arms and legs stay as lively as they were (an arm let go
+ * swings on as before). Unchanged by it: knee lift at a full leg rock (3.9 cm),
+ * the nod (0.7 rad), the head turn, the hand lift.
+ */
+const STIFF: [RegExp, { friction?: number; linearDamping?: number; angularDamping?: number }][] = [
+  [/^head$/, { friction: 30, linearDamping: 3 }],
+  [/^chest$/, { friction: 40, linearDamping: 3, angularDamping: 8 }],
+  [/^pelvis$/, { linearDamping: 3, angularDamping: 8 }],
+  [/^thigh\./, { friction: 20 }],
+];
+const stiff = (name: string) => STIFF.find(([part]) => part.test(name))?.[1];
 const LIMBS = /^(upper_arm|forearm|hand)\./;
 
 type Vec = number[];
@@ -118,6 +143,7 @@ export async function loadMarionette() {
             // Root-local: the puppet faces +z
             massOffset: name === "head" ? new Vector3(0, 0, HEAD_LEAD) : undefined,
             joint: joint(b.joint),
+            ...stiff(name),
             group: LIMBS.test(name) ? ("limb" as const) : ("body" as const),
           }]
         : [],

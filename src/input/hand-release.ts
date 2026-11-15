@@ -5,8 +5,9 @@
 //
 // Letting go with a fist held for 3 s (and a countdown to take the hand away)
 // was taken out again after the first play tests: a lowered hand now only
-// lets the strings go slack (HandTracker.standHeight), which is what lowering
-// the hand does on a real cross, and the held fist got in the way of gripping.
+// lets the strings go slack (below the height at which the puppet stands,
+// body-frame.ts), which is what lowering the hand does on a real cross, and
+// the held fist got in the way of gripping.
 //
 // Pure logic on wall-clock time, fed once per frame (mediapipe.ts); no DOM
 // and no MediaPipe in here.

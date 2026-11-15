@@ -2,7 +2,7 @@ import "./hand-settings.css";
 
 // The player's own settings for the hand control, bottom centre: a button that
 // sets the cross right ("Kreuz zurücksetzen") and one that opens the sliders
-// (how high the hand is held, the tilt of the cross, the length of the
+// (the height at which the puppet stands, the tilt of the cross, the length of the
 // strings). Always visible, unlike the debug panel: a player needs them
 // whenever the camera, the place they stand at or their hand is different.
 // Each value is remembered in this browser; a double click on a row puts it
