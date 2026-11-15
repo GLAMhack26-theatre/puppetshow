@@ -1,0 +1,19 @@
+{
+  "name": "Abenddämmerung",
+  "values": {
+    "front": 0.3,
+    "frontKelvin": 3000,
+    "spot": 0.22,
+    "spotKelvin": 3200,
+    "spotAngle": 20,
+    "spotEdge": 0.6,
+    "spotBeam": 0.18,
+    "top": 0.55,
+    "topColor": "#5a48e8",
+    "side": 0.5,
+    "sideKelvin": 3000,
+    "strip": 0.3,
+    "stripColor": "#ff6a3a",
+    "room": 0.15
+  }
+}

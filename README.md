@@ -10,7 +10,7 @@ Decisions, setup and phases: [docs/architecture.md](docs/architecture.md)
 
 ### Stage lighting: the light desk
 
-The lighting is tuned live, not in code: **Lichtpult** in the debug button panel (shown in debug mode: Shift+D or `?debug`) opens the light desk, with one slider per parameter of the lighting rig. The rig follows the advice of a theatre lighting designer; every light is on a dimmer (0 … 100 %).
+The lighting is tuned live, not in code, on the light desk: one slider per parameter of the lighting rig. The desk is the **Licht** page of the scene editor (impro mode, the Licht button on the right); on the other pages **Lichtpult** in the debug button panel (debug mode: Shift+D or `?debug`) opens it. The rig follows the advice of a theatre lighting designer; every light is on a dimmer (0 … 100 %).
 
 | Group on the desk | The light | Parameters |
 |---|---|---|
@@ -23,20 +23,30 @@ The lighting is tuned live, not in code: **Lichtpult** in the debug button panel
 
 The top, side and strip lights are area lights without a visible source. The renderer has no tone mapping, so light adds up to white: with several groups high, light clothes burn out. The painted backdrops are unlit; they take their tint from the dimmers (mostly the front light), so a dark scene also darkens the backdrop. A bright or coloured striplight shows as a thin line on the gold band at the foot of the wall behind the stage, which mirrors it.
 
-**Lighting scenes** are sets of these values:
+**Lighting scenes** are named sets of these values. They form one library for all plays: a JSON file per scene in `assets/lights/` (Neutral is built in).
 
-- The list at the top of the desk chooses a scene; **Licht: …** (or the L key) steps through them with a 1.5 s fade. `?light=abend`, `?light=morgen`, `?light=dramatisch` (or a saved scene's key) starts in one.
-- **Speichern** saves the desk's values under the name typed above it (empty: the current scene). Saved scenes live in this browser only (`localStorage`). Saving under the name of a built-in scene replaces it; **Zurücksetzen** brings the built-in one back, **Löschen** removes a scene of your own.
-- **Als Code kopieren** copies the scene as an entry for `PRESETS` in `src/stage/lighting.ts`. That is the way a tuned scene gets into the repo, to the rest of the team and onto the phone.
+- The buttons at the top of the desk choose a scene, with a 1.5 s fade; **Licht: …** in the debug panel (or the L key) steps through them. `?light=morgenstimmung`, `?light=abenddaemmerung`, `?light=dramatisch` (the file name) starts in one.
+- **Lichtszene speichern** with a name adds a new lighting scene, which every scene of every play can use from then on and which is a starting point for more. Without a name it overwrites the chosen one; that changes the light of every scene that uses it.
+- With the dev server, saving writes `assets/lights/<id>.json` (commit it) and **Löschen** removes the file. A build cannot write: it keeps the scene in this browser and downloads the file, to be put into `assets/lights/` by hand.
+- **Light of a play's scene:** choose the scene in the director bar, set the light on the Licht page, press **Speichern** in the director bar. The play file then holds `"light": { "scene": "<id>" }`; if sliders were moved without saving a lighting scene, their values are kept next to it. A scene without `light` is lit with Neutral.
 
-Built-in scenes (dimmers in %):
+A lighting scene file (colours as `"#rrggbb"`; a value left out is Neutral's):
 
-| Scene | Vorderlicht | Profil | Oberlicht | Seitenlicht | Rampe | Raum |
-|---|---|---|---|---|---|---|
-| Neutral | 50, 5600 K | 27, 5200 K, 17° | 40, warm white | 30, 5000 K | 10, warm white | 30 |
-| Abendstimmung | 30, 3000 K | 22, 3200 K, 20°, soft | 55, violet | 50, 3000 K | 30, orange | 15 |
-| Morgenstimmung (outdoors) | 80, 5600 K | 10, 36°, very soft, no beam | 70, sky blue | 40, 5600 K | 20, pale yellow | 50 |
-| Dramatisch | 3 | 40, 5600 K, 14°, hard, strong beam | 85, red | 35, 5600 K | 0 | 6 |
+```json
+{
+  "name": "Abenddämmerung",
+  "values": { "front": 0.3, "frontKelvin": 3000, "spot": 0.22, "spotKelvin": 3200, "spotAngle": 20, "spotEdge": 0.6, "spotBeam": 0.18, "top": 0.55, "topColor": "#5a48e8", "side": 0.5, "sideKelvin": 3000, "strip": 0.3, "stripColor": "#ff6a3a", "room": 0.15 }
+}
+```
+
+The scenes that come with the repo (dimmers in %):
+
+| Scene | Idea | Vorderlicht | Profil | Oberlicht | Seitenlicht | Rampe | Raum |
+|---|---|---|---|---|---|---|---|
+| Neutral (built in) | Plain, even stage light | 50, 5600 K | 27, 5200 K, 17° | 40, warm white | 30, 5000 K | 10, warm white | 30 |
+| Morgenstimmung | Daylight outdoors: bright and cool from the front and above, a low warm sun from the wings | 62, 5600 K | 10, 36°, very soft, no beam | 60, sky blue | 40, 4200 K | 15, pale yellow | 45 |
+| Abenddämmerung | Dusk: little, warm front light, a low sun from the wings, violet from above, an orange glow from the strip | 30, 3000 K | 22, 3200 K, 20°, soft | 55, violet | 50, 3000 K | 30, orange | 15 |
+| Dramatisch | Next to no front light, red from above, a narrow hard spot with its beam in the air | 3 | 40, 5600 K, 14°, hard, strong beam | 85, red | 35, 5600 K | 0 | 6 |
 
 In the code (`src/stage/lighting.ts`): the `…_FULL` constants are what 100 % means for each light, `TOP_HEIGHT`, `SIDE_HEIGHT`, `SIDE_Y`, `STRIP_HEIGHT` and `STRIP_TILT` place the area lights (their width and depth come from the stage floor), `FADE_SECONDS` is the time a switch takes.
 

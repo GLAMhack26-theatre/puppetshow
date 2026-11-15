@@ -4,12 +4,17 @@
 // TrackerOutput out; src/input/mediapipe.ts feeds it and writes ControlInput.
 //
 // How a hand drives the cross (docs/architecture.md §3.1):
-//  - The first hand seen is the cross hand; a second hand can take the hand bar
-//    or the head bar at its end, or push against the back string.
-//  - Palm centre → bar x; its height against the height it rested at → bar y.
-//    Palm size in the image against a slowly adapting baseline → bar z. Palm
-//    orientation relative to its rest pose → bar pitch / yaw / roll. Finger
-//    flexion → rocking bars and grip (MAPPING).
+//  - The first hand seen is the cross hand; a second hand can take the hand bar,
+//    the head bar or the leg bar at its handle, push against the back string,
+//    or, as a fist away from the handles, switch on the magnet in the puppet's
+//    hands (grasp).
+//  - Palm centre → bar x; the hand's height in metres above the height at
+//    which the puppet stands → bar y (the height model in body-frame.ts: it
+//    does not depend on where the camera is or how it is pitched, and its
+//    zero is where the player first held the hand still). Palm size in the
+//    image against its size at the rest pose → bar z. Palm orientation relative
+//    to its rest pose → bar pitch / yaw / roll. Finger flexion → leg bar;
+//    thumb and little finger → the head turns (MAPPING).
 //  - Size and orientation come from the outline of the rigid palm in the image
 //    (palmPose), not from MediaPipe's 3D landmarks: on a real recording those
 //    shrank by a third and flipped between leaning forward and back whenever
@@ -21,6 +26,8 @@
 // a camera that faces the player, see toDisplay), so that display right =
 // stage +x in both modes; what else differs between the modes is in one place
 // (HandTracker.facing).
+
+import { BodyFrame, HEIGHT, type BodyObservation, type HandSample, type HeightReading } from "./body-frame.ts";
 
 export interface Point {
   x: number;
@@ -74,15 +81,17 @@ const FINGERS = { index: [5, 8], middle: [9, 12], ring: [13, 16], pinky: [17, 20
 /** Finger signals, each 0…1 */
 export type Channel = "index" | "middle" | "ring" | "pinky" | "ringPinky" | "thumb" | "closed" | "fist" | "pinch";
 export type Finger = "index" | "middle" | "ring" | "pinky";
-/** What a rocker is driven by: how far fingers are bent down out of the palm, rad (Track.signals) */
-export type Signal = Finger | "ringPinky" | "thumb";
 
 interface RockMapping {
   /** rock = gain × (plus − minus), measured from the rest pose; the side each sits on gives the sign */
-  plus: Signal;
-  minus: Signal;
-  /** Per rad: 2.2 with the dead zone below = full rock for a finger bent 30° further than the other */
-  gain: number;
+  plus: Finger;
+  minus: Finger;
+  /**
+   * Per rad, while the plus finger is bent further … while the minus finger is.
+   * 2.2 with the dead zone below = full rock for a finger bent 30° further than
+   * the other; 4 = at 18°
+   */
+  gain: [number, number];
   /** rad */
   dead: number;
   /** Landmarks whose display x tells which side of the hand plus / minus are on */
@@ -96,26 +105,52 @@ interface RockMapping {
  */
 export const MAPPING = {
   rock: {
-    // "Walking fingers": index and middle alternate
-    legs: { plus: "index", minus: "middle", gain: 2.2, dead: 0.06, sides: [INDEX_MCP, MIDDLE_MCP] },
-    // Ring + pinky bend against tucking the thumb in
-    head: { plus: "ringPinky", minus: "thumb", gain: 2.2, dead: 0.08, sides: [PINKY_MCP, THUMB_MCP] },
-    // The hand bar is the second hand's: no finger of the cross hand rocks it
+    // "Walking fingers": index and middle alternate. The middle finger counts
+    // for more: bent on its own it does not go far (on a real session it read
+    // 0.2…0.55 rad where the index read 0.5…1.0), so with one gain for both its
+    // leg hardly ever reached a full step
+    legs: { plus: "index", minus: "middle", gain: [2.2, 4], dead: 0.06, sides: [INDEX_MCP, MIDDLE_MCP] },
+    // Head bar and hand bar are the second hand's: no finger of the cross hand rocks them
+    head: null,
     hands: null,
   } as Record<"legs" | "head" | "hands", RockMapping | null>,
-  /** Cross hand: a fist closes both puppet hands */
+  /**
+   * The head turns left / right with the thumb and the little finger, the two
+   * outer keys of the hand: the head turns to the side of the one that is
+   * pressed, as the player sees it. On the real cross it is the small head bar
+   * turned on its post, with rubber strings to the head.
+   * thumb: how far its tip has left its place in the palm (HandView.thumbPress,
+   * palm lengths) for no turn … a full turn. On a real session it read up to
+   * 0.22 while the other fingers stepped and the hand tilted, 0.4…0.6 tucked in.
+   * pinky: the same for the little finger's bend (rad from its rest), less
+   * `along` times the middle finger's: it goes along with the middle finger
+   * (on that session it read 0.2…0.36 when only the middle finger stepped,
+   * up to 0.12 for a step of the index).
+   */
+  turn: { thumb: [0.25, 0.55] as [number, number], pinky: [0.15, 0.5] as [number, number], along: 0.6 },
+  /**
+   * Second hand: a fist made away from the bars' handles is the magnet in the
+   * puppet's hands (TUNING.grasp). The fist only: a pinch is how a bar is
+   * taken. (It was the cross hand's fist before, which had to stay closed
+   * for as long as the prop was held.)
+   */
   grip: { channel: "fist" as Channel, on: 0.68, off: 0.5 },
-  /** Second hand: pinch or fist takes a bar at its handle */
-  grab: { channels: ["pinch", "fist"] as Channel[], on: 0.7, off: 0.45 },
+  /**
+   * Second hand: pinch or fist takes a bar at its handle. It keeps the bar
+   * until it is seen open: the four fingers curled by less than `open` on
+   * average and no pinch. Not "until the fist reading drops": a fist that
+   * moves or turns reads as open for moments (it needs the 3D landmarks to
+   * agree, and cannot be read edge-on), which let the bar go and took the next
+   * one the fist came by.
+   */
+  grab: { channels: ["pinch", "fist"] as Channel[], on: 0.7, off: 0.45, open: 0.35 },
   /**
    * Rockers fade out while all four fingers bend together (the least bent one
    * between these, rad from its rest), so that gripping does not make the puppet
-   * kick. Not sooner (say, on three fingers): index down for a step while ring
-   * and little finger tilt the head is playing, not gripping.
+   * kick. Not sooner (say, on three fingers): the ring finger goes along with
+   * the middle finger on many hands.
    */
   fistFade: [0.25, 0.45] as [number, number],
-  /** A fully tucked thumb counts as much as a finger bent by this, rad */
-  thumbFlex: 0.6,
 };
 
 interface FilterTuning {
@@ -131,31 +166,67 @@ export const TUNING = {
     angle: { minCutoff: 0.9, beta: 1.2 } as FilterTuning, // rad
     scale: { minCutoff: 0.6, beta: 1.5 } as FilterTuning, // log palm size: depth is the slowest move
     finger: { minCutoff: 1.5, beta: 3 } as FilterTuning, // 0…1
+    fingerWorld: { minCutoff: 0.7, beta: 1.2 } as FilterTuning, // rad: finger angles from the 3D landmarks, whose depth is their noisiest part
+    /**
+     * rad: how far the second hand's forearm has turned (HandTracker.turned).
+     * For a palm seen flat-on that is a turn about an axis in the picture,
+     * which shows only in the landmarks' depth: slow, and it hardly opens with
+     * speed (with the tilt's own filter the held head bar stepped by 0.1 rad
+     * per frame while the hand turned)
+     */
+    twist: { minCutoff: 0.5, beta: 0.3 } as FilterTuning,
     landmark: { minCutoff: 2, beta: 12 } as FilterTuning, // drawing only
     outline: { minCutoff: 2, beta: 2 } as FilterTuning, // the palm's outline (dimensionless, ±1), before the lean is taken from it
+    /**
+     * A small hand (far from the camera) is filtered harder: the same pixel of
+     * landmark noise is a larger share of the palm, so the tilt and the finger
+     * angles shake more the further away the hand is. Below `palm` (palm length
+     * in image heights; 0.12 = 58 px of a 480 px picture) the cutoffs of the
+     * outline, finger and tilt filters shrink with the palm, down to `least`
+     * of their value.
+     */
+    small: { palm: 0.12, least: 0.35 },
+    /**
+     * Single frames that are far off (a wrist or a fingertip that jumps and is
+     * back in the next frame) are left out: a palm outline that differs from
+     * the smoothed one by more than `outline` (dimensionless), or a finger by
+     * more than `finger` (palm lengths), per 1/30 s, is not taken unless it
+     * stays for more than `frames` frames. A real move that fast only arrives
+     * that much later.
+     */
+    glitch: { outline: 0.3, finger: 0.35, frames: 2 },
   },
   position: {
     /** Bar x: the inner part of the image spans the whole range, so the hand never has to leave the frame */
     imageSpan: 0.8,
     x: 0.55,
     /**
-     * Bar y is relative: the height the hand rests at is the cross's rest
-     * height, where the puppet just stands (an absolute map left it hanging in
-     * the air for a hand held high). m per image height, and how far the cross
-     * may go below (the puppet sits down) and above its rest height, m
+     * Bar y follows the hand's real height: with the hand at the standing
+     * height the cross is at its rest height and the puppet just stands; below
+     * it the strings go slack, above it they lift the puppet. How far the hand
+     * is above the standing height, in metres, comes from the height model
+     * (body-frame.ts, HandTracker.height): from the picture's row, the palm's
+     * size and the camera's horizon row, against the height at which the
+     * player first held the hand still.
+     * yGain: m of cross per m of hand; down / up: how far the cross may go
+     * below (the puppet sinks down) and above its rest height, m.
+     * dead: within this much of the standing height the cross stays at its
+     * rest height, m. A hand cannot hold its height to the centimetre the
+     * puppet's legs need (on a real session it wandered by 2 cm while the
+     * fingers stepped, and the knee strings are slack 1 cm below the standing
+     * height), so standing is a band, not a line; lifting and sinking start
+     * at its edges, without a step.
+     * unsure: the band is wider by as much as the standing height itself may
+     * be off (HeightReading.sigma, beyond what a taken zero is off by), up to
+     * this, m: before the zero is taken the puppet should stand for a hand
+     * that is only roughly right. So ±3 cm with the zero taken, up to ±6 cm
+     * without.
      */
-    yGain: 0.8,
+    yGain: 1,
     down: 0.25,
     up: 0.4,
-    /**
-     * s: until the hand has paused, the rest height follows it, so a hand coming
-     * up into the picture does not fling the puppet up; only quick moves lift it.
-     * (On a real session the hand rose half the picture in 5 s before its first
-     * pause: with 1.5 s here the puppet still flew 23 cm, with 0.5 s it is 5 cm.)
-     */
-    follow: 0.5,
-    /** s after a hand attaches during which the rest height stays with it … follows it ever more loosely: the hand is still on its way into the picture (measured: a third of the picture in the first 1.4 s) */
-    entry: [1, 2] as [number, number],
+    dead: 0.03,
+    unsure: 0.03,
   },
   /**
    * The player in front of the screen tips the hand forward (fingertips down):
@@ -174,16 +245,12 @@ export const TUNING = {
     /** m of stage depth per unit of log hand scale (hand 30 % closer ≈ 0.26 → 0.2 m) */
     gain: 0.75,
     /**
-     * Palm speeds (image heights/s) between which the size measure is trusted
+     * Palm speeds (palm lengths/s) between which the size measure is trusted
      * fully … hardly: MediaPipe's box lags a hand that moves across the image,
      * which reads as a few percent of false size change (measured: +6 %)
      */
-    steady: [0.15, 0.6] as [number, number],
+    steady: [0.8, 3.2] as [number, number],
     range: [-0.2, 0.25] as [number, number], // set from the stage floor at start
-    /** s: the baseline is the median hand scale over this window … */
-    window: 10,
-    /** … followed with this time constant, s: a quick reach moves the puppet, a new seat is absorbed */
-    follow: 2.5,
     dead: 0.015, // log scale
   },
   roles: {
@@ -195,6 +262,7 @@ export const TUNING = {
     warmup: 2,
     confirm: 0.1, // s a new hand must stay before it counts (ghost detections)
     hold: 0.5, // s a hand may vanish while its outputs are held
+    swap: 0.15, // s the second hand may be missing before a hand found elsewhere takes its role (a fast move beyond the gate)
     release: 1.5, // s until a lost cross hand gives up its role
     gate: 0.3, // image heights a hand may jump between frames …
     gateSpeed: 1.5, // … plus this per second since it was seen
@@ -210,7 +278,13 @@ export const TUNING = {
      * hand on its way into a bow.
      */
     settle: 1.0,
-    speed: 0.12, // "still": the palm slower than this, image heights/s …
+    /**
+     * "Still": the palm slower than this, palm lengths/s … In palm lengths, not
+     * in image heights: a hand three times further away moves a third as fast
+     * across the picture, counted as still all the time and had its rest pose
+     * taken in the middle of a bow (a real session replayed at a third of its size)
+     */
+    speed: 0.63,
     turn: 0.08, // … and its orientation not drifting: short and long average within this, rad
     /**
      * The stand-in: a palm held level in front of the screen, fingers towards
@@ -219,6 +293,8 @@ export const TUNING = {
      */
     lean: 0.9,
     ease: 0.5, // s: the cross moves over to a newly taken rest pose, it does not jump
+    /** s after reset() until the hand's pose is taken as the rest pose: its averages have to fill again first */
+    reset: 0.4,
     /**
      * A hand that attaches, or comes back after `gap` s without it, finds the
      * cross where it was left: level, or wherever the hand vanished. The cross
@@ -236,7 +312,9 @@ export const TUNING = {
   /**
    * Hand lean (rad from flat to the camera) above which a fist cannot be told
    * from an open hand in the image (fingers that point at the camera all look
-   * curled): the grip keeps its state there, and the second hand's fist does not count
+   * curled): the second hand's fist does not count there, neither for a bar
+   * nor for the magnet (a closure that has begun is kept: it ends when the
+   * hand is seen open, which cannot be read there either)
    */
   flatFade: [1.2, 1.4] as [number, number],
   /**
@@ -245,24 +323,54 @@ export const TUNING = {
    */
   rockFade: [1.35, 1.5] as [number, number],
   /**
-   * Dead zone on each finger's angle for a palm flat to the camera, rad, fading
-   * out between these leans: there a finger bending towards the camera hardly
-   * changes its length in the image, so its angle is mostly noise
+   * A palm flat to the camera (an open hand shown to it): a finger bending
+   * towards the camera hardly changes its length in the image there, so the
+   * angle taken from the image (fingerFlexion) is mostly noise for small bends,
+   * and the first version put a dead zone of 0.25 rad on it: walking fingers
+   * were not read unless bent a long way. Below these leans the angle comes
+   * from MediaPipe's 3D landmarks instead (fingerFlexionWorld; flat-on is where
+   * they are at their best, as for the palm's orientation), fading over to the
+   * image between them. extra: the dead zone that is left there, rad.
    */
-  flatDead: { extra: 0.25, lean: [0.3, 0.6] as [number, number] },
+  flatDead: { extra: 0.1, lean: [0.3, 0.6] as [number, number] },
   handBar: {
-    /** Grab radius around a bar's handle, in palm lengths of the cross hand (generous: landmarks of two near hands are shaky) */
-    radius: 0.9,
+    /**
+     * Grab radius around a bar's handle, in palm lengths of the cross hand
+     * (generous: landmarks of two near hands are shaky; 0.9 until there were
+     * three handles). Where circles overlap, the nearest handle counts.
+     */
+    radius: 0.7,
     /** Image heights → m for the free bar; larger than the stage mapping, the puppet's arms are short */
     gain: 0.5,
     depthGain: 0.4,
     maxTurn: 1.5, // rad
     /**
-     * s the second hand has to stay open before a bar is let go: its pinch
-     * reading dips for a frame or two while it moves, which used to drop the bar
+     * The held hand bar rocks by this much per rad the fist has turned
+     * (HandTracker.turned): more than 1, a wrist does not turn far while the
+     * hand stays closed, and waving needs one end of the bar well above the
+     * other. tilt: how much of the fist's other turns (bar pitch and yaw) the
+     * bar takes; they come from the same wrist move and would turn the bar
+     * away while it rocks.
      */
-    release: 0.3,
-    /** s: the head bar goes over from the fingers to the second hand and back, it does not jump */
+    rockGain: 1.3,
+    tiltGain: 0.5,
+    /** s over which a bar's turns come in after it is taken */
+    settle: 0.2,
+    /**
+     * s the second hand has to be seen open (MAPPING.grab.open) before a bar is
+     * let go: its pinch reading dips for a frame or two while it moves, which
+     * used to drop the bar (0.3 until the third play test: still too eager)
+     */
+    release: 0.5,
+    /**
+     * s a bar is kept after its hand was last seen, when the hand is lost or
+     * found again somewhere else (a sudden move beyond the role gate makes it
+     * a new hand to the tracker): a hand that shows up in that time carries
+     * on with the bar, unless it is open. 0.5 s plus the time a new hand needs
+     * to count (roles.confirm).
+     */
+    keep: 0.65,
+    /** s: the head bar goes level again when the second hand lets it go, it does not jump */
     blend: 0.25,
   },
   /**
@@ -274,7 +382,32 @@ export const TUNING = {
    * bar, m: beyond the bars' ends and clear of the cross hand's outline and
    * thumb, MediaPipe loses hands that overlap.
    */
-  gizmo: { palm: 0.095, maxUnit: 0.22, handle: 0.125 },
+  gizmo: {
+    palm: HEIGHT.palm, maxUnit: 0.22, handle: 0.125,
+    /**
+     * The leg bar's handle. Its pivot is only 3 cm from the hand bar's, so the
+     * handle does not sit beside it like the other two: it is further out from
+     * the main bar and lower (towards the palm side), m, where the leg bar
+     * hangs under the cross.
+     */
+    legHandle: { out: 0.225, down: 0.1 },
+  },
+  /**
+   * The second hand's fist away from the handles: the magnet in the puppet's
+   * hands (TrackerOutput.grasp). What the fist means depends on whether the
+   * puppet holds something when it closes: nothing held, the magnet is on
+   * while the fist stays closed; something held, a quick fist/open lets it
+   * go, and a fist that stays closed is the magnet again (for the other hand).
+   * close / open: s the fist, or the open hand, has to be seen before it
+   * counts (three frames: a single frame read as a fist while an open hand
+   * moves is common). click: s from the first closed frame within which the
+   * hand has to be open again for a release (a quick fist/open measures
+   * 0.3…0.5 s between the edges, plus the filters' lag). guard: a fist made
+   * within this many ring radii of a handle, but outside the ring, is neither
+   * a bar nor a grab: it was meant for the bar and missed.
+   * Not measured on a real hand.
+   */
+  grasp: { close: 0.1, open: 0.1, click: 0.6, guard: 1.6 },
   /** The back string as the second hand can push it */
   hook: {
     /** Drawn length below its eye, and where a hand can first catch it, palm lengths of the cross hand */
@@ -405,14 +538,17 @@ export class OneEuro {
   private rate = 0;
   private time = -1;
   private readonly tuning: FilterTuning;
+  /** The share of the new sample in the last call's result (1: taken as it is; 0: left out). For a second signal that has to go through the very same filter (Track.heightPalm) */
+  share = 0;
 
   constructor(tuning: FilterTuning) {
     this.tuning = tuning;
   }
 
-  /** t in seconds */
-  filter(v: number, t: number) {
+  /** t in seconds; slow (0…1): the share of the cutoff to filter with, for a noisier signal (TUNING.filter.small) */
+  filter(v: number, t: number, slow = 1) {
     if (this.time < 0 || t <= this.time) {
+      this.share = this.time < 0 ? 1 : 0;
       if (this.time < 0) this.value = v;
       this.time = Math.max(this.time, t);
       return this.value;
@@ -422,7 +558,13 @@ export class OneEuro {
     const alpha = (cutoff: number) => 1 / (1 + 1 / (2 * Math.PI * cutoff * dt));
     const rate = (v - this.value) / dt;
     this.rate += alpha(1) * (rate - this.rate); // 1 Hz on the speed estimate
-    this.value += alpha(this.tuning.minCutoff + this.tuning.beta * Math.abs(this.rate)) * (v - this.value);
+    this.share = alpha(slow * (this.tuning.minCutoff + this.tuning.beta * Math.abs(this.rate)));
+    this.value += this.share * (v - this.value);
+    return this.value;
+  }
+
+  /** The filtered value as it stands */
+  get current() {
     return this.value;
   }
 
@@ -641,7 +783,7 @@ const FINGER_LENGTH = { index: 1.0, middle: 1.08, ring: 1.0, pinky: 0.74 } as co
  * leaned, which rocked the head bar without a finger moving.
  *
  * A hand seen edge-on cannot be read this way (the frame is squeezed to a
- * line, and every finger looks curled): the tracker holds the grip there
+ * line, and every finger looks curled): the tracker does not count a fist there
  * (flatFade). For the fist the 3D landmarks (world, if given) must agree as
  * well: they are poor at how far a finger is curled, but they do not mistake
  * a flat hand for a fist.
@@ -779,6 +921,29 @@ export function fingerFlexion(vector: V2, rest: V2, quat: Quat, palmSide: number
 /** rad: lifted as far as a finger goes … bent to a fist */
 const FLEX_RANGE = [-0.6, 1.9];
 
+/**
+ * The same angle from MediaPipe's 3D landmarks: how far the finger rises out
+ * of the palm's plane towards the palm side, rad. Used for a
+ * palm seen flat-on, where the image hardly shows a finger bending towards the
+ * camera (TUNING.flatDead); for a palm at a slant these landmarks shrink and
+ * flip (see palmPose), and the image is used.
+ */
+export function fingerFlexionWorld(world: Point[], finger: Finger, quat: Quat, palmSide: number) {
+  const [knuckle, tip] = FINGERS[finger];
+  const { normal } = palmAxes(quat);
+  const rise = (to: number) => {
+    const stick = sub(world[to], world[knuckle]);
+    const out = palmSide * dot(stick, normal);
+    return Math.atan2(out, Math.sqrt(Math.max(1e-12, dot(stick, stick) - out * out)));
+  };
+  // Knuckle to tip while the finger is fairly straight (the longest lever, the
+  // least noise). The tip of a closing finger comes back to the knuckle and the
+  // line between them points anywhere: then knuckle to the last joint instead
+  const bones = distance(world[knuckle], world[knuckle + 1]) + distance(world[knuckle + 1], world[knuckle + 2]) + distance(world[knuckle + 2], world[tip]);
+  const straight = smoothstep(0.5, 0.75, distance(world[knuckle], world[tip]) / (bones || 1));
+  return straight * rise(tip) + (1 - straight) * rise(knuckle + 2);
+}
+
 /** On/off with two thresholds, so a value hovering at the edge does not flicker */
 export function hysteresis(on: boolean, value: number, thresholds: { on: number; off: number }) {
   return on ? value > thresholds.off : value > thresholds.on;
@@ -800,6 +965,8 @@ export interface CrossGeometry {
   /** Middle of the hand bar and of the head bar */
   handBar: V3;
   headBar: V3;
+  /** Middle of the leg bar (optional: the SKKG cross's if left out) */
+  legBar?: V3;
   /** Where the back string leaves the cross */
   backEye: V3;
 }
@@ -816,24 +983,56 @@ export interface HandView {
   channels: Record<Channel, number>;
   /** How far each finger is bent down out of the palm, rad from its rest (fingerFlexion) */
   flex: Record<Finger, number>;
+  /** How far the thumb tip is from where it lay in the palm at the rest pose, palm lengths */
+  thumbMoved: number;
+  /** The same without the part that goes outwards (a thumb spread further is not a thumb pressed) */
+  thumbPress: number;
+  /** The fingers' angles from the 3D landmarks, rad from the rest pose (fingerFlexionWorld): what counts for a palm seen flat-on */
+  flexWorld: Record<Finger, number>;
 }
 
 export type TrackerStatus = "none" | "attached" | "lost";
 /** The bars the second hand can take */
-export type Handle = "hand" | "head";
+export type Handle = "hand" | "head" | "legs";
 
 export interface TrackerOutput {
   status: TrackerStatus;
   /** The rest pose is the hand's own (it has paused once, or N was pressed); until then a usual pose stands in */
   calibrated: boolean;
+  /**
+   * Counts the players (1 with the first hand): goes up, in the frame the
+   * cross hand first counts, when that hand is not the last player's coming
+   * back. The height model decides (BodyFrame.handAppeared): the same player
+   * if the hand was gone for less than HEIGHT.player.gap seconds and comes
+   * back at about the size it left with (or the player's face stayed in view).
+   */
+  player: number;
   cross?: HandView;
   second?: HandView;
   /** Main bar: stage metres (rig coordinates) and rad (a rotation vector) */
   bar: { x: number; y: number; z: number } & Tilt;
   /** −1…1, to be scaled by each bar's limit */
   rock: { legs: number; head: number; hands: number };
-  grip: boolean;
+  /** −1…1: the head turns about the vertical, + to the puppet's left (thumb and little finger of the cross hand, or the second hand at the head bar's handle) */
+  turn: number;
+  /**
+   * The second hand's fist away from the handles (TUNING.grasp). on: the
+   * magnet in the puppet's hands is on (a level: it stays while the fist
+   * does). releases: goes up by one with each quick fist/open made while the
+   * puppet holds something (a counter: whoever reads it acts on the change).
+   * phase and window are for showing it: "click" while a fist made with
+   * something held may still become a release, window 0…1 how much of that
+   * time is used up.
+   */
+  grasp: { on: boolean; releases: number; phase: "idle" | "click" | "fist"; window: number };
   depth: { scale: number; baseline: number };
+  /**
+   * The cross hand's height (body-frame.ts): how far it is above the height at
+   * which the puppet stands, how sure that is and what it rests on, the row of
+   * the picture at which the puppet stands for a hand at this distance, and
+   * the guided capture of the zero while it is offered
+   */
+  height: HeightReading;
   /**
    * How the cross lies in the cross hand, for drawing it there: where its
    * pivot is in the picture and where its axes point (image heights per metre;
@@ -857,8 +1056,10 @@ export interface TrackerOutput {
     /** Its handle: x in image heights, display frame */
     magnet: { x: number; y: number };
   };
-  /** The head bar in the second hand: turning the hand rocks it (rock.head), instead of the cross hand's fingers */
+  /** The head bar in the second hand: turning the hand turns the head (turn), in place of the cross hand's thumb and little finger */
   headBar: { held: boolean; near: boolean; handle: { x: number; y: number } };
+  /** The leg bar in the second hand: turning the hand rocks it (rock.legs) in place of the cross hand's walking fingers, for large or held steps */
+  legBar: { held: boolean; near: boolean; handle: { x: number; y: number } };
   /**
    * The back string pushed sideways by the second hand: where along it (0 at
    * the cross … 1) and how far (stage m, + = stage +x); and, for drawing, the
@@ -905,9 +1106,38 @@ class Track {
   private fingerFilters = Object.fromEntries(
     FINGER_NAMES.map((finger) => [finger, [new OneEuro(TUNING.filter.finger), new OneEuro(TUNING.filter.finger)]]),
   ) as Record<Finger, [OneEuro, OneEuro]>;
+  /** The fingers' angles from the 3D landmarks: filtered, averaged, and as they were at the rest pose */
+  private worldFilters = Object.fromEntries(FINGER_NAMES.map((finger) => [finger, new OneEuro(TUNING.filter.fingerWorld)])) as Record<Finger, OneEuro>;
+  private steadyWorld: Record<Finger, number> = { index: 0, middle: 0, ring: 0, pinky: 0 };
+  private restWorld: Record<Finger, number> = { index: 0, middle: 0, ring: 0, pinky: 0 };
+  /** Frames in a row that were left out as far off (TUNING.filter.glitch): the outline, then each finger */
+  private glitches = { outline: 0, index: 0, middle: 0, ring: 0, pinky: 0 };
+  /** The share of the filters' cutoff for this hand's size (TUNING.filter.small) */
+  slow = 1;
+  /** Thumb tip to index tip, palm lengths: averaged like the fingers, and as it was at the rest pose */
+  /** Index knuckle → thumb tip: filtered, averaged, and in the palm's own frame at the rest pose (as the fingers) */
+  private thumbFilters = [new OneEuro(TUNING.filter.finger), new OneEuro(TUNING.filter.finger)];
+  private steadyThumb: V2 = [0, 0];
+  private thumbAtRest?: V2;
   view: HandView;
   // Filtered measurements
   logScale = 0;
+  /**
+   * The palm's size for the hand's height, image heights: through the very
+   * filter the palm's row goes through (the same share of each new frame),
+   * not through the slow one of `logScale`. The height is row × size
+   * (BodyFrame), and a hand that keeps its height while the player walks
+   * towards the camera moves in the picture in proportion to its size: only
+   * if both lag alike does their product stay put. With the slow size the
+   * same walk read up to 7 cm of false lift for a hand 20 cm above the
+   * camera's height (synthetic; 1.8 m to 0.6 m in 4 s). The slow size is
+   * slow on purpose, for the depth: it is taken with less weight while the
+   * hand moves in the picture (TUNING.depth.steady), which it does all the
+   * way through such a walk. Here the size is taken as it is measured: a hand
+   * racing sideways may read a few percent too large for a moment (measured
+   * once: +6 %), which is that share of its height above the camera's.
+   */
+  heightPalm = 0;
   /** Palm orientation, display-camera axes, and how far it leans away from flat to the camera (rad, smoothed) */
   quat: Quat = [0, 0, 0, 1];
   lean = 0;
@@ -938,7 +1168,7 @@ class Track {
     this.steadyChannels = fingerChannels(m.frame.image, m.aspect, undefined, m.frame.world);
     this.view = {
       landmarks: [], palm: m.palm, palmLength: m.palm.length, hand: "left", held: false, channels: this.steadyChannels,
-      flex: { index: 0, middle: 0, ring: 0, pinky: 0 },
+      flex: { index: 0, middle: 0, ring: 0, pinky: 0 }, thumbMoved: 0, thumbPress: 0, flexWorld: { index: 0, middle: 0, ring: 0, pinky: 0 },
     };
   }
 
@@ -979,14 +1209,26 @@ class Track {
       channels[key] = filter.filter(raw[key], t);
       this.steadyChannels[key] += (raw[key] - this.steadyChannels[key]) * (1 - Math.exp(-dt / 0.25));
     }
-    const pose = poseFromFit(fit.outline.map((v, i) => this.outline[i].filter(v, t)) as Outline, world, this.valid ? this.lean : undefined, this.leanSide);
+    const { small, glitch } = TUNING.filter;
+    const slow = (this.slow = clamp(fit.scale / small.palm, small.least, 1));
+    /** A reading this far from the smoothed one is left out, unless it has stayed (TUNING.filter.glitch) */
+    const farOff = (key: keyof Track["glitches"], off: number, limit: number) => {
+      const out = this.valid && off > limit * Math.max(1, dt * 30) && this.glitches[key] < glitch.frames;
+      this.glitches[key] = out ? this.glitches[key] + 1 : 0;
+      return out;
+    };
+    const outlineOff = Math.hypot(...fit.outline.map((v, i) => v - this.outline[i].current));
+    const outline = farOff("outline", outlineOff, glitch.outline)
+      ? (this.outline.map((filter) => filter.current) as Outline)
+      : (fit.outline.map((v, i) => this.outline[i].filter(v, t, slow)) as Outline);
+    const pose = poseFromFit(outline, world, this.valid ? this.lean : undefined, this.leanSide);
     this.leanSide = pose.side;
     // Size: taken with less weight while the hand moves across the image (TUNING.depth.steady)
     const size = Math.log(fit.scale);
-    const [slow, fast] = TUNING.depth.steady;
-    const trust = clamp(1 - (this.palmSpeed - slow) / (fast - slow), 0.1, 1);
+    const [steady, fast] = TUNING.depth.steady;
+    const trust = this.valid ? clamp(1 - (this.palmSpeed - steady) / (fast - steady), 0.1, 1) : 1;
     this.rawScale = this.valid ? this.rawScale + (size - this.rawScale) * (trust < 1 ? 1 - Math.exp((-dt * trust) / 0.1) : 1) : size;
-    this.logScale = this.scale.filter(this.rawScale, t);
+    this.logScale = this.scale.filter(this.rawScale, t, slow);
     this.quat = pose.quat;
     this.steadyQuat = this.valid ? quatBlend(this.steadyQuat, this.quat, 1 - Math.exp(-dt / 0.15)) : this.quat;
     this.slowQuat = this.valid ? quatBlend(this.slowQuat, this.quat, 1 - Math.exp(-dt / 0.5)) : this.quat;
@@ -998,26 +1240,60 @@ class Track {
     this.palmSide = -this.handed * (this.handedness === "Right" ? 1 : -1) * (m.mirrored ? -1 : 1);
     const vectors = fingerVectors(image, aspect, fit.scale);
     const flex = {} as Record<Finger, number>;
+    const flexWorld = {} as Record<Finger, number>;
     const blend = this.valid ? 1 - Math.exp(-dt / 0.25) : 1;
     for (const finger of FINGER_NAMES) {
       // Smoothed before the angle is taken, as the outline is before the lean:
       // seen nearly flat-on, a little noise in a finger's length is degrees of angle
-      const [vx, vy] = vectors[finger];
-      const smooth: V2 = [this.fingerFilters[finger][0].filter(vx, t), this.fingerFilters[finger][1].filter(vy, t)];
+      const [fx, fy] = this.fingerFilters[finger];
+      let [vx, vy] = vectors[finger];
+      if (farOff(finger, Math.hypot(vx - fx.current, vy - fy.current), glitch.finger)) [vx, vy] = [fx.current, fy.current];
+      const smooth: V2 = [fx.filter(vx, t, slow), fy.filter(vy, t, slow)];
       const steady = this.steadyFingers[finger];
       this.steadyFingers[finger] = [steady[0] + (vx - steady[0]) * blend, steady[1] + (vy - steady[1]) * blend];
       flex[finger] = fingerFlexion(smooth, this.fingersAtRest[finger], this.quat, this.palmSide, this.view.flex[finger]);
+      const fromWorld = fingerFlexionWorld(world, finger, this.quat, this.palmSide);
+      this.steadyWorld[finger] = this.valid ? this.steadyWorld[finger] + (fromWorld - this.steadyWorld[finger]) * blend : fromWorld;
+      flexWorld[finger] = this.worldFilters[finger].filter(fromWorld, t, slow) - this.restWorld[finger];
     }
+    // Thumb tip to index tip as the picture shows it, in palm lengths. Not through
+    // the palm's outline (the pinch channel): that map stretches distances for a
+    // palm seen at a slant and only holds at the touch itself
+    const [thumbTip, indexTip] = [image[THUMB_TIP], image[INDEX_TIP]];
+    // The thumb tip against where it would be had it stayed in the palm as at the
+    // rest pose (taken to lie in the palm's plane there): it moves for a pinch, not for a step
+    const knuckle = image[INDEX_MCP];
+    const rawThumb: V2 = [((thumbTip.x - knuckle.x) * aspect) / fit.scale, (thumbTip.y - knuckle.y) / fit.scale];
+    const thumb: V2 = [this.thumbFilters[0].filter(rawThumb[0], t, slow), this.thumbFilters[1].filter(rawThumb[1], t, slow)];
+    this.steadyThumb = this.valid ? [this.steadyThumb[0] + (rawThumb[0] - this.steadyThumb[0]) * blend, this.steadyThumb[1] + (rawThumb[1] - this.steadyThumb[1]) * blend] : rawThumb;
+    let thumbMoved = 0;
+    let thumbPress = 0;
+    if (this.thumbAtRest) {
+      const { across, along } = palmAxes(this.quat);
+      const [a, b] = this.thumbAtRest;
+      // Where the tip would be (from the index knuckle, in the picture), and how far it is from there
+      const place: V2 = [a * across[0] + b * along[0], a * across[1] + b * along[1]];
+      const moved: V2 = [thumb[0] - place[0], thumb[1] - place[1]];
+      thumbMoved = Math.hypot(moved[0], moved[1]);
+      // Outwards: further from the knuckle along the line it lies on
+      const outwards = Math.max(0, (moved[0] * place[0] + moved[1] * place[1]) / (Math.hypot(place[0], place[1]) || 1));
+      thumbPress = Math.sqrt(Math.max(0, thumbMoved * thumbMoved - outwards * outwards));
+    }
+    const palm = { x: this.x.filter(m.palm.x, t), y: this.y.filter(m.palm.y, t) };
+    this.heightPalm = this.valid && this.heightPalm > 0 ? this.heightPalm + this.y.share * (fit.scale - this.heightPalm) : fit.scale;
     this.valid = true;
     this.view = {
       landmarks: image.map((p, i) => ({ x: this.landmarks[2 * i].filter(p.x, t), y: this.landmarks[2 * i + 1].filter(p.y, t) })),
-      palm: { x: this.x.filter(m.palm.x, t), y: this.y.filter(m.palm.y, t) },
+      palm,
       // The size as if seen flat, not the 2D length: the drawn cross does not shrink when the hand tilts
       palmLength: Math.exp(this.logScale),
       hand: playerHand(this.handedness),
       held: false,
       channels,
       flex,
+      thumbMoved,
+      thumbPress,
+      flexWorld,
     };
     // Not frame against average: single frames are too noisy to ever count as still
     const turned = 2 * Math.acos(Math.min(1, Math.abs(quatMultiply(this.steadyQuat, quatConjugate(this.slowQuat))[3])));
@@ -1026,8 +1302,37 @@ class Track {
     else if (this.stillSince === Infinity) this.stillSince = t;
   }
 
+  /** Palm lengths/s: the same move of a hand further away is slower across the picture */
   get palmSpeed() {
-    return Math.hypot(this.x.speed, this.y.speed);
+    return Math.hypot(this.x.speed, this.y.speed) / (this.view.palmLength || 1);
+  }
+
+  /**
+   * Forget what was decided about this hand from earlier frames: which way
+   * round its outline runs, which way it leans, its label, its rest pose and
+   * every average. The next frame starts as the first frame of a new hand, in
+   * the same role. For HandTracker.reset(): any of these, once wrong, keeps
+   * the cross tilted until the hand has left the picture.
+   */
+  forget() {
+    this.valid = false;
+    this.handed = 0;
+    this.leanSide = 0;
+    this.relabel = 0;
+    this.stillSince = Infinity;
+    this.restFlex = { index: 0, middle: 0, ring: 0, pinky: 0 };
+    this.view.flex = { index: 0, middle: 0, ring: 0, pinky: 0 };
+    this.view.flexWorld = { index: 0, middle: 0, ring: 0, pinky: 0 };
+    this.restWorld = { index: 0, middle: 0, ring: 0, pinky: 0 };
+    for (const filter of Object.values(this.worldFilters)) filter.reset();
+    this.glitches = { outline: 0, index: 0, middle: 0, ring: 0, pinky: 0 };
+    for (const finger of FINGER_NAMES) {
+      this.steadyFingers[finger] = [0, -FINGER_REACH[finger]];
+      this.fingersAtRest[finger] = [0, FINGER_REACH[finger]];
+      for (const filter of this.fingerFilters[finger]) filter.reset();
+    }
+    this.thumbAtRest = undefined;
+    for (const filter of [...this.outline, ...this.fingers.values(), ...this.thumbFilters, this.scale, this.pitch, this.yaw, this.roll]) filter.reset();
   }
 
   /**
@@ -1047,56 +1352,62 @@ class Track {
       if (fits) this.fingersAtRest[finger] = [across, along];
       this.restFlex[finger] = fits ? 0 : this.view.flex[finger];
       this.view.flex[finger] = this.restFlex[finger];
+      this.restWorld[finger] = this.steadyWorld[finger];
+      this.view.flexWorld[finger] = 0;
     }
+    this.thumbAtRest = fingerAtRest(this.steadyThumb, this.steadyQuat);
   }
 
-  /** What the rockers read (MAPPING.rock), rad. dead: a dead zone on each finger's angle (TUNING.flatDead) */
-  signals(dead = 0): Record<Signal, number> {
-    const [index, middle, ring, pinky] = FINGER_NAMES.map((finger) => deadZone(this.view.flex[finger] - this.restFlex[finger], dead));
-    return {
-      index,
-      middle,
-      ring,
-      pinky,
-      // Against the other two fingers bending along: four fingers closing together are not a signal
-      ringPinky: Math.max(0, (ring + pinky) / 2 - Math.max(0, Math.min(index, middle))),
-      thumb: this.view.channels.thumb * MAPPING.thumbFlex,
-    };
+  /**
+   * What the rockers read (MAPPING.rock), rad from the rest pose. flat (0…1):
+   * how much of each angle is taken from the 3D landmarks instead of the image
+   * (a palm seen flat-on); dead: a dead zone on each finger's angle (TUNING.flatDead)
+   */
+  signals(dead = 0, flat = 0): Record<Finger, number> {
+    const [index, middle, ring, pinky] = FINGER_NAMES.map((finger) => {
+      const fromImage = this.view.flex[finger] - this.restFlex[finger];
+      return deadZone(fromImage + (this.view.flexWorld[finger] - fromImage) * flat, dead);
+    });
+    return { index, middle, ring, pinky };
   }
+
 }
 
 interface Neutral {
   /** The rest pose in use; it eases towards target when a new one is taken */
   quat: Quat;
   target: Quat;
-  /** The palm's height in the picture at which the cross is at its rest height (image heights); eases like quat */
-  y: number;
-  yTarget: number;
-  /** When the hand attached */
-  since: number;
+  /** The palm's size (log) at which the puppet is in the middle of the stage's depth; eases like quat */
+  scale: number;
+  scaleTarget: number;
   /** The hand's own pose (after its first pause, or N), not the stand-in */
   own: boolean;
   /** plus − minus of each rocker at rest, and the side (±1) its plus finger is on */
   rock: Record<string, { offset: number; side: number }>;
+  /** The side (±1, display) the thumb is on: the head turns that way when it is pressed */
+  thumbSide: number;
 }
 
 export class HandTracker {
   /**
-   * The camera faces the player, who sits in front of the screen (the usual
-   * case: a webcam). The picture is mirrored (toDisplay) and the hand moves
-   * the cross the way the player sees their own hand move: right is right,
-   * pushing the hand towards the screen pushes the puppet upstage, and the
-   * cross tilts as the hand does. Off: the camera looks from the player's own
-   * side (a phone's back camera), or the player stands behind the stage facing
-   * the audience; the same mapping turned half round about the vertical.
+   * The camera faces the player, who stands or sits in front of the screen
+   * (the usual case: a webcam). The picture is mirrored (toDisplay) and the
+   * hand moves the cross the way the player sees their own hand move: right
+   * is right, and the cross tilts as the hand does. Off: the camera looks from
+   * the player's own side (a phone's back camera), or the player stands behind
+   * the stage facing the audience; sideways and the turns are the other way
+   * round then. In both, coming closer to the camera brings the puppet to the
+   * front of the stage.
    */
   mirror = true;
   /** The cross being played (set from the rig) */
   geometry: CrossGeometry = { rear: 0.025, handBar: [0, 0, 0.14], headBar: [0, -0.04, 0], backEye: [0, -0.005, -0.025] };
   /** Height of the cross at rest, where the puppet just stands (rig coordinates, m) */
   restHeight = 0.613;
-  /** The head bar's range, rad: turning the second hand by this much rocks it fully */
-  headLimit = Math.PI / 4;
+  /** Turning the second hand by this much at the head bar's handle turns the head fully, rad */
+  headLimit = Math.PI / 3;
+  /** The same for the leg bar */
+  legLimit = (50 * Math.PI) / 180;
   /**
    * Added to the cross's pitch, rad: the player's own correction for a camera
    * that looks at the hand from above or below, or for a hand they like to hold
@@ -1104,56 +1415,120 @@ export class HandTracker {
    */
   pitchTrim = 0;
   /**
-   * Added to the cross's height, m: the player's own correction when the puppet
-   * hangs in the air or sags with the hand at rest (the rest pose takes the
-   * hand's height as the puppet standing, which is an estimate). Not reset by
-   * a new rest pose either.
+   * The hand's height above the height at which the puppet stands (the height
+   * model, body-frame.ts). Its settings are set here: the player's own
+   * correction (`trim`, m), the camera's measured horizon row (`setHorizon`),
+   * and whether a new player is offered the guided capture of the zero
+   * (`guide`). The zero is taken together with the rest pose: by the capture,
+   * and by reset().
    */
-  heightTrim = 0;
+  readonly height = new BodyFrame();
+  /**
+   * From the page, before every update (a script leaves them alone): whether
+   * the hand moves the puppet at all (hand-release.ts: a hand in the low zone
+   * of the picture does not), and whether a new player's puppet is still on
+   * its way down (flyIn). The guided capture's clock only runs while connected
+   * and landed.
+   */
+  connected = true;
+  flying = false;
+  /**
+   * Whether the puppet holds a prop: set from the engine before every update
+   * (the tracker itself knows nothing of the stage). It decides what the
+   * second hand's fist means (TUNING.grasp), as it is when the fist closes.
+   */
+  puppetHolds = false;
   private cross?: Track;
   private second?: Track;
   private neutral?: Neutral;
-  private baseline = 0;
-  private scaleWindow: { t: number; v: number }[] = [];
   private lastTime = -1;
   private previousTime = -Infinity;
-  private grip = false;
   /** When the cross hand was last seen, and the outputs it found when it attached or came back (TUNING.attach.blend) */
   private crossSeen = -Infinity;
-  private blend?: { start: number; bar: TrackerOutput["bar"]; legs: number; head: number };
+  /** The cross hand's track is new and has not counted yet: the height model is told when it first does (and decides whether it is a new player) */
+  private appearing = false;
+  /** The guided capture showed "done" in the last frame: the rest pose is taken when it first does */
+  private guideDone = false;
+  private blend?: { start: number; bar: TrackerOutput["bar"]; legs: number; turn: number };
+  /** After reset(): when the hand's pose is taken as the rest pose, still or not */
+  private ownAt = Infinity;
   // Second hand
   private closed = false;
   private openSince = Infinity;
   private held?: Handle;
-  private grabStart?: { palm: { x: number; y: number }; logScale: number; quat: Quat; head: number };
-  /** rock.head as the cross hand's fingers ask for it, as the second hand holds it, and how much of the latter counts (0…1) */
-  private fingerHead = 0;
+  /**
+   * The second hand when it took a bar (or carried on with it after it was
+   * lost for a moment): everything is measured from here. base: where the hand
+   * bar was then, on top of which the hand's moves count.
+   */
+  private grabStart?: { t: number; palm: { x: number; y: number }; logScale: number; quat: Quat; head: number; legs: number; base: { x: number; y: number; z: number } & Tilt };
+  /** The head's turn as the second hand holds it, and how much of that counts (0…1: let go, the cross hand's fingers have it again; fingerTurn: what they say) */
   private heldHead = 0;
   private headBlend = 0;
+  private fingerTurn = 0;
+  /** The same for the leg bar; let go, the cross hand's fingers have it again (fingerLegs: what they say) */
+  private heldLegs = 0;
+  private legsBlend = 0;
+  private fingerLegs = 0;
+  /**
+   * The hand that held a bar is gone (lost, or found again as a new hand):
+   * when it was last seen. The bar is kept for TUNING.handBar.keep from then;
+   * a hand that shows up in time carries on (rebase).
+   */
+  private orphanSince = Infinity;
+  private rebase = false;
+  private twist = new OneEuro(TUNING.filter.twist);
   /** Back string: the side (±1) the pushing hand came from, 0 = not caught; and the side it was last clear of the string on */
   private hookFrom = 0;
   private clearSide = 0;
+  /**
+   * The second hand's fist away from the handles (TUNING.grasp). armed: the
+   * hand has been seen open since it appeared, or since its last closure, so
+   * its next fist counts. fist: the fist reading, with hysteresis; fistSince:
+   * its first closed frame. phase: the closure once it counts ("click": made
+   * while the puppet held something, it may still become a release).
+   */
+  private grasp = { armed: false, fist: false, fistSince: Infinity, phase: "idle" as TrackerOutput["grasp"]["phase"] };
+  /** … and whether the puppet held something at that first closed frame */
+  private graspHolds = false;
   private readonly out: TrackerOutput = {
     status: "none",
     calibrated: false,
+    player: 0,
     bar: { x: 0, y: this.restHeight, z: 0, pitch: 0, yaw: 0, roll: 0 },
     rock: { legs: 0, head: 0, hands: 0 },
-    grip: false,
+    turn: 0,
+    grasp: { on: false, releases: 0, phase: "idle", window: 0 },
     depth: { scale: 0, baseline: 0 },
+    height: this.height.reading,
     gizmo: { origin: { x: 0, y: 0 }, x: [1, 0], y: [0, -1], z: [0, 0], unit: 0.1 },
     handles: { side: 1, radius: 0 },
     handBar: { detached: false, grab: 0, near: false, x: 0, y: 0, z: 0, pitch: 0, yaw: 0, roll: 0, magnet: { x: 0, y: 0 } },
     headBar: { held: false, near: false, handle: { x: 0, y: 0 } },
+    legBar: { held: false, near: false, handle: { x: 0, y: 0 } },
     hook: { active: false, along: 0.5, push: 0, line: { x: 0, top: 0, bottom: 0 }, edge: { x: 0, y: 0 } },
   };
 
-  /** Take the current hand pose as the cross's level rest pose again */
-  recenter() {
-    if (this.cross && this.neutral) this.takeRestPose(this.cross, true);
+  /**
+   * Sets the cross right (the reset button, N): the cross hand as it is held
+   * now becomes the rest pose (cross level, puppet in the middle of the
+   * stage's depth, bars level), and everything decided about the hand from
+   * earlier frames is dropped (Track.forget), in case that is what tilted the
+   * cross. The cross goes over without a jump; the hand's own pose is taken a
+   * moment later (TUNING.attach.reset), once its averages have filled again,
+   * and with it the hand's present height as the height at which the puppet
+   * stands (BodyFrame.capture).
+   */
+  reset() {
+    if (!this.cross) return;
+    this.cross.forget();
+    this.neutral = undefined;
+    this.blend = undefined;
+    this.ownAt = this.lastTime + TUNING.attach.reset;
   }
 
   /** The cross hand's current pose becomes the rest pose (cross level at its rest height, rockers level) */
-  private takeRestPose(track: Track, own: boolean, t = this.lastTime) {
+  private takeRestPose(track: Track, own: boolean) {
     if (own) track.takeFingersAtRest();
     const signals = track.signals();
     const rock: Neutral["rock"] = {};
@@ -1168,20 +1543,29 @@ export class HandTracker {
     // The stand-in: upright in the picture and leaning its fingers towards the camera (same frame as palmPose)
     const lean = TUNING.attach.lean;
     const target = own ? track.steadyQuat : quatFromBasis([-1, 0, 0], [0, -Math.cos(lean), -Math.sin(lean)], [0, -Math.sin(lean), Math.cos(lean)]);
-    const y = track.view.palm.y;
-    this.neutral = { quat: this.neutral?.quat ?? target, target, y: this.neutral?.y ?? y, yTarget: y, since: this.neutral?.since ?? t, own, rock };
+    // Depth counts from the size the hand has now: the puppet in the middle of the stage's depth
+    const scale = track.logScale;
+    const thumbSide = Math.sign(track.view.landmarks[THUMB_TIP].x - track.view.landmarks[PINKY_MCP].x) || 1;
+    this.neutral = { quat: this.neutral?.quat ?? target, target, scale: this.neutral?.scale ?? scale, scaleTarget: scale, own, rock, thumbSide };
   }
 
   /**
    * One camera frame: timeMs is the frame's timestamp, hands are MediaPipe's
-   * detections in any order, aspect is image width / height.
+   * detections in any order, aspect is image width / height. body: what the
+   * body models saw, if any ran on this frame (only while recording, and in
+   * the replay of such a recording): the height model reads it.
    */
-  update(timeMs: number, hands: HandFrame[], aspect: number): TrackerOutput {
+  update(timeMs: number, hands: HandFrame[], aspect: number, body?: BodyObservation): TrackerOutput {
     const t = timeMs / 1000;
     const dt = this.lastTime < 0 ? 0 : Math.max(0, t - this.lastTime);
     this.lastTime = t;
     this.assign(t, hands, aspect);
-    this.updateCross(t, dt, aspect);
+    // rock.legs is the fingers' until updateSecond puts a held leg bar on top
+    this.out.rock.legs = this.fingerLegs;
+    this.out.turn = this.fingerTurn;
+    this.updateCross(t, dt, aspect, body);
+    this.fingerLegs = this.out.rock.legs;
+    this.fingerTurn = this.out.turn;
     this.updateSecond(t, dt, aspect);
     return this.out;
   }
@@ -1239,50 +1623,47 @@ export class HandTracker {
     // A hand that has not yet stayed for `confirm` and is missing again was a ghost
     const ghost = (track?: Track) => track && track.detected < t && track.lastSeen - track.firstSeen < roles.confirm;
     if (ghost(this.cross)) this.dropCross();
-    if (ghost(this.second)) this.dropSecond();
+    if (ghost(this.second)) this.dropSecond(true);
     // Lost for good
     if (this.cross && t - this.cross.lastSeen > roles.release) this.dropCross();
-    if (this.second && t - this.second.lastSeen > roles.hold) this.dropSecond();
+    if (this.second && t - this.second.lastSeen > roles.hold) this.dropSecond(true);
 
     for (const d of fresh) {
       const lostCross = this.cross && t - this.cross.lastSeen > roles.hold;
       if (!this.cross) {
         // The only hand in view is always the cross hand: a remaining second hand moves up
         if (this.second) {
-          this.cross = this.second;
+          const moved = this.second;
           this.dropSecond();
-          this.cross.firstSeen = t; // settle and take a new rest pose
+          this.takeCross(moved);
+          moved.firstSeen = t; // settle and take a new rest pose
           this.neutral = undefined;
           this.second = new Track(d, t);
           this.second.observe(d, t, aspect, previous);
         } else {
-          this.cross = new Track(d, t);
-          this.cross.observe(d, t, aspect, previous);
+          const track = new Track(d, t);
+          this.takeCross(track);
+          track.observe(d, t, aspect, previous);
         }
       } else if (lostCross && (!this.second || d.frame.handedness === this.cross.handedness)) {
         // The cross hand comes back somewhere else (it left the frame): same role, same rest pose
         this.cross.observe(d, t, aspect, previous);
-      } else if (!this.second) {
+      } else if (!this.second || t - this.second.lastSeen > roles.swap) {
+        // A second hand, or the second hand found again beyond the gate (a fast
+        // move): a new track either way; a bar it held is kept for it (dropSecond)
+        if (this.second) this.dropSecond(true);
         this.second = new Track(d, t);
         this.second.observe(d, t, aspect, previous);
       }
     }
     // No cross hand left: the second hand takes over (after the cross hand's release time)
     if (!this.cross && this.second) {
-      this.cross = this.second;
+      const moved = this.second;
       this.dropSecond();
-      this.cross.firstSeen = t;
+      this.takeCross(moved);
+      moved.firstSeen = t;
       this.neutral = undefined;
     }
-  }
-
-  /**
-   * Stage +z per unit of the hand coming closer to the camera. The player in
-   * front of the screen (mirror) reaches towards the screen, so the puppet goes
-   * upstage; a camera on the player's own side sees the hand move away then.
-   */
-  private get forward() {
-    return this.mirror ? -1 : 1;
   }
 
   /**
@@ -1291,23 +1672,48 @@ export class HandTracker {
    * their picture is mirrored: together that flips pitch and yaw (see the
    * architecture doc, "MediaPipe hands"), so the cross turns and rolls as
    * they see their hand do. Pitch is flipped back by default: the hand is the
-   * cross (TUNING.tipForwardBows).
+   * cross (TUNING.tipForwardBows). Depth is not turned round with it: closer
+   * to the camera is the front of the stage for both.
    */
   private facing(tilt: Tilt): Tilt {
     if (!this.mirror) return tilt;
     return { pitch: TUNING.tipForwardBows ? tilt.pitch : -tilt.pitch, yaw: -tilt.yaw, roll: tilt.roll };
   }
 
-  private dropCross() {
-    this.cross = undefined;
-    this.neutral = undefined;
-    this.scaleWindow = [];
-    this.grip = false;
+  /**
+   * A hand takes the cross hand's role. Whether it is a new player is decided
+   * in the first frame in which the hand counts (updateCross): its first
+   * results are thrown away (warm-up), so it has no size to tell by yet.
+   */
+  private takeCross(track: Track) {
+    this.cross = track;
+    this.appearing = true;
   }
 
-  private dropSecond() {
+  private dropCross() {
+    // From when it was last seen, not from when the role was given up. A ghost that never counted was no hand
+    if (this.cross && !this.appearing) this.height.handGone(this.cross.lastSeen);
+    this.cross = undefined;
+    this.neutral = undefined;
+    this.ownAt = Infinity;
+  }
+
+  /**
+   * The second hand's track ends. keep: it may be the same hand lost for a
+   * moment or found again elsewhere, so a bar it holds is kept for a while
+   * (TUNING.handBar.keep, updateSecond); otherwise (it becomes the cross hand)
+   * everything is let go.
+   */
+  private dropSecond(keep = false) {
+    const track = this.second;
     this.second = undefined;
-    this.letGo();
+    if (!keep || !this.held || !track) return this.letGo();
+    if (this.orphanSince === Infinity) this.orphanSince = track.lastSeen;
+    this.rebase = true;
+    this.closed = false;
+    this.openSince = Infinity;
+    this.hookFrom = this.clearSide = 0;
+    this.cancelGrasp();
   }
 
   /** The second hand holds and pushes nothing (any more) */
@@ -1317,114 +1723,170 @@ export class HandTracker {
     this.held = undefined;
     this.grabStart = undefined;
     this.hookFrom = this.clearSide = 0;
+    this.orphanSince = Infinity;
+    this.rebase = false;
+    this.cancelGrasp();
   }
 
-  private updateCross(t: number, dt: number, aspect: number) {
+  /**
+   * The second hand's fist counts for nothing (any more): the magnet goes
+   * off, without a release (what the puppet holds stays: a hand that is lost
+   * must not drop it), and the next hand has to be seen open before its fist
+   * counts, so one that comes back closed does nothing.
+   */
+  private cancelGrasp() {
+    this.grasp.armed = this.grasp.fist = false;
+    this.grasp.fistSince = Infinity;
+    this.grasp.phase = "idle";
+    this.out.grasp.on = false;
+    this.out.grasp.phase = "idle";
+    this.out.grasp.window = 0;
+  }
+
+  private updateCross(t: number, dt: number, aspect: number, body?: BodyObservation) {
     const out = this.out;
     const track = this.cross;
+    const height = this.height;
+    height.aspect = aspect;
     const active = track && track.lastSeen - track.firstSeen >= TUNING.roles.confirm;
     if (!track || !active) {
       // No hand: the cross stays where it is, the rockers go level
       out.status = "none";
       out.cross = undefined;
-      out.rock.legs = out.rock.hands = this.fingerHead = 0;
-      out.grip = false;
+      out.rock.legs = out.rock.hands = out.turn = 0;
+      out.height.guide = undefined;
+      this.guideDone = false;
+      height.watch(t, body); // the player's face is followed on: it tells a hand that comes back from a new player's
       return;
     }
     out.cross = track.view;
     const seen = track.lastSeen === t;
     track.view.held = !seen;
     if (!seen) {
-      // Short dropout: hold every output; past that the rockers go level and the grip opens
+      height.watch(t, body);
+      // Short dropout: hold every output; past that the rockers go level
       if (t - track.lastSeen > TUNING.roles.hold) {
         out.status = "lost";
-        out.rock.legs = out.rock.hands = this.fingerHead = 0;
-        out.grip = this.grip = false;
+        out.rock.legs = out.rock.hands = out.turn = 0;
       }
       return;
     }
 
     // Attaching, or back after a while: the outputs go over to the hand from where they are
-    if (!this.neutral || t - this.crossSeen > TUNING.attach.gap) this.blend = { start: t, bar: { ...out.bar }, legs: out.rock.legs, head: this.fingerHead };
+    // (after reset() they wait where they are until the hand's own pose is taken)
+    if (!this.neutral || t - this.crossSeen > TUNING.attach.gap) {
+      this.blend = { start: !this.neutral && this.ownAt < Infinity ? this.ownAt : t, bar: { ...out.bar }, legs: out.rock.legs, turn: out.turn };
+    }
     this.crossSeen = t;
+
+    // Height: how far the hand is above the height at which the puppet stands (body-frame.ts).
+    // First, because its guided capture takes the zero and the rest pose in one
+    const view = track.view;
+    const sample: HandSample = {
+      t,
+      x: this.mirror ? aspect - view.palm.x : view.palm.x, // the body observations are in the raw picture
+      row: view.palm.y,
+      palm: track.heightPalm, // filtered like the row, see there
+      lean: track.lean,
+      speed: track.palmSpeed,
+      still: track.stillSince === Infinity ? 0 : t - track.stillSince,
+    };
+    if (this.appearing) {
+      // The first frame in which this hand counts: the last player's, or a new one's?
+      height.handAppeared(t, sample);
+      this.appearing = false;
+    }
+    height.connected = this.connected;
+    height.flying = this.flying;
+    height.settle = TUNING.attach.settle;
+    const reading = (out.height = height.update(sample, body));
+    out.player = height.player;
+    const captured = reading.guide?.state === "done" && !this.guideDone;
+    this.guideDone = reading.guide?.state === "done";
 
     // Rest pose: a usual pose at once, the hand's own the first time it pauses
     if (!this.neutral) {
       this.takeRestPose(track, false);
-      this.baseline = track.logScale;
-      this.scaleWindow = [];
       for (const filter of [track.pitch, track.yaw, track.roll]) filter.reset();
     }
-    if (!this.neutral!.own && t - track.stillSince >= TUNING.attach.settle) this.takeRestPose(track, true);
+    // … and again when the guided capture takes the zero: where the puppet stands, the cross is level
+    if ((!this.neutral!.own && t - track.stillSince >= TUNING.attach.settle) || captured) this.takeRestPose(track, true);
+    if (t >= this.ownAt) {
+      // reset(): at once, the blend above carries the cross over
+      this.takeRestPose(track, true);
+      Object.assign(this.neutral!, { quat: this.neutral!.target, scale: this.neutral!.scaleTarget });
+      this.ownAt = Infinity;
+      // The hand's height as it is now is where the puppet stands. Not eased by the height model: the blend
+      // above moves the whole cross over. (It shows "done", which is no capture to answer to.)
+      height.capture(false);
+      this.guideDone = true;
+    }
     const neutral = this.neutral!;
     const ease = 1 - Math.exp(-dt / TUNING.attach.ease);
     neutral.quat = quatBlend(neutral.quat, neutral.target, ease);
+    neutral.scale += (neutral.scaleTarget - neutral.scale) * ease;
     out.calibrated = neutral.own;
     out.status = "attached";
 
-    // Position. Sideways: where the hand is in the picture. Height: against the
-    // height the hand rests at, so that a resting hand is a standing puppet
-    // wherever it is held; until the hand has paused that height follows it.
+    // Position. Sideways: where the hand is in the picture. Height: how far the
+    // hand is above the height at which the puppet stands; standing is a band,
+    // wider while that height is not sure (TUNING.position)
     const position = TUNING.position;
-    const view = track.view;
     out.bar.x = clamp(((view.palm.x / aspect - 0.5) / position.imageSpan) * 2 * position.x, -position.x, position.x);
-    if (neutral.own) neutral.y += (neutral.yTarget - neutral.y) * ease;
-    else {
-      const follow = position.follow * smoothstep(position.entry[0], position.entry[1], t - neutral.since);
-      neutral.y += (view.palm.y - neutral.y) * (follow > 0 ? 1 - Math.exp(-dt / follow) : 1);
-    }
-    out.bar.y = this.restHeight + this.heightTrim + clamp((neutral.y - view.palm.y) * position.yGain, -position.down, position.up);
+    const dead = position.dead + clamp(reading.sigma - HEIGHT.sigma.calibrated, 0, position.unsure);
+    out.bar.y = this.restHeight + clamp(position.yGain * deadZone(reading.value, dead), -position.down, position.up);
 
     // Tilt against the rest pose
     const tilt = this.facing(tiltBetween(neutral.quat, track.quat));
     for (const axis of ["pitch", "yaw", "roll"] as const) {
       const { gain, max, dead } = TUNING.tilt[axis];
-      out.bar[axis] = clamp(gain * deadZone(track[axis].filter(clamp(tilt[axis], -1.5, 1.5), t), dead), -max, max);
+      out.bar[axis] = clamp(gain * deadZone(track[axis].filter(clamp(tilt[axis], -1.5, 1.5), t, track.slow), dead), -max, max);
     }
     out.bar.pitch += this.pitchTrim;
 
-    // Depth: hand scale against the slowly following median of the last seconds
+    // Depth: the hand's size against its size at the rest pose. A hand that
+    // comes closer to the camera brings the puppet to the front of the stage,
+    // and it stays there (the first version let it drift back to the middle
+    // within 10 s, which is wrong for a player who walks up and stays)
     const depth = TUNING.depth;
-    const window = this.scaleWindow;
-    if (!window.length || t - window[window.length - 1].t >= 0.1) window.push({ t, v: track.logScale });
-    while (window.length && t - window[0].t > depth.window) window.shift();
-    const sorted = window.map((s) => s.v).sort((a, b) => a - b);
-    const median = sorted[sorted.length >> 1];
-    this.baseline += (median - this.baseline) * (1 - Math.exp(-dt / depth.follow));
     out.depth.scale = track.logScale;
-    out.depth.baseline = this.baseline;
-    out.bar.z = clamp(this.forward * depth.gain * deadZone(track.logScale - this.baseline, depth.dead), depth.range[0], depth.range[1]);
+    out.depth.baseline = neutral.scale;
+    out.bar.z = clamp(depth.gain * deadZone(track.logScale - neutral.scale, depth.dead), depth.range[0], depth.range[1]);
 
     // Fingers
-    // The rockers wait for the hand's own rest pose: finger lengths and how a
-    // relaxed thumb reads differ from hand to hand, so the stand-in has no zero
-    // for them (on a real session the head bar sat at full rock until the first pause)
-    const flat = TUNING.flatDead.extra * (1 - smoothstep(TUNING.flatDead.lean[0], TUNING.flatDead.lean[1], track.lean));
-    const signals = track.signals(flat);
+    // Leg bar and head turn wait for the hand's own rest pose: finger lengths and how
+    // a relaxed thumb lies differ from hand to hand, so the stand-in has no zero
+    // for them (on a real session a bar sat at full rock until the first pause)
+    const flat = 1 - smoothstep(TUNING.flatDead.lean[0], TUNING.flatDead.lean[1], track.lean);
+    const signals = track.signals(TUNING.flatDead.extra * flat, flat);
     const closing = Math.min(signals.index, signals.middle, signals.ring, signals.pinky);
     const fade =
       (neutral.own ? 1 : 0) *
       (1 - smoothstep(MAPPING.fistFade[0], MAPPING.fistFade[1], closing)) *
       (1 - smoothstep(TUNING.rockFade[0], TUNING.rockFade[1], track.lean));
-    const rocked = (name: "legs" | "head") => {
+    const rocked = (name: "legs") => {
       const map = MAPPING.rock[name];
       if (!map) return 0;
       const rest = neutral.rock[name];
-      return clamp(rest.side * fade * map.gain * deadZone(signals[map.plus] - signals[map.minus] - rest.offset, map.dead), -1, 1);
+      const lead = deadZone(signals[map.plus] - signals[map.minus] - rest.offset, map.dead);
+      return clamp(rest.side * fade * map.gain[lead > 0 ? 0 : 1] * lead, -1, 1);
     };
     out.rock.legs = rocked("legs");
-    this.fingerHead = rocked("head"); // rock.head: updateSecond, the second hand may hold the head bar
     out.rock.hands = 0;
-    // A hand seen edge-on looks like a fist: the grip keeps its state there, so a bow does not drop the prop
-    if (track.lean < TUNING.flatFade[0]) this.grip = hysteresis(this.grip, view.channels[MAPPING.grip.channel], MAPPING.grip);
-    out.grip = this.grip;
+    // Thumb and little finger turn the head, to the side of the one that is pressed
+    const turning = MAPPING.turn;
+    const part = (value: number, [none, full]: [number, number]) => clamp((value - none) / (full - none), 0, 1);
+    const thumbPart = part(view.thumbPress, turning.thumb);
+    const pinkyPart = part(signals.pinky - turning.along * Math.max(0, signals.middle), turning.pinky);
+    out.turn = clamp(neutral.thumbSide * fade * (thumbPart - pinkyPart), -1, 1);
+    // The cross hand's fist does nothing of its own (it fades the leg bar and the turn, above): the magnet is the second hand's
 
     if (this.blend) {
       const weight = smoothstep(0, TUNING.attach.blend, t - this.blend.start);
       const mix = (from: number, to: number) => from + (to - from) * weight;
       for (const key of ["x", "y", "z", "pitch", "yaw", "roll"] as const) out.bar[key] = mix(this.blend.bar[key], out.bar[key]);
       out.rock.legs = mix(this.blend.legs, out.rock.legs);
-      this.fingerHead = mix(this.blend.head, this.fingerHead);
+      out.turn = mix(this.blend.turn, out.turn);
       if (weight >= 1) this.blend = undefined;
     }
 
@@ -1469,6 +1931,8 @@ export class HandTracker {
     const handle = ([, y, z]: V3) => project([handles.side * TUNING.gizmo.handle, y, z]);
     this.out.handBar.magnet = handle(this.geometry.handBar);
     this.out.headBar.handle = handle(this.geometry.headBar);
+    const [, legY, legZ] = this.geometry.legBar ?? [0, -0.035, 0.109];
+    this.out.legBar.handle = project([handles.side * TUNING.gizmo.legHandle.out, legY - TUNING.gizmo.legHandle.down, legZ]);
     // The back string hangs straight down the picture from its eye
     const eye = project(this.geometry.backEye);
     hook.line = { x: eye.x, top: eye.y, bottom: eye.y + TUNING.hook.length * gizmo.unit };
@@ -1476,15 +1940,19 @@ export class HandTracker {
 
   private updateSecond(t: number, dt: number, aspect: number) {
     const out = this.out;
-    const { handBar: bar, headBar: head, hook, handles } = out;
+    const { handBar: bar, headBar: head, legBar: legs, hook, handles } = out;
     const track = this.second;
     const active = track && track.lastSeen - track.firstSeen >= TUNING.roles.confirm;
     out.second = active ? track.view : undefined;
     if (!track || !active || !this.cross || out.status === "none") {
-      this.letGo();
+      // No second hand (yet, or any more). A bar whose hand has just gone is
+      // kept for a moment: the hand may only have been lost, or moved so fast
+      // that it came back as a new one, and carries on then (readSecond)
+      const kept = this.held && this.cross && out.status !== "none" && t - this.orphanSince <= TUNING.handBar.keep;
+      if (!kept) this.letGo();
       bar.grab = 0;
-      bar.near = head.near = false;
-      handles.near = undefined;
+      bar.near = head.near = legs.near = false;
+      handles.near = this.held;
     } else {
       track.view.held = track.lastSeen !== t;
       // Over a short dropout everything is held where it is
@@ -1492,19 +1960,111 @@ export class HandTracker {
     }
     bar.detached = this.held === "hand";
     head.held = this.held === "head";
+    legs.held = this.held === "legs";
     hook.active = this.hookFrom !== 0;
     if (!hook.active) hook.push = 0;
-    // The head bar goes over to the second hand and back to the fingers without a jump
-    this.headBlend += ((head.held ? 1 : 0) - this.headBlend) * (1 - Math.exp(-dt / TUNING.handBar.blend));
+    // Let go, the head goes back to the cross hand's fingers, without a jump
+    const ease = 1 - Math.exp(-dt / TUNING.handBar.blend);
+    this.headBlend += ((head.held ? 1 : 0) - this.headBlend) * ease;
     if (!head.held && this.headBlend < 1e-3) this.headBlend = 0;
-    out.rock.head = this.fingerHead * (1 - this.headBlend) + this.heldHead * this.headBlend;
+    out.rock.head = 0;
+    out.turn = this.fingerTurn + (this.heldHead - this.fingerTurn) * this.headBlend;
+    // And the leg bar goes back to the cross hand's fingers
+    this.legsBlend += ((legs.held ? 1 : 0) - this.legsBlend) * ease;
+    if (!legs.held && this.legsBlend < 1e-3) this.legsBlend = 0;
+    out.rock.legs = this.fingerLegs + (this.heldLegs - this.fingerLegs) * this.legsBlend;
+  }
+
+  /**
+   * How far a hand that holds a bar has turned it since `from`, as one angle,
+   * rad: turning the hand in the picture (about the camera's axis: the bar
+   * tips as the fist is seen to tip), plus turning the forearm (about the
+   * hand's own long axis) as far as that axis does not point at the camera
+   * anyway. A fist is turned from the forearm; with the forearm pointing up
+   * that is no turn in the picture at all, and the bar did not rock.
+   */
+  private turned(from: Quat, to: Quat, track: Track, t: number) {
+    const raw = tiltFromQuat(quatMultiply(to, quatConjugate(from))); // camera axes: y down, z away
+    const along = palmAxes(from).along;
+    const most = TUNING.handBar.maxTurn;
+    // The two parts are filtered apart: the turn in the picture is read well, the forearm's is not (TUNING.filter.twist)
+    return track.roll.filter(clamp(-raw.roll, -most, most), t) + this.twist.filter(clamp(raw.pitch * along[0] + raw.yaw * along[1], -most, most), t);
+  }
+
+  /**
+   * The second hand's fist away from the handles, in a frame in which the hand
+   * is seen (TUNING.grasp). fist: the fist reading 0…1; open: the hand is seen
+   * open (as for letting a bar go); guarded: it is at or near a handle.
+   *
+   * A closure begins with the fist seen for a moment and ends only when the
+   * hand has been seen open for a moment (or is lost for good, cancelGrasp):
+   * a fist that moves reads as half open for frames, and an edge-on hand as
+   * neither. Times are taken from the frames' timestamps, so a hand that is
+   * not seen for a few frames loses nothing.
+   */
+  private readGrasp(t: number, fist: number, open: boolean, guarded: boolean) {
+    const g = this.grasp;
+    const tuning = TUNING.grasp;
+    const out = this.out.grasp;
+    // Frame times are multiples of 1/30 s, which do not add up exactly: "three frames" must not become four
+    const lasted = (since: number, span: number) => t - since >= span - 1e-3;
+    const isOpen = open && lasted(this.openSince, tuning.open);
+    const busy = !!this.held || this.hookFrom !== 0;
+    const was = g.fist;
+    g.fist = hysteresis(g.fist, fist, MAPPING.grip);
+
+    if (g.phase === "idle") {
+      if (busy) {
+        // A hand that holds a bar or pushes the string does that, and nothing else
+        g.armed = false;
+        g.fistSince = Infinity;
+      } else if (g.fist && !was) {
+        // The first closed frame: it counts only for a hand that was seen open before
+        if (g.armed && this.out.status === "attached") {
+          g.fistSince = t;
+          this.graspHolds = this.puppetHolds;
+        }
+        g.armed = false;
+      } else if (!g.fist) {
+        g.fistSince = Infinity; // a single frame read as a fist: nothing
+        if (isOpen) g.armed = true;
+      }
+      // Near a handle the fist was meant for the bar. Asked on every frame until
+      // the fist counts, not only on the first: the fingers come in by a ring's
+      // radius while the hand closes
+      if (guarded) g.fistSince = Infinity;
+      if (g.fistSince < Infinity && lasted(g.fistSince, tuning.close)) g.phase = this.graspHolds ? "click" : "fist";
+    } else if (isOpen) {
+      // Opened. A fist made with something in the puppet's hand and opened again quickly lets go of it
+      if (g.phase === "click" && this.openSince - g.fistSince <= tuning.click) out.releases++;
+      g.phase = "idle";
+      g.fistSince = Infinity;
+      g.armed = true;
+    } else if (g.phase === "click" && (open ? this.openSince : t) - g.fistSince > tuning.click) {
+      // Still closed after the time for a release: the magnet after all
+      g.phase = "fist";
+    }
+    out.phase = g.phase;
+    out.on = g.phase === "fist";
+    out.window = g.phase === "click" ? clamp((t - g.fistSince) / tuning.click, 0, 1) : 0;
   }
 
   /** The second hand as seen in this frame: taking a bar at its handle, moving it, pushing the back string */
   private readSecond(track: Track, t: number, aspect: number) {
     const out = this.out;
-    const { handBar: bar, headBar: head, hook, handles } = out;
+    const { handBar: bar, headBar: head, legBar: legs, hook, handles } = out;
     const view = track.view;
+    if (this.rebase && this.held) {
+      // The hand that held the bar is back (as a new hand to the tracker): it
+      // carries on from where the bar is, measured from this frame
+      this.grabStart = {
+        t, palm: { ...view.palm }, logScale: track.logScale, quat: track.steadyQuat, head: this.heldHead, legs: this.heldLegs,
+        base: { x: bar.x, y: bar.y, z: bar.z, pitch: bar.pitch, yaw: bar.yaw, roll: bar.roll },
+      };
+      for (const filter of [track.pitch, track.yaw, track.roll, this.twist]) filter.reset();
+    }
+    this.rebase = false;
+    this.orphanSince = Infinity;
     // Touching fingertips can be seen from any side, a fist cannot (an edge-on hand looks like one)
     const readable = 1 - smoothstep(TUNING.flatFade[0], TUNING.flatFade[1], track.lean);
     bar.grab = Math.max(...MAPPING.grab.channels.map((c) => view.channels[c] * (c === "fist" ? readable : 1)));
@@ -1512,42 +2072,64 @@ export class HandTracker {
     const [thumb, index] = [view.landmarks[THUMB_TIP], view.landmarks[INDEX_TIP]];
     const fingers = { x: ((thumb.x + index.x) / 2) * aspect, y: (thumb.y + index.y) / 2 };
     const reach = (handle: { x: number; y: number }) => Math.hypot(fingers.x - handle.x, fingers.y - handle.y);
-    const [toHand, toHead] = [reach(bar.magnet), reach(head.handle)];
-    const near: Handle | undefined = Math.min(toHand, toHead) < handles.radius ? (toHand <= toHead ? "hand" : "head") : undefined;
+    // The nearest handle within reach
+    const reaches: [Handle, number][] = [["hand", reach(bar.magnet)], ["head", reach(head.handle)], ["legs", reach(legs.handle)]];
+    const [nearest, howFar] = reaches.reduce((a, b) => (b[1] < a[1] ? b : a));
+    const near: Handle | undefined = howFar < handles.radius ? nearest : undefined;
     bar.near = near === "hand";
     head.near = near === "head";
+    legs.near = near === "legs";
 
     // The hand has to close within reach of a handle: a fist passing by takes nothing
     const closed = hysteresis(this.closed, bar.grab, MAPPING.grab);
-    if (closed && !this.closed && near && !this.held && out.status === "attached") {
+    // (not by a fist that is the magnet already and whose reading dipped on its way past a handle)
+    if (closed && !this.closed && near && !this.held && this.grasp.phase === "idle" && out.status === "attached") {
       // Everything is measured from this moment, so nothing jumps when the bar is taken
       this.held = near;
-      this.grabStart = { palm: { ...view.palm }, logScale: track.logScale, quat: track.steadyQuat, head: out.rock.head };
-      this.heldHead = out.rock.head;
+      this.grabStart = {
+        t, palm: { ...view.palm }, logScale: track.logScale, quat: track.steadyQuat, head: out.turn, legs: this.fingerLegs,
+        base: { x: 0, y: 0, z: 0, pitch: 0, yaw: 0, roll: 0 },
+      };
+      this.heldHead = out.turn;
+      this.heldLegs = this.fingerLegs;
       this.hookFrom = 0;
-      for (const filter of [track.pitch, track.yaw, track.roll]) filter.reset();
+      for (const filter of [track.pitch, track.yaw, track.roll, this.twist]) filter.reset();
     }
-    // Let go only once the hand has stayed open: its reading dips for single frames while it moves
-    if (closed) this.openSince = Infinity;
+    // Let go only once the hand has been seen open for a while (MAPPING.grab.open):
+    // fingers straight and thumb off the index. A hand seen edge-on reads as
+    // curled, so it keeps the bar
+    const curl = view.channels;
+    const open = !closed && (curl.index + curl.middle + curl.ring + curl.pinky) / 4 < MAPPING.grab.open && curl.pinch < MAPPING.grab.off;
+    if (!open) this.openSince = Infinity;
     else if (this.openSince === Infinity) this.openSince = t;
-    if (this.held && !closed && t - this.openSince >= TUNING.handBar.release) this.held = undefined;
+    if (this.held && open && t - this.openSince >= TUNING.handBar.release) this.held = undefined;
     this.closed = closed;
     handles.near = this.held ?? near;
+    this.readGrasp(t, view.channels[MAPPING.grip.channel] * readable, open, howFar < TUNING.grasp.guard * handles.radius);
 
     if (this.held && this.grabStart) {
       const tuning = TUNING.handBar;
+      const { base } = this.grabStart;
       const tilt = this.facing(tiltBetween(this.grabStart.quat, track.quat));
-      const roll = track.roll.filter(clamp(tilt.roll, -tuning.maxTurn, tuning.maxTurn), t);
+      // The turns count from the hand's average pose at the grab, and the
+      // frame of the grab differs from that by its noise: eased in, so the bar
+      // does not twitch as it is taken
+      const settle = smoothstep(0, tuning.settle, t - this.grabStart.t);
+      const turned = settle * clamp(this.turned(this.grabStart.quat, track.quat, track, t), -tuning.maxTurn, tuning.maxTurn);
       if (this.held === "hand") {
-        bar.x = (view.palm.x - this.grabStart.palm.x) * tuning.gain;
-        bar.y = -(view.palm.y - this.grabStart.palm.y) * tuning.gain;
-        bar.z = this.forward * (track.logScale - this.grabStart.logScale) * tuning.depthGain;
-        bar.pitch = track.pitch.filter(clamp(tilt.pitch, -tuning.maxTurn, tuning.maxTurn), t);
-        bar.yaw = track.yaw.filter(clamp(tilt.yaw, -tuning.maxTurn, tuning.maxTurn), t);
-        bar.roll = roll;
+        bar.x = base.x + (view.palm.x - this.grabStart.palm.x) * tuning.gain;
+        bar.y = base.y - (view.palm.y - this.grabStart.palm.y) * tuning.gain;
+        bar.z = base.z + (track.logScale - this.grabStart.logScale) * tuning.depthGain; // closer to the camera = to the front, as for the cross
+        bar.pitch = base.pitch + settle * tuning.tiltGain * track.pitch.filter(clamp(tilt.pitch, -tuning.maxTurn, tuning.maxTurn), t);
+        bar.yaw = base.yaw + settle * tuning.tiltGain * track.yaw.filter(clamp(tilt.yaw, -tuning.maxTurn, tuning.maxTurn), t);
+        // Turning the fist rocks the bar: one puppet hand up, the other down
+        bar.roll = clamp(base.roll + tuning.rockGain * turned, -tuning.maxTurn, tuning.maxTurn);
+      } else if (this.held === "head") {
+        // Turning the hand turns the head, from where it was when the bar was taken:
+        // the fist's top to the right, the head to the right (as the player sees both)
+        this.heldHead = clamp(this.grabStart.head - turned / this.headLimit, -1, 1);
       } else {
-        // Turning the hand rocks the head bar, from the angle it had when it was taken
-        this.heldHead = clamp(this.grabStart.head + roll / this.headLimit, -1, 1);
+        this.heldLegs = clamp(this.grabStart.legs + turned / this.legLimit, -1, 1);
       }
     }
 
@@ -1569,7 +2151,7 @@ export class HandTracker {
       }
     } else if (Math.abs(dx) > half) {
       this.clearSide = Math.sign(dx);
-    } else if (this.clearSide && within && !this.held && !closed && out.status === "attached") {
+    } else if (this.clearSide && within && !this.held && !closed && !this.grasp.fist && this.grasp.phase === "idle" && out.status === "attached") {
       this.hookFrom = this.clearSide;
     }
     if (this.hookFrom) {

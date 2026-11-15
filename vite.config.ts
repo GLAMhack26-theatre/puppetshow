@@ -121,6 +121,79 @@ function plays(): Plugin {
   };
 }
 
+// Lighting scenes (src/stage/lighting.ts): the library all plays share, one
+// JSON per scene in assets/lights/. Fetched at runtime like the plays, as
+// one file with all of them (they are small and all needed at once). Dev:
+// PUT writes a scene into assets/lights/, DELETE removes it. Build: the
+// combined file goes to dist/lights/index.json.
+const LIGHTS_DIR = path.join(ROOT, "assets/lights");
+
+function lightScenes() {
+  const scenes: Record<string, unknown> = {};
+  if (!fs.existsSync(LIGHTS_DIR)) return scenes;
+  for (const file of fs.readdirSync(LIGHTS_DIR).sort()) {
+    const id = file.endsWith(".json") ? file.slice(0, -5) : "";
+    if (!PLAY_ID.test(id)) continue;
+    try {
+      scenes[id] = JSON.parse(fs.readFileSync(path.join(LIGHTS_DIR, file), "utf8"));
+    } catch (error) {
+      // One broken file (a hand edit) must not take the others with it
+      console.warn(`assets/lights/${file}: ${String(error)}`);
+    }
+  }
+  return scenes;
+}
+
+function lights(): Plugin {
+  return {
+    name: "lights",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const url = req.url?.split("?")[0] ?? "";
+        if (url === "/lights/index.json" && req.method === "GET") {
+          res.setHeader("Content-Type", "application/json");
+          res.setHeader("Cache-Control", "no-store");
+          res.end(JSON.stringify(lightScenes()));
+          return;
+        }
+        const id = url.match(/^\/lights\/([^/]+)\.json$/)?.[1];
+        if (!id || (req.method !== "PUT" && req.method !== "DELETE")) return next();
+        if (!PLAY_ID.test(id)) {
+          res.statusCode = 400;
+          res.end("bad lighting scene id");
+          return;
+        }
+        const file = path.join(LIGHTS_DIR, `${id}.json`);
+        if (req.method === "DELETE") {
+          fs.rmSync(file, { force: true });
+          res.statusCode = 204;
+          res.end();
+          return;
+        }
+        let body = "";
+        req.setEncoding("utf8");
+        req.on("data", (chunk) => (body += chunk));
+        req.on("end", () => {
+          try {
+            const scene = JSON.parse(body);
+            if (!scene || typeof scene.values !== "object" || !scene.values) throw new Error("no values");
+            fs.mkdirSync(LIGHTS_DIR, { recursive: true });
+            fs.writeFileSync(file, `${JSON.stringify(scene, null, 2)}\n`);
+            res.statusCode = 204;
+            res.end();
+          } catch (error) {
+            res.statusCode = 400;
+            res.end(String(error));
+          }
+        });
+      });
+    },
+    generateBundle() {
+      this.emitFile({ type: "asset", fileName: "lights/index.json", source: JSON.stringify(lightScenes()) });
+    },
+  };
+}
+
 // HTTPS for phones on the LAN: camera, motion sensors and WebXR exist only
 // on secure pages. Self-signed, so the browser warns once. Switched on by
 // `--mode https` (works in every shell, used by `npm run dev:https`) or by
@@ -132,7 +205,12 @@ async function httpsPlugins(mode: string): Promise<Plugin[]> {
 }
 
 export default defineConfig(async ({ mode }) => ({
-  plugins: [wasmRuntimes(), plays(), ...(await httpsPlugins(mode))],
+  // Relative: one build works wherever it is served (GitHub Pages under
+  // /<repo>/, a custom domain or the root, vite preview); the dev server
+  // treats it as "/". Runtime URLs go through import.meta.env.BASE_URL
+  // ("./" in a build), which resolves against the page.
+  base: "./",
+  plugins: [wasmRuntimes(), plays(), lights(), ...(await httpsPlugins(mode))],
   resolve: {
     // One three.js: IWSDK's, also for three/examples/jsm add-ons
     dedupe: ["three"],

@@ -1,20 +1,24 @@
 import { Vector3 } from "@iwsdk/core";
 import type { RigController } from "../puppet/rig";
-import { controlInput } from "./control-input";
+import { controlInput, puppetState } from "./control-input";
+import { HEIGHT, type HeightGuide, type HeightSource } from "./body-frame.ts";
 import { HAND_BONES, TUNING, rotateByTilt, type HandView, type TrackerOutput } from "./hand-tracking.ts";
 
 // The picture above the camera feed: how the hands hold the cross. It draws
 // the tracked hands, the cross lying in the cross hand (rear end at the wrist,
 // front tip at the fingertips; every bar as the rig defines it, rocked as
-// ControlInput says), the handles where the second hand takes the hand bar or
-// the head bar, the back string it can push, and meters for depth and the
-// rocking bars. One colour per function: the fingers that drive a bar
-// have the bar's colour, so a glance shows what moves what.
+// ControlInput says), the handles where the second hand takes the hand bar,
+// the head bar or the leg bar, the back string it can push, the height at
+// which the puppet stands (and, for a new player, the guided capture of that
+// height: a band to hold the hand in, one hint at a time), and meters for
+// depth, the leg bar and the head's turn. One colour per
+// function: the fingers that drive something have its colour, so a glance
+// shows what moves what.
 
 const COLOR = {
   cross: "#f0d49a", // main bar, shoulder bar, palm of the cross hand
   legs: "#ff8a3d", // index + middle finger, leg bar
-  head: "#4fd1ff", // ring + little finger and thumb, head bar
+  head: "#4fd1ff", // thumb and little finger (the head turns to the side of the one pressed), head bar
   hands: "#9be36b", // second hand, hand bar
   active: "#ffe14d",
   text: "#f3e9dc",
@@ -22,15 +26,32 @@ const COLOR = {
 };
 /** Finger of each landmark: 0 palm, then thumb, index, middle, ring, little */
 const fingerOf = (landmark: number) => (landmark === 0 ? 0 : Math.ceil(landmark / 4));
-const FINGER_COLOR = [COLOR.cross, COLOR.head, COLOR.legs, COLOR.legs, COLOR.head, COLOR.head];
+const FINGER_COLOR = [COLOR.cross, COLOR.head, COLOR.legs, COLOR.legs, COLOR.cross, COLOR.head];
 const STATUS = { none: "Hand zeigen", attached: "verbunden", lost: "Hand verloren" };
 /** Shown until the hand has paused once: only then is the cross level in the player's own hand pose */
-const REST_HINT = "Hand flach und kurz ruhig halten: Kreuz waagrecht, Finger aktiv (N: neu)";
+const REST_HINT = "Hand flach und kurz ruhig halten: Kreuz waagrecht, Finger aktiv";
+/** The guided capture of the height at which the puppet stands: one hint at a time (HeightGuide.state; "place" says which way) */
+const GUIDE_HINT: Record<HeightGuide["state"], string> = {
+  place: "",
+  back: "Bitte einen Schritt zurück",
+  tilt: "Fingerspitzen leicht zur Kamera neigen",
+  hold: "Ruhig halten …",
+  done: "So steht die Puppe",
+  flying: "Die Puppe kommt …",
+};
+/** What the hand's height rests on, as the sources line says it */
+const SOURCE: Record<HeightSource, string> = {
+  hand: "Hand", face: "Gesicht", pose: "Körper",
+  calibrated: "gesetzt", "body-prior": "geschätzt", default: "nicht gesetzt",
+  "horizon-measured": "Kamera eingemessen", "horizon-fit": "Kamera geschätzt", "horizon-default": "Kamera nicht eingemessen",
+};
 
 export interface OverlayState {
   mirror: boolean;
   /** Extra line under the status (recording, replay) */
   note?: string;
+  /** In place of the height guide's hint: what the installer's step asks for ("Kamera einmessen"), and how far the hold in progress is, 0…1 */
+  hint?: { text: string; progress: number };
 }
 
 const PLACE_KEY = "hand-overlay-place";
@@ -40,7 +61,7 @@ const PLACE_KEY = "hand-overlay-place";
  * anywhere, so it never has to cover what the player is looking at; the place
  * is remembered, a double click puts it back.
  */
-function makeMovable(canvas: HTMLCanvasElement) {
+function makeMovable(canvas: HTMLElement) {
   const place = (left: number, top: number) => {
     // Kept inside the window, also after the window was resized
     const x = Math.max(0, Math.min(innerWidth - canvas.offsetWidth, left));
@@ -62,6 +83,7 @@ function makeMovable(canvas: HTMLCanvasElement) {
 
   let grab: { x: number; y: number } | undefined;
   canvas.addEventListener("pointerdown", (e) => {
+    if ((e.target as Element).closest("button")) return; // a control in the window, not a drag
     const rect = canvas.getBoundingClientRect();
     grab = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     canvas.setPointerCapture(e.pointerId);
@@ -80,7 +102,8 @@ function makeMovable(canvas: HTMLCanvasElement) {
   };
   canvas.addEventListener("pointerup", release);
   canvas.addEventListener("pointercancel", release);
-  canvas.addEventListener("dblclick", () => {
+  canvas.addEventListener("dblclick", (e) => {
+    if ((e.target as Element).closest("button")) return;
     Object.assign(canvas.style, { left: "", top: "", transform: "" });
     stored = null;
     try {
@@ -91,10 +114,40 @@ function makeMovable(canvas: HTMLCanvasElement) {
   });
 }
 
-export function createHandOverlay(controller?: RigController) {
-  const canvas = Object.assign(document.createElement("canvas"), { id: "preview" });
+/** A choice in the window's footer (the camera's resolution) */
+export interface OverlayChoice {
+  label: string;
+  title: string;
+  choices: { value: string; label: string; title: string }[];
+  choose(value: string): void;
+}
+
+export function createHandOverlay(controller?: RigController, choice?: OverlayChoice) {
+  // The window: the picture, and under it a small footer with the camera's
+  // resolution (a segment control). The window is what is dragged about.
+  const element = Object.assign(document.createElement("div"), { id: "preview" });
+  const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d")!;
-  makeMovable(canvas);
+  element.append(canvas);
+  const buttons = new Map<string, HTMLButtonElement>();
+  const footer = Object.assign(document.createElement("div"), { className: "preview-footer", hidden: true });
+  if (choice) {
+    const group = Object.assign(document.createElement("div"), { className: "preview-segments", title: choice.title });
+    group.setAttribute("role", "group");
+    group.setAttribute("aria-label", choice.title);
+    for (const c of choice.choices) {
+      const button = Object.assign(document.createElement("button"), { type: "button", textContent: c.label, title: c.title });
+      button.addEventListener("click", () => {
+        choice.choose(c.value);
+        button.blur(); // keys go to the stage again
+      });
+      buttons.set(c.value, button);
+      group.append(button);
+    }
+    footer.append(Object.assign(document.createElement("span"), { textContent: choice.label }), group);
+    element.append(footer);
+  }
+  makeMovable(element);
   const mainBar = controller?.bars.find((b) => !b.parent);
   const point = new Vector3();
 
@@ -177,10 +230,10 @@ export function createHandOverlay(controller?: RigController) {
     };
     const handName = (view: HandView) => (view.hand === "left" ? "linke Hand" : "rechte Hand");
 
-    const { handBar: bar, headBar: head, hook, handles, gizmo } = out;
+    const { handBar: bar, headBar: head, legBar: legs, hook, handles, gizmo } = out;
     if (out.second) {
-      const busy = bar.detached || head.held || hook.active;
-      const label = bar.detached ? "hält das Handkreuz" : head.held ? "dreht das Kopfkreuz" : hook.active ? "drückt den Rückenfaden" : `2. Hand · ${handName(out.second)}`;
+      const busy = bar.detached || head.held || legs.held || hook.active;
+      const label = bar.detached ? "hält das Handkreuz" : head.held ? "dreht den Kopf" : legs.held ? "kippt das Beinkreuz" : hook.active ? "drückt den Rückenfaden" : `2. Hand · ${handName(out.second)}`;
       hand(out.second, Array(6).fill(busy ? COLOR.active : COLOR.hands), label);
     }
     if (out.cross) {
@@ -222,8 +275,9 @@ export function createHandOverlay(controller?: RigController) {
         for (const b of controller.bars) {
           const color = b.input ? COLOR[b.input] : COLOR.cross;
           const free = b.detachable && bar.detached && out.second;
-          const held = free || (b.input === "head" && head.held);
-          const handle = b.detachable ? bar.magnet : b.input === "head" ? head.handle : undefined;
+          const which = b.detachable ? "hand" : b.input === "head" ? "head" : b.input === "legs" ? "legs" : undefined;
+          const held = free || (which === "head" && head.held) || (which === "legs" && legs.held);
+          const handle = which === "hand" ? bar.magnet : which === "head" ? head.handle : which === "legs" ? legs.handle : undefined;
           const at = handle && { x: handle.x * height, y: handle.y * height };
           for (const stick of b.sticks) {
             let ends;
@@ -252,7 +306,6 @@ export function createHandOverlay(controller?: RigController) {
           }
           if (at) {
             // A ring where the second hand takes this bar; its reach is shown while that hand is in the picture
-            const which = b.detachable ? "hand" : "head";
             const near = handles.near === which;
             ring(at, 4.5 * unit, held ? COLOR.active : color, near ? 2.5 : 1.5);
             if (out.second && (near || !handles.near)) ring(at, handles.radius * height, held ? COLOR.active : near ? color : COLOR.dim, near ? 1.5 : 1, true);
@@ -261,11 +314,91 @@ export function createHandOverlay(controller?: RigController) {
       }
     }
 
+    // Where the puppet stands: the row of the picture the hand has to be at, at its distance. For a new
+    // player first the band in which that height is taken (the guided capture), with one hint at a time
+    const guide = out.status === "attached" ? out.height.guide : undefined;
+    if (out.status === "attached") {
+      const reading = out.height;
+      const row = reading.standRow * height;
+      const inView = row > 30 * unit && row < height - 56 * unit;
+      if (guide) {
+        // The band: soft, with its edges marked; it closes onto the standing line once the height is taken
+        const [top, bottom] = [guide.band[0] * height, guide.band[1] * height];
+        ctx.fillStyle = guide.state === "hold" || guide.state === "done" ? "#ffe14d2e" : "#f3e9dc24";
+        ctx.fillRect(22 * unit, top, width - 30 * unit, Math.max(bottom - top, 1.5 * unit));
+        ctx.setLineDash([6 * unit, 5 * unit]);
+        for (const edge of [top, bottom]) line(22 * unit, edge, width - 8 * unit, edge, guide.state === "hold" || guide.state === "done" ? COLOR.active : COLOR.dim, 1);
+        ctx.setLineDash([]);
+      } else {
+        // Standing is a band (TUNING.position.dead above and below the line, more while the height is not sure): within it the cross keeps its height
+        const dead = TUNING.position.dead + Math.max(0, Math.min(reading.sigma - HEIGHT.sigma.calibrated, TUNING.position.unsure));
+        const band = out.cross ? ((dead * out.cross.palmLength) / TUNING.gizmo.palm) * height : 0;
+        if (inView && band > 0) {
+          ctx.fillStyle = "#f3e9dc1c";
+          ctx.fillRect(22 * unit, row - band, width - 30 * unit, 2 * band);
+        }
+        // How far the hand is above (+) or below the height at which the puppet stands
+        const centimetres = Math.round(reading.value * 100);
+        const label = `Puppe steht${inView ? "" : row < height / 2 ? " ↑ (über dem Bild)" : " ↓ (unter dem Bild)"} · Hand ${centimetres > 0 ? "+" : centimetres < 0 ? "−" : ""}${Math.abs(centimetres)} cm`;
+        const y = Math.max(30 * unit, Math.min(height - 56 * unit, row));
+        if (inView) {
+          ctx.setLineDash([6 * unit, 5 * unit]);
+          line(22 * unit, row, width - 8 * unit, row, COLOR.dim, 1);
+          ctx.setLineDash([]);
+        }
+        text(label, width - 8 * unit, y - 4 * unit, COLOR.dim, "right", 7.5);
+      }
+      // What the height rests on, small, above the lines at the bottom right
+      text(`Höhe: ${reading.sources.map((source) => SOURCE[source]).join(" · ")}`, width - 8 * unit, height - 38 * unit, reading.confidence > 0.5 ? COLOR.dim : COLOR.active, "right", 7);
+    }
+    // One hint, in the lower half of the picture, clear of the top edge (in impro mode the director bar lies over it)
+    // and of the meters: the height guide's, or the installer's while the camera is measured
+    const hint = state.hint ?? (guide && { text: guide.state === "place" ? (guide.arrow > 0 ? "Hand etwas höher  ↑" : "Hand etwas tiefer  ↓") : GUIDE_HINT[guide.state], progress: guide.state === "hold" ? guide.progress : -1 });
+    if (hint) {
+      // Under the band (which is where the hand is: once the height is taken, well under it), or just inside its
+      // lower edge where there is no room below; right above the meters while there is no band
+      const lowest = height - (hint.progress >= 0 ? 70 : 60) * unit;
+      const under = guide ? guide.band[1] * height + (guide.state === "done" ? 44 : 14) * unit : lowest;
+      const y = !guide || under <= lowest ? under : guide.state === "done" ? lowest : Math.min(lowest, guide.band[1] * height - (hint.progress >= 0 ? 16 : 6) * unit);
+      text(hint.text, width / 2, y, COLOR.active, "center", state.hint ? 8.5 : 11);
+      if (hint.progress >= 0) {
+        // The hold: a bar that fills while the hand keeps still
+        const [left, right] = [width / 2 - 60 * unit, width / 2 + 60 * unit];
+        line(left, y + 8 * unit, right, y + 8 * unit, "#000a", 6);
+        line(left, y + 8 * unit, right, y + 8 * unit, COLOR.dim, 4);
+        if (hint.progress > 0) line(left, y + 8 * unit, left + (right - left) * Math.min(1, hint.progress), y + 8 * unit, COLOR.active, 4);
+      }
+    }
+
     // Status, top left
     text(`${STATUS[out.status]} · ${state.mirror ? "Spiegel" : "Gegenüber"}`, 8 * unit, 14 * unit, out.status === "attached" ? COLOR.text : COLOR.active, "left", 10);
     if (state.note) text(state.note, 8 * unit, 26 * unit, COLOR.dim);
-    if (out.status === "attached" && !out.calibrated) text(REST_HINT, width / 2, 40 * unit, COLOR.active, "center", 8);
-    if (out.grip) text("Griff", width - 8 * unit, 14 * unit, COLOR.active, "right", 10);
+    // (not next to the height guide: it asks for the same pause, in its band)
+    if (out.status === "attached" && !out.calibrated && !guide && !state.hint) text(REST_HINT, width / 2, 40 * unit, COLOR.active, "center", 8);
+    // Top right: the magnet in the puppet's hands (the second hand's fist away
+    // from the handles), and what the engine says about the hands (puppetState)
+    const holding = puppetState.holding.left ?? puppetState.holding.right;
+    // Something is in reach of a free puppet hand, and the second hand is free to close
+    const canGrab = !!(puppetState.inReach.left ?? puppetState.inReach.right) && !!out.second && !bar.detached && !head.held && !legs.held && !hook.active;
+    {
+      const [x, y] = [width - 8 * unit, 14 * unit];
+      if (out.grasp.phase === "click") {
+        // A fist made while the puppet holds something lets go if it opens again in time: the ring drains with the time that is left
+        text("öffnen: loslassen", x - 14 * unit, y, COLOR.active, "right", 10);
+        ctx.strokeStyle = COLOR.active;
+        ctx.lineWidth = 2 * unit;
+        ctx.beginPath();
+        ctx.arc(x - 5 * unit, y - 3.5 * unit, 4.5 * unit, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * (1 - out.grasp.window));
+        ctx.stroke();
+      } else if (holding) {
+        text(`hält: ${holding}`, x, y, COLOR.active, "right", 10);
+        text("kurz Faust auf/zu: loslassen", x, y + 11 * unit, COLOR.dim, "right", 7.5);
+      } else if (out.grasp.phase === "fist") {
+        text("Magnet an", x, y, COLOR.active, "right", 10);
+      } else if (canGrab) {
+        text("Faust: greifen", x, y, COLOR.hands, "right", 10);
+      }
+    }
 
     // Depth gauge, left edge: the puppet's place between back and front of the stage
     const [zMin, zMax] = TUNING.depth.range;
@@ -281,26 +414,43 @@ export function createHandOverlay(controller?: RigController) {
     ctx.fill();
     text(`${(out.bar.z * 100).toFixed(0)} cm`, gauge.x + 8 * unit, zToY(out.bar.z) + 3 * unit, COLOR.cross, "left", 8);
 
-    // Meters, bottom: each rocker from −limit to +limit, and the cross's tilt
-    const meters: [string, number, string][] = [
-      ["Beine · Zeige- / Mittelfinger", out.rock.legs, COLOR.legs],
-      [head.held ? "Kopf · 2. Hand dreht" : "Kopf · Ring + kl. Finger / Daumen", out.rock.head, head.held ? COLOR.active : COLOR.head],
+    // Meters, bottom: the leg bar from −limit to +limit, the head's turn from
+    // left to right (each from the cross hand's fingers, or from the second
+    // hand while it holds that bar), and the cross's tilt
+    const meters: [string, number, string, boolean][] = [
+      legs.held ? ["Beine · 2. Hand kippt", out.rock.legs, COLOR.active, true] : ["Beine · Zeige- / Mittelfinger", out.rock.legs, COLOR.legs, true],
+      head.held ? ["Kopf drehen · 2. Hand", out.turn, COLOR.active, true] : ["Kopf drehen · Daumen / kleiner Finger", out.turn, COLOR.head, true],
     ];
-    meters.forEach(([label, value, color], i) => {
+    meters.forEach(([label, value, color, centred], i) => {
       const y = height - (36 - i * 18) * unit;
       const [left, right] = [8 * unit, 150 * unit];
-      const middle = (left + right) / 2;
+      const zero = centred ? (left + right) / 2 : left;
       text(label, left, y - 5 * unit, color, "left", 7.5);
       line(left, y, right, y, COLOR.dim, 3);
-      line(middle, y - 3 * unit, middle, y + 3 * unit, COLOR.text, 1);
-      line(middle, y, middle + (value * (right - left)) / 2, y, color, 3);
+      line(zero, y - 3 * unit, zero, y + 3 * unit, COLOR.text, 1);
+      line(zero, y, zero + value * (right - zero), y, color, 3);
     });
     const degrees = (rad: number) => `${rad >= 0 ? "+" : "−"}${Math.abs((rad * 180) / Math.PI).toFixed(0)}°`;
     const tilt = `neigen ${degrees(out.bar.pitch)}   kippen ${degrees(out.bar.roll)}   drehen ${degrees(out.bar.yaw)}`;
     text(tilt, width - 8 * unit, height - 24 * unit, COLOR.cross, "right", 8);
-    const secondHand = bar.detached ? "Handkreuz · frei in der 2. Hand" : head.held ? "Kopfkreuz · 2. Hand drehen" : hook.active ? "Rückenfaden · gedrückt" : "2. Hand: am Ring greifen · offen gegen den Rückenfaden";
-    text(secondHand, width - 8 * unit, height - 10 * unit, bar.detached || head.held || hook.active ? COLOR.active : COLOR.hands, "right", 7.5);
+    // What the second hand does, or can do. The magnet is said here as well as
+    // top right: in impro mode the director bar lies over the overlay's top edge
+    const grasping = out.grasp.phase === "click" ? "öffnen: loslassen" : out.grasp.on ? "Magnet an · 2. Hand als Faust" : holding ? `hält: ${holding} · kurz Faust auf/zu: loslassen` : canGrab ? "Faust abseits der Ringe: greifen" : "";
+    const secondHand = bar.detached ? "Handkreuz · frei in der 2. Hand" : head.held ? "Kopf · 2. Hand drehen" : legs.held ? "Beinkreuz · 2. Hand drehen" : hook.active ? "Rückenfaden · gedrückt" : grasping || "2. Hand: am Ring greifen · offen gegen den Rückenfaden · Faust abseits: Magnet";
+    text(secondHand, width - 8 * unit, height - 10 * unit, bar.detached || head.held || legs.held || hook.active || grasping ? COLOR.active : COLOR.hands, "right", 7.5);
   }
 
-  return { canvas, draw };
+  return {
+    /** The window to put into the page */
+    element,
+    draw,
+    /** Which choice is on (the footer shows once one is; null hides it: no camera to choose for) */
+    setChoice(value: string | null, busy = false) {
+      footer.hidden = value === null;
+      for (const [v, button] of buttons) {
+        button.setAttribute("aria-pressed", String(v === value));
+        button.disabled = busy;
+      }
+    },
+  };
 }

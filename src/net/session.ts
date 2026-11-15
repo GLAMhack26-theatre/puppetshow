@@ -1,6 +1,6 @@
 import type RAPIER from "@dimforge/rapier3d-compat";
 import type { World } from "@iwsdk/core";
-import { controlInput, createControlInput, type ControlInput } from "../input/control-input";
+import { controlInput, createControlInput, puppetState, type ControlInput } from "../input/control-input";
 import { spawnPuppet, type Puppet } from "../puppet/puppet";
 import { currentBackdrop, loadBackdrops, onBackdropChange, setBackdrop } from "../stage/backdrops";
 import { MAX_PUPPETS, STEP, addHook, physics } from "../systems/rapier-system";
@@ -15,6 +15,7 @@ import {
   inputSequence,
   poseHeader,
   type ByeMessage,
+  type HandsMessage,
   type RosterMessage,
   type StageMessage,
 } from "./protocol";
@@ -27,6 +28,9 @@ import "./status.css";
 // runs every puppet from its player's ControlInput and sends the poses of all
 // bodies. The other devices (?room=<id>) send their input and show the poses
 // they receive, a moment late, blended between two snapshots.
+//
+// A puppet's hands are part of its physics, so they are on the host too: it
+// tells every player what their puppet holds and could take (puppetState).
 //
 // Shared besides the puppets: the backdrop. Props (props/requisits.ts) and
 // scene presets (plays/) are not: each device sets its own, and only the
@@ -42,6 +46,8 @@ const INPUT_RATE = 60;
 const STALL_AFTER = 0.5;
 /** A host that sent nothing for this long, s, is gone: a client may follow another one */
 const HOST_TIMEOUT = 3;
+/** The host looks every this many physics steps whether a player's hands hold or reach something else: 10 times a second at most */
+const HANDS_EVERY = 6;
 /** The host repeats who plays what, s: a device that missed a change catches up */
 const ROSTER_INTERVAL = 2;
 const SNAPSHOTS_KEPT = 8;
@@ -157,6 +163,8 @@ const isMessage = (message: unknown, t: string): message is { t: string } =>
   typeof message === "object" && message !== null && (message as { t?: unknown }).t === t;
 const isRoster = (message: unknown): message is RosterMessage => isMessage(message, "roster") && typeof (message as RosterMessage).slots === "object";
 const isStage = (message: unknown): message is StageMessage => isMessage(message, "stage");
+const isHands = (message: unknown): message is HandsMessage =>
+  isMessage(message, "hands") && Array.isArray((message as HandsMessage).holding) && Array.isArray((message as HandsMessage).inReach);
 
 const stageMessage = (): StageMessage => ({ t: "stage", backdrop: currentBackdrop()?.id ?? null });
 
@@ -233,6 +241,8 @@ interface Player {
   /** Sequence number of the last input taken (−1: none yet) */
   sequence: number;
   puppet?: Puppet;
+  /** What its device was last told about its hands (a HandsMessage as text) */
+  hands?: string;
 }
 
 async function runHost(world: World, transport: Transport, selfId: string, options: SessionOptions, status: (text: string) => void) {
@@ -299,7 +309,20 @@ async function runHost(world: World, transport: Transport, selfId: string, optio
   let step = 0;
   addHook(physics.afterStep, () => {
     step++;
-    if (step % SNAPSHOT_EVERY || !transport.peers().length) return;
+    if (!transport.peers().length) return;
+    if (step % HANDS_EVERY === 0) {
+      // To each player what their own puppet's hands do, when it changes (the host's own write puppetState directly)
+      for (const [id, player] of players) {
+        const state = player.puppet?.grab?.state;
+        if (!state || id === selfId) continue;
+        const message: HandsMessage = { t: "hands", holding: [state.holding.left, state.holding.right], inReach: [state.inReach.left, state.inReach.right] };
+        const text = JSON.stringify(message);
+        if (text === player.hands) continue;
+        player.hands = text;
+        transport.sendReliable(message, id);
+      }
+    }
+    if (step % SNAPSHOT_EVERY) return;
     for (const player of players.values()) {
       if (player.puppet) transport.sendFast(encodePoses(PACKET.puppet, player.slot, step, player.puppet.bodies));
     }
@@ -350,9 +373,11 @@ async function runClient(world: World, transport: Transport, selfId: string, sta
       // A second host in the room by mistake: stay with the one that is alive,
       // instead of jumping between the two with every roster
       if (hostId && seconds() - lastPose < HOST_TIMEOUT) return;
-      // A new host counts its steps from 0: forget the old one's time
+      // A new host counts its steps from 0: forget the old one's time (and
+      // what the old one's hands held: the new one tells)
       hostId = from;
       clock.reset();
+      puppetState.holding.left = puppetState.holding.right = puppetState.inReach.left = puppetState.inReach.right = null;
       for (const remote of remotes.values()) remote.buffer.clear();
     }
     for (const [id, remote] of remotes) if (message.slots[id] !== remote.slot) remove(id);
@@ -365,6 +390,11 @@ async function runClient(world: World, transport: Transport, selfId: string, sta
   transport.onPeerLeave(hostLeft);
   transport.onReliable((message, from) => {
     if (isMessage(message, "bye")) hostLeft(from);
+    // Our puppet's hands are on the host: what they hold and could take
+    if (from === hostId && isHands(message)) {
+      [puppetState.holding.left = null, puppetState.holding.right = null] = message.holding;
+      [puppetState.inReach.left = null, puppetState.inReach.right = null] = message.inReach;
+    }
   });
 
   transport.onFast((packet, from) => {

@@ -38,3 +38,5 @@ hand-recording-*.json
 
 # Local planning notes
 .claude/plans/
+hand-recording-*.webm
+hand-recording-*.mp4

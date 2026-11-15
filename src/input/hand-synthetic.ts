@@ -17,6 +17,10 @@ export interface SyntheticHand {
   pitch?: number;
   yaw?: number;
   roll?: number;
+  /** Turning the forearm: about the hand's own long axis (wrist → fingers), rad, before the three above */
+  twist?: number;
+  /** Turning the whole hand in the picture: about the camera's axis, rad, after the three above */
+  spin?: number;
   /** 0 straight … 1 curled */
   index?: number;
   middle?: number;
@@ -55,7 +59,7 @@ const FINGERS: { mcp: V3; lengths: V3 }[] = [
 const BEND = [1.4, 1.75, 1.05]; // rad at knuckle, middle and end joint of a closed finger
 
 /** The 21 landmarks in the hand's own frame (right hand) */
-function handShape(h: SyntheticHand): V3[] {
+function handShape(h: HandPose): V3[] {
   const points: V3[] = [[0, 0, 0]];
   // Thumb: swings from spread out to tucked across the palm
   const tuck = h.thumb ?? 0;
@@ -85,18 +89,33 @@ function handShape(h: SyntheticHand): V3[] {
   return points;
 }
 
-/** The hand as MediaPipe would report it for the raw (not mirrored) camera image */
-export function synthesize(h: SyntheticHand, camera = CAMERA, noise?: () => number): HandFrame {
+/** What of a SyntheticHand shapes and turns the hand itself, wherever it is in the picture */
+export type HandPose = Omit<SyntheticHand, "x" | "y" | "distance">;
+
+/**
+ * The 21 landmarks of the posed hand in camera axes (x right, y down, z away),
+ * metres around the point the hand turns about (in its palm). synthesize()
+ * places them in the picture; scene-synthetic.ts places them in a room.
+ */
+export function posedHand(h: HandPose): V3[] {
   const [cz, sz, cx, sx, cy, sy] = [Math.cos(h.roll ?? 0), Math.sin(h.roll ?? 0), Math.cos(h.pitch ?? 0), Math.sin(h.pitch ?? 0), Math.cos(h.yaw ?? 0), Math.sin(h.yaw ?? 0)];
+  const [ct, st, cs, ss] = [Math.cos(h.twist ?? 0), Math.sin(h.twist ?? 0), Math.cos(h.spin ?? 0), Math.sin(h.spin ?? 0)];
   const centre: V3 = [0, -0.06, 0]; // turn about the palm, not the wrist
-  const posed = handShape(h).map(([px, py, pz]): V3 => {
+  return handShape(h).map(([px, py, pz]): V3 => {
     // The player's left hand is the mirror image of the right
     let [x, y, z] = [(h.hand === "left" ? -px : px) - centre[0], py - centre[1], pz - centre[2]];
+    [x, z] = [x * ct + z * st, -x * st + z * ct];
     [x, y] = [x * cz - y * sz, x * sz + y * cz];
     [y, z] = [y * cx - z * sx, y * sx + z * cx];
     [x, z] = [x * cy + z * sy, -x * sy + z * cy];
+    [x, y] = [x * cs - y * ss, x * ss + y * cs];
     return [x, y, z];
   });
+}
+
+/** The hand as MediaPipe would report it for the raw (not mirrored) camera image */
+export function synthesize(h: SyntheticHand, camera = CAMERA, noise?: () => number): HandFrame {
+  const posed = posedHand(h);
   const jitter = (sigma: number) => (noise ? noise() * sigma : 0);
   const wristDepth = h.distance + posed[0][2];
   const image: Point[] = posed.map(([x, y, z]) => {
@@ -126,20 +145,88 @@ export function gaussian(seed: number) {
   return () => Math.sqrt(-2 * Math.log(uniform() || 1e-9)) * Math.cos(2 * Math.PI * uniform());
 }
 
+/**
+ * A recorded session (?record, the JSON that key R saves). Version 1 holds
+ * the hands only. Version 2 adds what is needed to work out the hand's height
+ * against the player's own body: notes on the camera and the set-up (`meta`),
+ * and per frame what the body models saw of the player (`body`).
+ */
 export interface Recording {
-  version: 1;
+  version: 1 | 2;
   /** Image width / height */
   aspect: number;
-  frames: { t: number; hands: HandFrame[] }[];
+  /** Version 2 */
+  meta?: RecordingMeta;
+  frames: RecordingFrame[];
+}
+
+export interface RecordingFrame {
+  /** ms, the page's clock (performance.now) */
+  t: number;
+  hands: HandFrame[];
+  /** Version 2: the frame's time on the video's own clock, s (requestVideoFrameCallback), to find the frame in the video that ?record=video saves */
+  mediaTime?: number;
+  /** Version 2: face, face mesh and body in this frame, from the body models that ran (body-frame.ts) */
+  body?: import("./body-frame.ts").BodySeen;
+}
+
+export interface RecordingMeta {
+  /** The camera's label and the video track's settings; missing when the source was no camera (a replay recorded again) */
+  camera?: { label: string; width: number; height: number; facingMode?: string; frameRate?: number };
+  userAgent: string;
+  /** The model files that ran, by what they track: hand, face (the detector), mesh (the face landmarker), pose */
+  models: Record<string, string>;
+  /** "GPU" or "CPU" for each of them */
+  delegate: Record<string, string>;
+  /** Whether the picture was mirrored for the player (HandTracker.mirror) */
+  mirror?: boolean;
+  /** Typed in by whoever recorded: what a height worked out from the frames is checked against */
+  setup?: RecordingSetup;
+  /**
+   * The camera's video saved next to the JSON (?record=video). `t` (the
+   * frames' clock, ms) and `mediaTime` (the frames' mediaTime, s) are when
+   * the video file starts: a frame is about `frame.mediaTime - mediaTime`
+   * seconds into the file.
+   */
+  video?: { file: string; mimeType: string; t: number; mediaTime: number };
+}
+
+export interface RecordingSetup {
+  /** The camera's lens above the floor, cm */
+  cameraHeightCm?: number;
+  /** The camera's pitch, degrees: positive looks up, negative down, 0 is level */
+  pitchDeg?: number;
+  /** The player's body height, cm */
+  playerHeightCm?: number;
+  /** Height of the mark above the floor, cm (the brief's "mark height": taken to be a mark the hand is held at) */
+  markHeightCm?: number;
+  notes?: string;
 }
 
 /**
- * A scripted session at 30 fps with jitter: one hand attaches, moves, tilts,
- * reaches forward, walks the leg bar, tilts the head bar and grips; then a
- * second hand takes the hand bar, moves and turns it and lets it go, takes the
- * head bar and turns it, and at last pushes against the back string.
+ * How long the demo's cross hand holds still before its script starts, s. In
+ * the page a new player's puppet is flown in first (measured: landed 5 to 6 s
+ * after the hand connects), and only then does the guided capture take the
+ * height at which the puppet stands, from a hand that holds still for a
+ * second: the hand has to rest that long, or the demo would run without it.
+ */
+export const DEMO_LEAD = 8;
+
+/**
+ * A scripted session at 30 fps with jitter: one hand attaches and holds still
+ * for DEMO_LEAD seconds (the puppet is flown in, the height at which it stands
+ * is taken); then, in the script's own time (add DEMO_LEAD for the frames'),
+ * it moves, tilts, comes closer, walks the leg bar, turns the head with thumb
+ * and little finger and makes a fist
+ * (which does nothing of its own); then a second hand takes the hand bar, moves
+ * and turns it and lets it go, takes the head bar and turns it, pushes against
+ * the back string, and at last, away from the handles, makes a fist for 2 s
+ * (the magnet in the puppet's hands) and a quick fist/open (which lets go of
+ * what the puppet holds).
  */
 export function demoRecording(): Recording {
+  /** Where the second hand makes its fists: raw camera image, well away from the bars' handles */
+  const GRASP_AT = { x: 0.88, y: 0.22 };
   const noise = gaussian(7);
   const frames: Recording["frames"] = [];
   const ramp = (t: number, from: number, to: number) => Math.max(0, Math.min(1, (t - from) / (to - from)));
@@ -150,15 +237,16 @@ export function demoRecording(): Recording {
   const crossAt = (t: number): SyntheticHand => ({
     hand: "right",
     x: 0.34 + 0.1 * wave(t, 2, 5, 1),
-    y: 0.45 - 0.08 * pulse(t, 2, 5),
+    y: 0.5 - 0.2 * pulse(t, 2, 5), // where it rests the puppet stands (the height is taken there); up lifts it, by up to 10 cm
     distance: 0.6 - 0.14 * pulse(t, 11, 14),
     roll: 0.4 * wave(t, 5, 8, 1),
     pitch: 0.8 + 0.4 * wave(t, 8, 11, 1),
     index: Math.max(0, wave(t, 14, 17, 2)) * 0.5 + pulse(t, 20, 22),
     middle: Math.max(0, -wave(t, 14, 17, 2)) * 0.5 + pulse(t, 20, 22),
-    ring: 0.5 * pulse(t, 17, 18.5) + pulse(t, 20, 22),
-    pinky: 0.5 * pulse(t, 17, 18.5) + pulse(t, 20, 22),
-    thumb: 0.9 * pulse(t, 18.5, 20) + 0.6 * pulse(t, 20, 22),
+    // 17…19.5 s: the thumb is pressed in and let go, then the little finger (the ring finger goes along): the head turns one way, then the other
+    ring: 0.5 * pulse(t, 18.3, 19.5) + pulse(t, 20, 22),
+    pinky: 0.6 * pulse(t, 18.3, 19.5) + pulse(t, 20, 22),
+    thumb: 0.9 * pulse(t, 17, 18.2) + 0.6 * pulse(t, 20, 22),
   });
   // Where the tracker puts the bars' handles and the back string for this hand
   // (it rests from 22 s on): a dry run tells. They are in the mirrored picture,
@@ -174,10 +262,12 @@ export function demoRecording(): Recording {
   const [handBar, headBar] = [at(layout.handBar.magnet), at(layout.headBar.handle)];
   const string = { x: raw({ x: layout.hook.line.x, y: 0 }).x, y: Math.min(0.85, layout.hook.line.top + 1.5 * layout.gizmo.unit) };
 
-  for (let i = 0; i < 44 * 30; i++) {
-    const t = i / 30;
+  // A fist: all four fingers and the thumb
+  const fist = (amount: number) => ({ index: amount, middle: amount, ring: amount, pinky: amount, thumb: 0.6 * amount });
+  for (let i = 0; i < (52 + DEMO_LEAD) * 30; i++) {
+    const t = i / 30 - DEMO_LEAD; // the script's time: before 0 the hand rests as it does until 2 s
     const hands: HandFrame[] = [];
-    if (t > 0.3) hands.push(synthesize(crossAt(t), CAMERA, noise));
+    if (i / 30 > 0.3) hands.push(synthesize(crossAt(t), CAMERA, noise));
     let second: SyntheticHand | undefined;
     if (t > 22 && t < 29.5) {
       // Pinches at the hand bar's handle, carries the bar away, turns it and lets go
@@ -189,9 +279,12 @@ export function demoRecording(): Recording {
     } else if (t > 37 && t < 43.5) {
       // Open, below the cross hand: moves in from the side against the back string, pushes it and draws back
       second = { hand: "left", x: string.x + 0.22 - 0.27 * pulse(t, 38, 42.5), y: string.y, distance: 0.6 };
+    } else if (t > 44.5 && t < 51.5) {
+      // Up in the corner, away from the handles: a fist held for 2 s, then a quick fist/open
+      second = { hand: "left", ...GRASP_AT, distance: 0.6, ...fist(ramp(t, 45.5, 45.6) - ramp(t, 47.5, 47.6) + ramp(t, 49, 49.1) - ramp(t, 49.3, 49.4)) };
     }
     if (second) hands.unshift(synthesize(second, CAMERA, noise));
-    frames.push({ t: t * 1000, hands });
+    frames.push({ t: (i / 30) * 1000, hands });
   }
   return { version: 1, aspect: CAMERA.aspect, frames };
 }

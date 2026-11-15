@@ -7,7 +7,7 @@ import { STRING_IDS, type ControlInput, type ControlSource } from "../input/cont
 // a packet is split in two (and lost as a whole if one half is).
 
 /** Raised when a packet's layout changes: devices with different versions do not play together */
-export const PROTOCOL = 2;
+export const PROTOCOL = 3;
 
 /** First byte of a pose packet. 0 is the transport's probe (transport.ts). */
 export const PACKET = { input: 1, puppet: 2 } as const;
@@ -27,6 +27,17 @@ export type StageMessage = {
   t: "stage";
   /** Backdrop id (src/stage/backdrops.ts), null for none */
   backdrop: string | null;
+};
+
+/**
+ * What a player's puppet holds and could take (PuppetState; left hand, then
+ * right), from the host to that player's device: the hands are simulated on
+ * the host, and the player's sources and UI need to know
+ */
+export type HandsMessage = {
+  t: "hands";
+  holding: [string | null, string | null];
+  inReach: [string | null, string | null];
 };
 
 /** A device leaves on purpose (page closed): its puppet goes at once, not after the connection times out */
@@ -68,9 +79,10 @@ function writeQuat(data: DataView, offset: number, q: Quat) {
 // · source u8 · bar position 3 × f32 · bar rotation 4 × i16 · rock 3 × i16
 // · hand bar position 3 × f32 · hand bar rotation 4 × i16 · pulls 9 × u8
 // · string length (stringExtra) u16 · hook: string u8 (0: none), along u8,
-// offset 3 × i16
+// offset 3 × i16 · nod u8 · head turn i8 · release counters 2 × u8 (left,
+// right; they wrap, only a change counts)
 
-const INPUT_BYTES = 5 + 12 + 8 + 6 + 12 + 8 + STRING_IDS.length + 2 + 2 + 6;
+const INPUT_BYTES = 5 + 12 + 8 + 6 + 12 + 8 + STRING_IDS.length + 2 + 2 + 6 + 4;
 
 /** A new buffer every time: the transport may still hold the last one */
 export function encodeInput(input: ControlInput, sequence: number) {
@@ -107,6 +119,10 @@ export function encodeInput(input: ControlInput, sequence: number) {
   data.setInt16(at + 4, clamp16(hook.offset.x / POSITION_STEP), true);
   data.setInt16(at + 6, clamp16(hook.offset.y / POSITION_STEP), true);
   data.setInt16(at + 8, clamp16(hook.offset.z / POSITION_STEP), true);
+  data.setUint8(at + 10, unit8(input.nod));
+  data.setInt8(at + 11, Math.round(Math.max(-1, Math.min(1, input.turn)) * 127));
+  data.setUint8(at + 12, input.release.left & 0xff);
+  data.setUint8(at + 13, input.release.right & 0xff);
   return packet;
 }
 
@@ -153,6 +169,10 @@ export function decodeInput(packet: Uint8Array, input: ControlInput) {
   hook.id = STRING_IDS[data.getUint8(at + 2) - 1] ?? null;
   hook.along = data.getUint8(at + 3) / 255;
   hook.offset.set(data.getInt16(at + 4, true), data.getInt16(at + 6, true), data.getInt16(at + 8, true)).multiplyScalar(POSITION_STEP);
+  input.nod = data.getUint8(at + 10) / 255;
+  input.turn = data.getInt8(at + 11) / 127;
+  input.release.left = data.getUint8(at + 12);
+  input.release.right = data.getUint8(at + 13);
 }
 
 // ── Poses: the bodies of one puppet, from the host ───────────────────────────

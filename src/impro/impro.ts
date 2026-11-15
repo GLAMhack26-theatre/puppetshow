@@ -15,6 +15,7 @@ import { onSceneApplied } from "../plays/plays";
 import { createSlider, type Slider } from "./backdrop-slider";
 import { infoHandler } from "./source-info";
 import { soundIcon } from "./sound-icons";
+import { createLightDesk } from "../ui/light-desk";
 import { isOn, setOn } from "../audio/audio";
 import {
   EXCERPTS,
@@ -34,10 +35,12 @@ import "./impro.css";
 // Each side of the screen has a night-sky panel (backdrop-slider.ts) with
 // two pages, picked by round icon buttons that ride along at the panel's
 // scalloped edge: on the right "Hintergrund" (the painted backdrops as paper
-// cards) and "Licht", on the left "Requisiten" (the props, the slider
-// mirrored, props/requisits.ts) and "Sound" (archive.org excerpts,
-// audio/excerpts.ts). Light is an empty sky for now. A golden X under the buttons closes the panel. A click puts the backdrop at the back of the stage
-// or lowers the prop onto it; placed props are dragged around on the floor.
+// cards) and "Licht" (the light desk on a paper sheet, ui/light-desk.ts: the
+// lighting scene of the stage and its sliders), on the left "Requisiten"
+// (the props, the slider mirrored, props/requisits.ts) and "Sound"
+// (archive.org excerpts, audio/excerpts.ts). A golden X under the buttons
+// closes the panel. A click puts the backdrop at the back of the stage or
+// lowers the prop onto it; placed props are dragged around on the floor.
 // The last props card is a drop field for IIIF 3D manifests (props/iiif.ts):
 // the object becomes a new card and lands on the stage at once.
 
@@ -89,8 +92,11 @@ function buildImpro(world: World) {
   left.onOpen = right.close;
   right.onOpen = left.close;
   const [props, sound] = left.pages;
-  const [set] = right.pages;
+  const [set, light] = right.pages;
   sound.loaded();
+  fillLight(light.page, light.button);
+  light.slider.setItems([], () => {}); // no cards: the sky behind the sheet
+  light.loaded();
   fillSounds(sound.slider);
   // Opening the Sound page loads the start of every excerpt, so a click plays sooner
   sound.button.addEventListener("click", preloadExcerpts);
@@ -155,11 +161,6 @@ function createSide(side: "left" | "right", pageSpecs: { title: string; icon: st
   dock.append(close);
   panel.append(...pages.map((p) => p.page), header, dock);
   document.body.append(panel);
-  // The light page has no content yet: the bare sky (the sound page is filled by startImpro)
-  for (const p of pages.filter((p) => p.title === "Licht")) {
-    p.slider.setItems([], () => {});
-    p.loaded();
-  }
 
   let current: (typeof pages)[number] | null = null;
   const open = (page: (typeof pages)[number] | null) => {
@@ -198,6 +199,35 @@ function createSide(side: "left" | "right", pageSpecs: { title: string; icon: st
   open(null);
 
   return handle;
+}
+
+/**
+ * The light desk on a paper sheet in front of the sky. What it sets is the
+ * light of the stage; the director bar's "Speichern" keeps it in the scene,
+ * with backdrop and props.
+ */
+function fillLight(page: HTMLElement, button: HTMLElement) {
+  const sheet = element("div", "impro-light");
+  sheet.append(
+    createLightDesk(),
+    element("p", "impro-light-note", "„Speichern“ in der Regie legt das Licht mit der Szene ab."),
+  );
+  // Scrolling the sheet must not also move the puppet upstage (the wheel, on the canvas behind)
+  sheet.addEventListener("wheel", (e) => e.stopPropagation());
+  page.append(sheet);
+
+  // On a narrow screen the director bar reaches over the panel and would
+  // cover the scenes at the top of the sheet: the sheet then starts below it.
+  // Measured for the open panel (it may still be sliding in).
+  const clearDirector = () => {
+    sheet.style.removeProperty("--sheet-top");
+    const bar = document.querySelector(".director")?.getBoundingClientRect();
+    const left = innerWidth - page.offsetWidth + sheet.offsetLeft;
+    if (bar?.height && bar.right > left && bar.bottom > sheet.offsetTop)
+      sheet.style.setProperty("--sheet-top", `${Math.round(bar.bottom + 8)}px`);
+  };
+  button.addEventListener("click", clearDirector);
+  addEventListener("resize", clearDirector);
 }
 
 /** The archive.org excerpts (audio/excerpts.ts): a click plays one, a second click stops it. */
