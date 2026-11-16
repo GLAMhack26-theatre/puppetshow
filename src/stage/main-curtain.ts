@@ -9,6 +9,7 @@ import {
 } from "@iwsdk/core";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import curtainUrl from "../../assets/stage_parts/Main_Curtain.glb?url";
+import { nextFrame } from "../systems/frames";
 
 // The main curtain from assets/stage_parts/Main_Curtain.glb: a 1×1 quad
 // with a painted curtain. At start it hangs right in front of the camera
@@ -108,9 +109,14 @@ export function raiseMainCurtain() {
 export function lowerMainCurtain() {
   curtain.raising = false;
   return new Promise<void>((resolve) => {
-    const check = () => (curtain.raising || curtain.raise <= 0 ? resolve() : requestAnimationFrame(check));
+    const check = () => (curtain.raising || curtain.raise <= 0 ? resolve() : nextFrame(check));
     check();
   });
+}
+
+/** Whether the curtain is on its way up or down (neither hanging nor out of view). */
+export function isMainCurtainMoving() {
+  return curtain.raising ? curtain.raise < 1 : curtain.raise > 0;
 }
 
 export function isMainCurtainLoaded() {
@@ -124,6 +130,8 @@ export function isMainCurtainLoaded() {
 export function skipMainCurtain() {
   curtain.raising = true;
   curtain.raise = 1;
+  // Already loaded and hanging (entering WebXR from the play choice): gone at once
+  if (curtain.mesh) curtain.mesh.visible = false;
 }
 
 export function isMainCurtainDown() {

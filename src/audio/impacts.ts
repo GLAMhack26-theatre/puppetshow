@@ -1,3 +1,5 @@
+import { impactVelocity } from "../props/contacts";
+import { MATERIALS, colliderSounds } from "../props/materials";
 import { MEMBER, physics } from "../systems/rapier-system";
 import { playSfx, type Zzfx } from "./sfx";
 
@@ -6,7 +8,8 @@ import { playSfx, type Zzfx } from "./sfx";
 // they meet sets the sound and its loudness. What is hit comes from the
 // collision group membership (rapier-system.ts MEMBER), so no per-collider
 // registry is needed: puppet parts are wood (a wooden marionette clatters),
-// props thud or fall. Contact force events were the plan, but they also
+// props thud or fall. A prop sounds as its material (props/materials.ts:
+// metal, stone, glass … by collider); of two props the one that is not wood. Contact force events were the plan, but they also
 // fire every step for a puppet standing still on the floor; a contact start
 // only fires on the impact itself.
 
@@ -41,12 +44,25 @@ function onContact(a: number, b: number, started: boolean) {
 
   const ca = physics.world.getCollider(a);
   const cb = physics.world.getCollider(b);
-  const ba = ca?.parent();
-  const bb = cb?.parent();
-  if (!ba || !bb) return;
-  const va = ba.linvel();
-  const vb = bb.linvel();
-  const speed = Math.hypot(va.x - vb.x, va.y - vb.y, va.z - vb.z);
+  if (!ca || !cb) return;
+  const ba = ca.parent();
+  const bb = cb.parent();
+  const groups = members(a) | members(b);
+  const prop = (groups & MEMBER.prop) !== 0;
+  // A prop also sounds on the stage floor, a collider without a body (it
+  // stands still); it is measured with its speed from before the step, which
+  // had already resolved the impact (props/contacts.ts). The puppet still
+  // needs two bodies: on the floor it stays silent, as it always was.
+  if (!prop && (!ba || !bb)) return;
+  let speed: number;
+  if (prop) {
+    const v = impactVelocity(a, b);
+    speed = Math.hypot(v.x, v.y, v.z);
+  } else {
+    const va = ba!.linvel();
+    const vb = bb!.linvel();
+    speed = Math.hypot(va.x - vb.x, va.y - vb.y, va.z - vb.z);
+  }
   if (speed < MIN_SPEED) return;
 
   if (now - window0 > 100) {
@@ -58,19 +74,31 @@ function onContact(a: number, b: number, started: boolean) {
   lastPlayed.set(pair, now);
 
   const strength = Math.min(1, (speed - MIN_SPEED) / (FULL_SPEED - MIN_SPEED));
-  const pan = (ba.translation().x + bb.translation().x) / 2 / PAN_WIDTH;
-  const groups = members(a) | members(b);
+  const xs = [ba, bb].filter((body) => !!body).map((body) => body.translation().x);
+  const pan = xs.reduce((sum, x) => sum + x, 0) / xs.length / PAN_WIDTH;
 
-  if (groups & MEMBER.prop) {
-    // A prop: thrown or knocked over hard → falling wood, otherwise set down
-    if (strength > 0.55) playSfx("fall", { volume: 0.4 + 0.5 * strength, pan });
-    else playSfx("place", { volume: 0.25 + 0.6 * strength, pan });
+  if (prop) {
+    // A prop: thrown or knocked over hard → its fall, otherwise set down
+    const sound = propSound(a, b);
+    const options = { rate: sound.rate, pan };
+    if (strength > 0.55) playSfx(sound.fall, { ...options, volume: sound.volume * (0.4 + 0.5 * strength) });
+    else playSfx(sound.hit, { ...options, volume: sound.volume * (0.25 + 0.6 * strength) });
   } else if (groups & MEMBER.puppet) {
     // The small wooden puppet: higher than the samples' (full-size) wood
     if (strength < 0.2) playSfx("tick", { volume: 0.5 * strength + 0.1, pan }, TICK);
     else playSfx("wood", { volume: 0.15 + 0.5 * strength, rate: 1.5, pan });
   }
   if (lastPlayed.size > 500) lastPlayed.clear();
+}
+
+const WOOD = MATERIALS.wood.sound;
+
+/** The material sound of the prop in a contact: the one that is not wood if both are props. */
+function propSound(a: number, b: number) {
+  const sa = colliderSounds.get(a);
+  const sb = colliderSounds.get(b);
+  if (sa && sb) return sa === WOOD ? sb : sa;
+  return sa ?? sb ?? WOOD;
 }
 
 export function setupImpacts() {

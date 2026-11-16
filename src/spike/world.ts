@@ -32,4 +32,7 @@ export function setupOrbit(world: World) {
   const controls = new OrbitControls(world.camera, world.renderer.domElement);
   controls.target.set(0, 0.4, -0.1);
   controls.update();
+  // In WebXR the headset moves the camera
+  world.renderer.xr.addEventListener("sessionstart", () => (controls.enabled = false));
+  world.renderer.xr.addEventListener("sessionend", () => (controls.enabled = true));
 }

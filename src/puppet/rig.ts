@@ -26,7 +26,7 @@ const ANGULAR_DAMPING = 1;
  * of 4.7 s; at 40 arms and legs stop within a second. The default; a part may
  * have its own (RigBone.friction).
  */
-const JOINT_FRICTION = 10;
+export const JOINT_FRICTION = 10;
 
 export type RigJoint =
   // Swing: how far the bone may lean off its rest direction; twist: turning about its own axis. Rad, ± from the rest pose
@@ -110,6 +110,8 @@ export interface RigPart {
   /** A part that is fixed on its parent shares the parent's body */
   body: RAPIER.RigidBody;
   joint?: RAPIER.ImpulseJoint;
+  /** Friction of this part's joint, for whoever puts a motor on it and gives it back (body-drive.ts, body-walk.ts) */
+  friction: number;
   /**
    * A cone joint's twist: turns the part about its own long axis against its
    * parent by `angle` rad (+ = about the puppet's up axis, right-hand rule: to
@@ -275,6 +277,7 @@ export function buildRig(root: Object3D, description: RigDescription, options: R
       bone,
       body,
       joint,
+      friction,
       twistTo,
       tail: b.clone().sub(origin),
       restQuaternion: bone.getWorldQuaternion(new Quaternion()),

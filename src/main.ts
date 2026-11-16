@@ -1,19 +1,29 @@
-import { World } from "@iwsdk/core";
+import { SessionMode, World } from "@iwsdk/core";
 import { PhysicsLink } from "./components/physics-link";
 import { setupHandTracking, startHandTracking } from "./input/mediapipe";
 import { flyIn } from "./puppet/puppet";
 import { LightingSystem, addLighting, setStageLight } from "./stage/lighting";
-import { MainCurtainSystem, isMainCurtainLoaded, loadMainCurtain, lowerMainCurtain, skipMainCurtain } from "./stage/main-curtain";
+import {
+  MainCurtainSystem,
+  isMainCurtainDown,
+  isMainCurtainLoaded,
+  isMainCurtainMoving,
+  loadMainCurtain,
+  lowerMainCurtain,
+  skipMainCurtain,
+} from "./stage/main-curtain";
 import { SignSystem, loadSigns, onPlayChosen, showSigns } from "./stage/signs";
 import { startImpro } from "./impro/impro";
 import { startDirector } from "./plays/director";
 import { addPlayMenu } from "./plays/play-menu";
+import { isSceneChanging } from "./plays/plays";
 import { startPlay } from "./plays/scene-buttons";
 import { setupPresentation } from "./presentation/presentation";
 import { BackdropSystem, setBackdrop } from "./stage/backdrops";
 import { RequisitSystem, arrangeRequisits } from "./props/requisits";
 import { SpotlightSystem } from "./stage/spotlights";
 import { StageSystem, isCurtainOpen, loadStage, setCurtain, stageFloor } from "./stage/stage";
+import { FrameSystem } from "./systems/frames";
 import { RapierSystem, initPhysics } from "./systems/rapier-system";
 import { FpsSystem, hudLines } from "./spike/world";
 import { addLightDesk } from "./ui/light-desk";
@@ -24,6 +34,9 @@ import { isOn, setOn } from "./audio/audio";
 import { setupImpacts } from "./audio/impacts";
 import { setupSfx } from "./audio/sfx";
 import { setupSoundToggle } from "./ui/sound-toggle";
+import { installEmulator } from "./xr/emulator";
+import { addXrButton } from "./xr/xr-button";
+import { XrEmbodimentSystem, onXrSession } from "./xr/xr-embodiment";
 
 // Without ?test: the play itself. Curtain and signs, then the marionette,
 // led by the hand in front of the camera (the mouse until the camera runs).
@@ -33,6 +46,8 @@ import { setupSoundToggle } from "./ui/sound-toggle";
 // instead of impro mode. In impro mode the director bar builds the scenes.
 // The "Stücke" button (bottom left) leads back to the play choice from any
 // play: the main curtain comes down and the signs drop in again.
+// The "WebXR" button (top right, with a headset) puts the visitor on stage as
+// the marionette (src/xr/); &emu emulates a headset on the dev server.
 // Phase 0 spike tests (docs/spikes/iwsdk.md; src/spike/ is removed once the
 // spike is done): ?test=world (orbit camera, no puppet), ?test=puppet (mouse
 // only, no camera), ?test=interop.
@@ -80,9 +95,12 @@ if (roomId) {
 }
 
 await initPhysics();
+await installEmulator();
 
 const world = await World.create(document.getElementById("app")!, {
-  xr: false,
+  // The page starts in the browser; the WebXR button starts the session
+  // (xr/xr-button.ts). offer "none": IWSDK would otherwise offer one by itself.
+  xr: { offer: "none", sessionMode: SessionMode.ImmersiveVR, features: { handTracking: true } },
   features: { physics: false }, // Rapier instead, see systems/rapier-system.ts
   render: { fov: 45, near: 0.02, far: 50 },
 });
@@ -93,6 +111,7 @@ world.camera.lookAt(0, 0.4, -0.1);
 
 world.registerComponent(PhysicsLink);
 world.registerSystem(RapierSystem);
+world.registerSystem(FrameSystem);
 world.registerSystem(StageSystem);
 world.registerSystem(FpsSystem);
 world.registerSystem(MainCurtainSystem);
@@ -101,6 +120,7 @@ world.registerSystem(BackdropSystem);
 world.registerSystem(RequisitSystem);
 world.registerSystem(SpotlightSystem);
 world.registerSystem(LightingSystem);
+world.registerSystem(XrEmbodimentSystem);
 
 // Scene presets place props relative to the stage floor: they wait for it
 let stageLoaded = () => {};
@@ -149,18 +169,24 @@ stageLoaded();
 
 // Back to the choice: the curtain comes down, behind it the play's UI goes and
 // the stage is cleared, then the signs drop in again
+let leaving = false;
 addPlayMenu(async () => {
   if (!running.every((r) => r.canLeave?.() ?? true)) return;
-  if (!isMainCurtainLoaded()) await loadChoice(); // ?test=nocurtain: loaded only now, still raised
-  for (const r of running) r.stop();
-  running = [];
-  setAmbientPlay("default");
-  await lowerMainCurtain();
-  setBackdrop(world, null);
-  setStageLight(undefined); // back to the plain light
-  void arrangeRequisits(world, []);
-  setCurtain(true);
-  showSigns();
+  leaving = true;
+  try {
+    if (!isMainCurtainLoaded()) await loadChoice(); // ?test=nocurtain: loaded only now, still raised
+    for (const r of running) r.stop();
+    running = [];
+    setAmbientPlay("default");
+    await lowerMainCurtain();
+    setBackdrop(world, null);
+    setStageLight(undefined); // back to the plain light
+    void arrangeRequisits(world, []);
+    setCurtain(true);
+    showSigns();
+  } finally {
+    leaving = false;
+  }
 });
 addLighting(world);
 addLightDesk();
@@ -188,3 +214,18 @@ switch (test) {
       });
   }
 }
+
+// WebXR, once the puppet is there to step into. The main curtain and the
+// signs hang right in front of a flat screen's camera and are picked with the
+// mouse: from the play choice, entering XR goes straight on stage in impro mode.
+onXrSession((active) => {
+  if (!active || !isMainCurtainDown()) return;
+  skipMainCurtain();
+  chosenPlay("impro");
+});
+// The button waits for whatever is changing the stage: the main curtain on its
+// way (it hangs in front of a flat screen's camera), a scene change, the way
+// back to the play choice. The player then steps onto a set stage and into a
+// puppet that is there. (A scene change during a session works too: it runs
+// on the world's loop, systems/frames.ts.)
+void addXrButton(world, () => leaving || isMainCurtainMoving() || isSceneChanging());

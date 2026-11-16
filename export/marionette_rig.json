@@ -215,7 +215,7 @@
       },
       "joint": {
         "type": "cone",
-        "swing": 110,
+        "swing": 180,
         "twist": 60
       }
     },
@@ -332,7 +332,7 @@
       },
       "joint": {
         "type": "cone",
-        "swing": 110,
+        "swing": 180,
         "twist": 60
       }
     },

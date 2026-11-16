@@ -1,7 +1,8 @@
 import type { World } from "@iwsdk/core";
 import { curtainLift } from "../stage/main-curtain";
 import { curtainOpenness, setCurtain } from "../stage/stage";
-import { applyScene, loadPlay, type Play } from "./plays";
+import { seconds, until } from "../systems/frames";
+import { applyScene, duringSceneChange, loadPlay, type Play } from "./plays";
 import "./plays.css";
 
 // A play with scene presets (plays.ts), e.g. the Froschkönig sign: once the
@@ -23,7 +24,8 @@ const CHANGE_PAUSE = 0.6;
 export function startPlay(world: World, id: string, stageReady: Promise<unknown>) {
   let stopped = false;
   let nav: ReturnType<typeof showSceneButtons> | null = null;
-  void (async () => {
+  // From the choice until the first scene stands: one scene change (WebXR waits for it)
+  void duringSceneChange(async () => {
     const play = await loadPlay(id).catch(() => null);
     if (!play?.scenes.length) return;
     await stageReady;
@@ -31,7 +33,7 @@ export function startPlay(world: World, id: string, stageReady: Promise<unknown>
     if (stopped) return;
     await applyScene(world, play.scenes[0]);
     if (!stopped) nav = showSceneButtons(world, play);
-  })();
+  });
   return () => {
     stopped = true;
     nav?.remove();
@@ -73,11 +75,14 @@ function showSceneButtons(world: World, play: Play) {
     current = index;
     mark();
     nav.classList.add("changing");
-    setCurtain(false);
-    await until(() => curtainOpenness() <= 0);
-    await applyScene(world, play.scenes[index]);
-    await seconds(CHANGE_PAUSE);
-    setCurtain(true);
+    // One scene change from the curtain coming down until it goes up again (WebXR waits for it)
+    await duringSceneChange(async () => {
+      setCurtain(false);
+      await until(() => curtainOpenness() <= 0);
+      await applyScene(world, play.scenes[index]);
+      await seconds(CHANGE_PAUSE);
+      setCurtain(true);
+    });
     nav.classList.remove("changing");
     changing = false;
   };
@@ -111,11 +116,3 @@ function showSceneButtons(world: World, play: Play) {
   };
 }
 
-function until(done: () => boolean) {
-  return new Promise<void>((resolve) => {
-    const check = () => (done() ? resolve() : requestAnimationFrame(check));
-    check();
-  });
-}
-
-const seconds = (s: number) => new Promise((resolve) => setTimeout(resolve, s * 1000));

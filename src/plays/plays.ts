@@ -2,6 +2,7 @@ import type { World } from "@iwsdk/core";
 import { hidePuppets, showPuppets } from "../puppet/puppet";
 import { arrangeRequisits, type FloorSpot, placedRequisits, requisitsSettled } from "../props/requisits";
 import { slug } from "../slug";
+import { until } from "../systems/frames";
 import { currentBackdrop, loadBackdrops, setBackdrop } from "../stage/backdrops";
 import { lightScenesLoaded, type SceneLight, setStageLight, stageLight } from "../stage/lighting";
 
@@ -122,7 +123,32 @@ export function onSceneApplied(listener: () => void) {
  * its usual animation. The puppet steps aside meanwhile (faded out and pulled up), so
  * the props come down onto a free stage, and comes back once all have landed.
  */
-export async function applyScene(world: World, scene: Scene) {
+export function applyScene(world: World, scene: Scene) {
+  return duringSceneChange(() => putScene(world, scene));
+}
+
+/**
+ * Counts `work` as a scene change under way: applyScene itself, and what a
+ * caller does around it (scene-buttons.ts: stage curtain down, scene, pause).
+ */
+export async function duringSceneChange<T>(work: () => Promise<T>): Promise<T> {
+  changing++;
+  try {
+    return await work();
+  } finally {
+    changing--;
+  }
+}
+
+/**
+ * Whether a scene change is under way, also one that a newer scene has taken
+ * over from. Entering WebXR waits for it (xr/xr-button.ts), so the player
+ * steps onto a set stage and into a puppet that is there.
+ */
+export const isSceneChanging = () => changing > 0;
+let changing = 0;
+
+async function putScene(world: World, scene: Scene) {
   const run = ++applying;
   const hidden = hidePuppets();
   const [backdrops] = await Promise.all([loadBackdrops(), lightScenesLoaded()]);
@@ -143,10 +169,3 @@ export async function applyScene(world: World, scene: Scene) {
 }
 
 let applying = 0;
-
-function until(done: () => boolean) {
-  return new Promise<void>((resolve) => {
-    const check = () => (done() ? resolve() : requestAnimationFrame(check));
-    check();
-  });
-}

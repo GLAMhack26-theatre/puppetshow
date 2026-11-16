@@ -2,6 +2,7 @@ import type { HandLandmarker } from "@mediapipe/tasks-vision";
 import { Quaternion, Vector3 } from "@iwsdk/core";
 import type { RigController } from "../puppet/rig";
 import { addHandSettings } from "../ui/hand-settings";
+import { isMainCurtainDown } from "../stage/main-curtain";
 import { createReleaseTimer } from "../ui/release-timer";
 import { MAX_ROCK, controlInput, puppetState, type RockId } from "./control-input";
 import { createHandOverlay } from "./hand-overlay";
@@ -189,7 +190,7 @@ function startReleaseLoop() {
       flights++;
       void Promise.resolve(onNewPlayer?.()).catch(() => undefined).then(() => flights--);
     }
-    timer.show(state);
+    timer.show(state, !isMainCurtainDown());
     requestAnimationFrame(tick);
   };
   tick();
@@ -203,6 +204,8 @@ function startReleaseLoop() {
  * not drop the prop.
  */
 function letGo() {
+  // In WebXR the player's own body drives the puppet: nothing of it is the camera hand's to reset
+  if (controlInput.body.active) return;
   controlInput.grip.left = controlInput.grip.right = false;
   controlInput.rock.legs = controlInput.rock.head = controlInput.rock.hands = 0;
   controlInput.turn = 0;
@@ -382,6 +385,8 @@ function createSession(options: HandTrackingOptions, panel: HTMLElement) {
   let releasesSeen = 0;
 
   function apply(out: TrackerOutput) {
+    // In WebXR the player's own body drives the puppet (src/xr/): the camera hand stands by
+    if (controlInput.body.active) return;
     controlInput.source = "mediapipe";
     // Until a hand has shown up the cross stays at its rest place
     everAttached ||= out.status !== "none";

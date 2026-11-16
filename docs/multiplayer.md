@@ -434,6 +434,7 @@ Not run, and the first things to do with real hardware:
 - **A hidden host tab pauses everyone.**
 - **A failed link between two clients loses that pair's backdrop changes.** The backdrop is sent by whoever changed it to all its peers; the host does not pass it on. If two clients cannot reach each other (both behind strict networks, no TURN), one misses the other's change. Until the host forwards it: change the backdrop on the host, or configure TURN.
 - **Props and scene presets are per device** (architecture §3.3): in a room, use props on the host only.
+- **WebXR (the visitor as the puppet) works on the host only.** The body's pose is not sent over the network yet (architecture §3.3, "WebXR in a room"). Tried in the headset emulator: as the host, the puppet follows the headset on the host and on a client; on a client the session runs and the puppet stays on its strings. Not tried on a headset.
 - **Anyone who can open the page can use our servers.** The app has no logins. The relay's address is in the page, and so is either the TURN server's fixed password or the address that hands out expiring pairs. Limits bound what a stranger gets (section 6.1); they do not keep strangers out.
 - **Many watching devices do not scale.** Every device connects to every other; that is fine for six, not for an audience of dozens (architecture §3.3, "Later").
 - **Clients on a second lossy channel only where it opens**; otherwise poses share Trystero's ordered channel, which stutters on a congested Wi-Fi (`net … 0 lossy`).

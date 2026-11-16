@@ -1,7 +1,9 @@
 import { type Material, Mesh, Quaternion, Vector3, type Object3D, type World } from "@iwsdk/core";
 import { controlInput, puppetState, type ControlInput } from "../input/control-input";
 import { addFollowSpot } from "../stage/spotlights";
+import { nextFrame, seconds } from "../systems/frames";
 import { MAX_PUPPETS, puppetGroups, renderPose } from "../systems/rapier-system";
+import { createBodyDrive } from "./body-drive";
 import { createGrab, suspendGrab } from "./grab";
 import { loadMarionette } from "./marionette";
 import { buildRig, type RigDescription } from "./rig";
@@ -54,6 +56,12 @@ const FLY = { up: { speed: 2.5, accel: 3 }, down: { speed: 0.3, accel: 1.5 }, ma
 const MAX_DESCENT_FRAMES = 900;
 
 interface Presence {
+  /**
+   * A player is inside (WebXR, body-drive.ts): it stays on stage, shown, while
+   * a scene changes. Its head is where the player's is, so the cross cannot
+   * pull it up, and the player would lose their hands.
+   */
+  driven(): boolean;
   /** 0 hidden … 1 shown */
   level: number;
   set(level: number): void;
@@ -82,9 +90,9 @@ let sceneChanging = false;
 
 /**
  * The marionette: a skinned model with its rig description (marionette.ts),
- * its ragdoll, the control cross with the strings, grabbing hands, and its
- * own follow spot on the lighting bar. Controlled through a ControlInput; it
- * stands where `root` is.
+ * its ragdoll, the control cross with the strings, grabbing hands, the drive
+ * for a player's own body (WebXR), and its own follow spot on the lighting
+ * bar. Controlled through a ControlInput; it stands where `root` is.
  */
 export function createPuppet(world: World, root: Object3D, description: RigDescription, options: PuppetOptions = {}) {
   const mode = options.mode ?? "simulated";
@@ -100,6 +108,11 @@ export function createPuppet(world: World, root: Object3D, description: RigDescr
   const strings = createStrings(world, root, rig, description.strings, description.controller, { mode, input });
   // The local player's hands report to the sources and the UI (puppetState), any other puppet's to an object of its own
   const grab = simulated && input ? createGrab(world, rig, strings, input, local ? puppetState : undefined) : undefined;
+  // A player's own body (WebXR) drives the puppet they lead, where it is
+  // simulated: ControlInput.body is not sent to other devices, so another
+  // player's puppet has nothing to be driven by, and on a client in a room
+  // the player's own puppet is only shown (src/net/)
+  const body = simulated && local && input ? createBodyDrive(root, rig, strings, input) : undefined;
   // The spot follows the chest: the middle of the puppet, and calmer than the head
   const center = (rig.byName.get("chest") ?? rig.parts[0]).body;
   const rotation = new Quaternion();
@@ -120,14 +133,20 @@ export function createPuppet(world: World, root: Object3D, description: RigDescr
     }
     return FLY.max;
   };
-  const presence = createPresence(root, strings, spot, exitLift, local, () => grab?.drop());
+  const presence = createPresence(root, strings, spot, exitLift, local, () => grab?.drop(), () => !!body?.driving());
   puppets.push(presence);
+  // A player stepping into a puppet that is hidden or pulled up (a scene change under way) gets it back at once
+  body?.onStart(() => {
+    presence.set(1);
+    presence.setLift(0);
+  });
 
   return {
     root,
     rig,
     strings,
     grab,
+    body,
     spot,
     /** Bars, then bones: the bodies whose poses travel over the network, in the same order on every device */
     bodies: [...strings.bars, ...rig.bodies],
@@ -135,6 +154,7 @@ export function createPuppet(world: World, root: Object3D, description: RigDescr
       // Out of the list first: a scene change must not wait for a cross that no longer moves
       puppets.splice(puppets.indexOf(presence), 1);
       spot.remove();
+      body?.dispose();
       grab?.dispose();
       strings.dispose();
       rig.dispose();
@@ -166,7 +186,7 @@ export async function hidePuppets() {
   for (const p of puppets) p.drop();
   await fade(0, run);
   if (run !== generation) return;
-  for (const p of puppets) p.setLift(HIDE_LIFT);
+  for (const p of puppets) if (!p.driven()) p.setLift(HIDE_LIFT);
   await travel(run);
 }
 
@@ -175,7 +195,7 @@ export async function showPuppets() {
   const run = ++generation;
   for (const p of puppets) p.setLift(0);
   await travel(run);
-  await wait(SETTLE_SECONDS);
+  await seconds(SETTLE_SECONDS);
   if (run !== generation) return;
   await fade(1, run);
   if (run === generation) {
@@ -198,6 +218,8 @@ export async function showPuppets() {
  */
 export async function flyIn() {
   if (sceneChanging) return;
+  // Nor for a puppet with a player inside (WebXR): its head is where the player's is
+  if (puppets.some((p) => p.local && p.driven())) return;
   const run = ++generation;
   const own = puppets.filter((p) => p.local);
   // The puppet that leaves takes nothing with it: its props stay for the next player
@@ -216,6 +238,7 @@ function createPresence(
   exitLift: () => number,
   local: boolean,
   drop: () => void,
+  driven: () => boolean,
 ): Presence {
   const meshes: Mesh[] = [];
   root.traverse((o) => o instanceof Mesh && meshes.push(o));
@@ -228,6 +251,7 @@ function createPresence(
   const objects = [root, ...strings.objects];
 
   return {
+    driven,
     level: 1,
     set(level) {
       this.level = level;
@@ -263,14 +287,15 @@ function fade(to: number, run: number) {
       last = now;
       let done = true;
       for (const p of puppets) {
+        if (p.driven()) continue;
         const level = to > p.level ? Math.min(to, p.level + delta) : Math.max(to, p.level - delta);
         if (level !== p.level) p.set(level);
         done &&= level === to;
       }
       if (done) resolve();
-      else requestAnimationFrame(step);
+      else nextFrame(step);
     };
-    requestAnimationFrame(step);
+    nextFrame(step);
   });
 }
 
@@ -279,12 +304,10 @@ function travel(run: number, most = MAX_TRAVEL_FRAMES, who = puppets) {
   let frames = 0;
   return new Promise<void>((resolve) => {
     const check = () => {
-      if (run !== generation || who.every((p) => p.arrived()) || ++frames > most) resolve();
-      else requestAnimationFrame(check);
+      if (run !== generation || who.every((p) => p.driven() || p.arrived()) || ++frames > most) resolve();
+      else nextFrame(check);
     };
     // One frame first: the physics step has to pick up the new lift
-    requestAnimationFrame(check);
+    nextFrame(check);
   });
 }
-
-const wait = (s: number) => new Promise((resolve) => setTimeout(resolve, s * 1000));

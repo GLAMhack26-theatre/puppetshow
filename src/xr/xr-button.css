@@ -1,0 +1,53 @@
+/* WebXR button, top right (xr-button.ts): the round dark button with a gold
+   rim of the sound and "Stücke" buttons (sound-toggle.css, play-menu.css),
+   its label to the left of it. Under the impro panels (z-index 20): an open
+   panel covers the corner. */
+#xr-button {
+  position: fixed;
+  top: max(8px, env(safe-area-inset-top));
+  right: max(8px, env(safe-area-inset-right));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  color: #f2d58c;
+  background: none;
+  border: 0;
+  font: italic 400 15px/1 Georgia, serif;
+  text-shadow: 0 1px 3px #000, 0 0 8px #000a;
+  cursor: pointer;
+  z-index: 19;
+}
+/* Debug mode: below the row of test links (#tests in index.html) */
+body.debug #xr-button { top: 44px; }
+.xr-button-icon {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  padding: 7px;
+  box-sizing: border-box;
+  background: radial-gradient(circle at 35% 30%, #4a2e22, #1a0f0b);
+  border: 1.5px solid #d8aa4a;
+  border-radius: 50%;
+  box-shadow: 0 4px 10px #0008;
+  transition: transform 0.15s;
+}
+#xr-button:hover .xr-button-icon { transform: scale(1.08); }
+#xr-button:focus-visible { outline: 2px solid #f3e6c8; outline-offset: 3px; }
+.xr-button-icon svg { display: block; width: 100%; height: 100%; }
+.xr-button-icon path,
+.xr-button-icon circle {
+  fill: none;
+  stroke: #f3e9dccc;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.xr-button-icon circle { stroke: #d8aa4a; }
+/* Waiting for a scene change to finish: dimmed. Then, if the browser no longer
+   counts the click as a gesture, a pulsing rim asks for a second tap. */
+#xr-button[data-state="waiting"] .xr-button-icon { opacity: 0.6; }
+#xr-button[data-state="again"] .xr-button-icon { animation: xr-button-again 1s ease-in-out infinite; }
+@keyframes xr-button-again {
+  50% { box-shadow: 0 0 0 5px #d8aa4a66, 0 4px 10px #0008; }
+}

@@ -1,173 +1,142 @@
 # Marionette Theatre, back in 3D
 
-How can we bring the Marionette Paper Theatre back into the 3-dimensional space? What can be experienced in this theatre?
+An interactive paper theatre in the browser, built from the SKKG collection: pick a play, set the stage with painted backdrops and digitised collection objects, and play a rigged SKKG marionette with your hand in front of the webcam.
 
-## Architecture
+**[Try it](https://glamhack26-theatre.github.io/puppetshow/)** (desktop with a webcam) · [GLAMhack 2026 project page](https://hack.glam.opendata.ch/project/334)
 
-Decisions, setup and phases: [docs/architecture.md](docs/architecture.md)
+![The main curtain with the play signs](docs/images/start-curtain.jpg)
 
-## Tuning
+## The idea
 
-### Stage lighting: the light desk
+The SKKG collection holds beautifully illustrated paper sheets that fold into a 3D puppet theatre stage, plus marionettes, small figures and stage objects. In the digital collection all of this exists only as photographs, so the theatre is flat again.
 
-The lighting is tuned live, not in code, on the light desk: one slider per parameter of the lighting rig. The desk is the **Licht** page of the scene editor (impro mode, the Licht button on the right); on the other pages **Lichtpult** in the debug button panel (debug mode: Shift+D or `?debug`) opens it. The rig follows the advice of a theatre lighting designer; every light is on a dimmer (0 … 100 %).
+![The SKKG paper theatre: stage, curtain and backdrops](docs/images/skkg-paper-theatre.jpg)
 
-| Group on the desk | The light | Parameters |
-|---|---|---|
-| Vorderlicht (2 × 45°) | Two white lights out front, 45° above the stage and 45° to either side. Diffuse, over the full stage width. | Helligkeit, Farbtemperatur (3000 … 5600 K) |
-| Profilscheinwerfer (Verfolger) | The focus light: one follow spot per puppet, on a bar in front of the stage, tracking it. Nearly parallel and hard, with a soft rim; the only light casting shadows. | Helligkeit, Farbtemperatur, Öffnung (beam angle, 8 … 45°), Weicher Rand (0 % is a hard edge), Strahl im Dunst (the beam drawn in the air) |
-| Oberlicht | Area light above the stage: the mood light. 40 % in the neutral scene. | Helligkeit, Farbe |
-| Seitenlicht (Gassen) | Area lights in the wings on both sides: plasticity. | Helligkeit, Farbtemperatur |
-| Rampe (Fussrampe) | Striplight along the front edge of the stage, shining up at 45° into the faces. | Helligkeit, Farbe |
-| Raum | Reflections of the room on the puppet's glossy materials, and a little light from everywhere. | Raumlicht |
+The challenge asked: *How can we bring the Marionette Paper Theatre back into three-dimensional space, and what can people experience in it?* It suggested several directions (a VR walk-through, an AR stage on a table, a build-it-yourself kit, a printable PDF) and left the format open.
 
-The top, side and strip lights are area lights without a visible source. The renderer has no tone mapping, so light adds up to white: with several groups high, light clothes burn out. The painted backdrops are unlit; they take their tint from the dimmers (mostly the front light), so a dark scene also darkens the backdrop. A bright or coloured striplight shows as a thin line on the gold band at the foot of the wall behind the stage, which mirrors it.
+**What we built:** an interactive 3D theatre in the browser. The visitor picks a play or sets up the stage with painted backdrops and stage objects digitised from the SKKG collection; objects from other collections come in through IIIF manifests. Then they play a rigged SKKG marionette on its real 9-string control cross with their hand.
 
-**Lighting scenes** are named sets of these values. They form one library for all plays: a JSON file per scene in `assets/lights/` (Neutral is built in).
+## What you can do
 
-- The buttons at the top of the desk choose a scene, with a 1.5 s fade; **Licht: …** in the debug panel (or the L key) steps through them. `?light=morgenstimmung`, `?light=abenddaemmerung`, `?light=dramatisch` (the file name) starts in one.
-- **Lichtszene speichern** with a name adds a new lighting scene, which every scene of every play can use from then on and which is a starting point for more. Without a name it overwrites the chosen one; that changes the light of every scene that uses it.
-- With the dev server, saving writes `assets/lights/<id>.json` (commit it) and **Löschen** removes the file. A build cannot write: it keeps the scene in this browser and downloads the file, to be put into `assets/lights/` by hand.
-- **Light of a play's scene:** choose the scene in the director bar, set the light on the Licht page, press **Speichern** in the director bar. The play file then holds `"light": { "scene": "<id>" }`; if sliders were moved without saving a lighting scene, their values are kept next to it. A scene without `light` is lit with Neutral.
+1. **Choose a play.** A red curtain fills the screen and the play signs drop in front of it: *Hänsel und Gretel*, *Froschkönig* and *Impro*. Plays made in the app get their own signs (the *mehr* arrow shows the next row). A click raises the curtain and starts the webcam.
+2. **Play the marionette.** Raise your hand in front of the camera; the marionette follows it on its strings, lit by its own follow spot. Without a camera the mouse moves the cross.
+3. **Follow a play.** A play is a list of scenes. The gold medallions on the left (or the keys 1–9) change the scene: the stage curtain comes down, the set changes behind it, and it goes up again.
 
-A lighting scene file (colours as `"#rrggbb"`; a value left out is Neutral's):
+   ![Froschkönig, scene 1: Am Brunnen](docs/images/play-froschkoenig.jpg)
 
-```json
-{
-  "name": "Abenddämmerung",
-  "values": { "front": 0.3, "frontKelvin": 3000, "spot": 0.22, "spotKelvin": 3200, "spotAngle": 20, "spotEdge": 0.6, "spotBeam": 0.18, "top": 0.55, "topColor": "#5a48e8", "side": 0.5, "sideKelvin": 3000, "strip": 0.3, "stripColor": "#ff6a3a", "room": 0.15 }
-}
+4. **Set your own stage (Impro).** Round buttons at the screen edges open paper-theatre panels:
+   - **Hintergrund** (right): painted backdrops as cards; a click lets one down like a sheet from the fly loft.
+   - **Requisiten** (left): stage objects; a click lowers one onto a free spot. Objects can be dragged across the floor, they collide, and the marionette can pick up small ones. The last card takes a **IIIF 3D manifest** (file or link): the object becomes a new stage object.
+   - **Licht** (right): the light desk with lighting scenes.
+   - **Sound** (left): sound-art excerpts to play.
+   - The **Regie** bar at the top saves the stage as scenes of a new play (the deployed version downloads the play as a file).
+
+   ![Impro: backdrops](docs/images/impro-backdrops.jpg)
+
+   ![Impro: stage objects](docs/images/impro-props.jpg)
+
+5. **Check the source.** Every card has an **i** that opens the object in the SKKG collection. Objects invented with AI say so instead (*Fake-Objekt gefunden!*).
+6. **Sound.** Two buttons at the bottom right switch background music and sound effects on; both are off when the page loads. Clicking a play sign turns them on.
+
+## Playing with your hand
+
+The first hand in front of the camera holds the cross; a second hand helps, as on a real marionette cross. The hand window (top right) shows what the camera sees: both hands, and the cross lying in the cross hand.
+
+![Two hands play the marionette; the hand window shows the tracked hands and the cross](docs/images/hand-tracking.jpg)
+
+| Hand | What it does |
+|---|---|
+| Move the cross hand | The puppet moves left, right, up and down; towards the camera and back for depth |
+| Tilt or turn the cross hand | The cross tilts: the puppet bows, leans or turns |
+| Index and middle finger, alternately | The leg bar rocks: the puppet walks |
+| Thumb or little finger | The head turns to that side |
+| Lower the hand | The strings go slack: the puppet sits or lies down |
+| Take the hand out of the picture | The puppet is let go; raise a hand again to take it |
+| Second hand: pinch or fist at a bar's handle | Takes the hand bar, head bar or leg bar off the cross and moves it |
+| Second hand: fist away from the handles | The puppet's hands grab like magnets |
+| Second hand: a quick fist and open again | The puppet lets go of what it holds |
+
+**Kreuz zurücksetzen** (bottom centre) puts the cross right again; the button next to it opens sliders for the puppet's standing height, the tilt of the cross and the string length.
+
+**Keys:** Shift+P presentation · Shift+D debug buttons and panel · 1–9 scenes of a running play.
+
+## Collection objects
+
+All objects existed only as one or two photos in the SKKG digital collection (CC0). Each was rebuilt as a textured 3D model with Blender scripts and image processing (Python, OpenCV); the method depends on the object's shape.
+
+- Stage and backdrops: [Theaterbühne 30717.1](https://digital.skkg.ch/de/intro/skkg%3Aobject%2F75eef8be-9ba0-4361-b986-6d2a445625e6)
+- Sign: [Schild 45567.3](https://digital.skkg.ch/de/filter/skkg%3Aobject%2Fe811c87f-cd55-4b52-9a7d-104115f2fb34?skkgapi:object_genres=skkg:type/21087/140189)
+- Marionette: [Marionettenpuppe 46154](https://digital.skkg.ch/de/intro/skkg%3Aobject%2F96da4bbf-e5b0-4a6f-a901-0736d225c13d) ([how the model was built](docs/marionette-model.md))
+- Chest: [Truhe 46955](https://digital.skkg.ch/de/intro/skkg%3Aobject%2Fb31b189c-5e0e-4758-a323-27316d7b4d2c)
+- Chair: [Stuhl 25210.6](https://digital.skkg.ch/de/intro/skkg%3Aobject%2F1470b11c-4fa7-4f3e-bc87-3ab883254ef4)
+- Ball: [Kanonenkugel 38896.3](https://digital.skkg.ch/de/intro/skkg%3Aobject%2F65c920cd-2c29-4f67-b733-fd6a4ccd6b58)
+- Bed: [Bett 44012](https://digital.skkg.ch/de/intro/skkg%3Aobject%2Fe338e1da-faf7-4b55-ace9-e6687bc5a0e5)
+- Cup: [Becher 48468.21](https://digital.skkg.ch/de/intro/skkg%3Aobject%2F3733e0eb-dc2a-41dd-8a85-1da14200b6b5)
+- Cat: [Katze «Villa Poupée» 29404.202](https://digital.skkg.ch/de/intro/skkg%3Aobject%2Fa7a830f4-e8ff-4971-9050-9da1b69c52fa)
+- Frog: [1 Paar Tierfiguren; Frosch 49790](https://digital.skkg.ch/de/intro/skkg%3Aobject%2F81b996fe-be29-453f-a009-23f72ac49e94)
+- Dog: [Krippenfigur Hund 38872.24](https://digital.skkg.ch/de/intro/skkg%3Aobject%2F5f99eeb6-fb56-43e3-a9d1-d54b6816493e)
+- Tree: [Nadelbaum 29319.27](https://digital.skkg.ch/de/intro/skkg%3Aobject%2Ff936b13d-8a56-4fdb-b1aa-43044e78e3e8) (in the praline box of the presentation)
+- Invented with AI, without an SKKG original: fountain, lantern, frog king
+
+From another collection, through IIIF: [Mikroskop ETHZ GEOB 0055](https://sketchfab.com/3d-models/eth-microscop-1908-70d8dc2ff7b74b8e937bfc1350ca996d), ETH Library ([IIIF manifest](https://s3.dribdat.cc/glam/c/11615/40Y66/6G9RPV7U.json)).
+
+![The SKKG paper theatre: the side wings](docs/images/skkg-paper-theatre-wings.jpg)
+
+**Limits of the 3D models**
+- Sides not visible in any photo are plausibly completed, not documented: filled from the opposite side, a symmetric counterpart or a mirrored copy.
+- Remnants of the photo background are retouched out.
+- Fine relief such as needles, fingers or carving marks is mostly texture, not geometry.
+- Large parts of the code, the Blender scripts and the 3D models were made with an AI coding assistant (Claude Code), guided and checked by the team. Each model was reimported, rendered and compared with the photo after every change.
+
+## Run it yourself
+
+You need [Node.js](https://nodejs.org) 22 or newer (the deploy uses 24). Once, after cloning:
+
+```sh
+npm install
+
+./scripts/fetch-mediapipe-models.sh
 ```
 
-The scenes that come with the repo (dimmers in %):
+Then start it:
 
-| Scene | Idea | Vorderlicht | Profil | Oberlicht | Seitenlicht | Rampe | Raum |
-|---|---|---|---|---|---|---|---|
-| Neutral (built in) | Plain, even stage light | 50, 5600 K | 27, 5200 K, 17° | 40, warm white | 30, 5000 K | 10, warm white | 30 |
-| Morgenstimmung | Daylight outdoors: bright and cool from the front and above, a low warm sun from the wings | 62, 5600 K | 10, 36°, very soft, no beam | 60, sky blue | 40, 4200 K | 15, pale yellow | 45 |
-| Abenddämmerung | Dusk: little, warm front light, a low sun from the wings, violet from above, an orange glow from the strip | 30, 3000 K | 22, 3200 K, 20°, soft | 55, violet | 50, 3000 K | 30, orange | 15 |
-| Dramatisch | Next to no front light, red from above, a narrow hard spot with its beam in the air | 3 | 40, 5600 K, 14°, hard, strong beam | 85, red | 35, 5600 K | 0 | 6 |
+```sh
+npm run dev:https
+```
 
-In the code (`src/stage/lighting.ts`): the `…_FULL` constants are what 100 % means for each light, `TOP_HEIGHT`, `SIDE_HEIGHT`, `SIDE_Y`, `STRIP_HEIGHT` and `STRIP_TILT` place the area lights (their width and depth come from the stage floor), `FADE_SECONDS` is the time a switch takes.
+Open [https://localhost:5173](https://localhost:5173), or `https://<your-IP>:5173` on a phone or another computer in the same network, and accept the certificate warning once.
 
-### Follow spots (`src/stage/spotlights.ts`)
+## How it is built
 
-The look of the spots (brightness, colour, beam angle, rim, haze) comes from the lighting scene, see above. What is fixed in the code:
-
-| Constant | Value | What it changes |
-|---|---|---|
-| `BAR_Y`, `BAR_Z` | 1.2 m, 1.6 m | Height of the lighting bar and its distance in front of the stage centre: the angle the light comes in at. It has to stay under the top of the proscenium opening and out of the camera's view. |
-| `SLOTS_X` | −0.5, 0.5, 0, −0.9, 0.9 m | Where the spots hang along the bar, in the order the puppets arrive. Off-centre gives the puppet some modelling shadow. |
-| `DROP` | 0.1 m | How far the lens hangs below the bar. |
-| `BEAM_PAST` | 1.2 | How far the drawn beam reaches past the puppet, in beam lengths (about to the floor). |
-| `FOLLOW` | 6 /s | How fast the spot catches up with its puppet. Lower lags more, like a slow spot operator. |
-| `MAX_SHADOW_SPOTS` | 3 (phones: 1) | How many spots cast shadows; shadow maps are costly on phones. |
-
-## Marionette model (SKKG Marionettenpuppe 46154)
-
-Procedural, rigged, cloth-ready Blender model of the SKKG marionette (CC0 photos in
-`assets/`). Real size 35 x 14 x 7.5 cm, so the model is built at **H = 0.35 m**
-(Z up, facing -Y, character left = +X / `.L`). Rest pose: arms hanging down.
-
-| File | What |
+| Topic | Decision |
 |---|---|
-| `blender/marionette.blend` | The model, rig, controller, preview cloth sim and demo animation |
-| `blender/build_marionette.py` | Rebuilds everything in the `Marionette` collection (all proportions live here, in units of H) |
-| `blender/validate_cloth.py` | Cloth mesh checks: topology, edge lengths, folds, self-intersections, body clearance, pinned penetrations |
-| `blender/render_reference_check.py` + `tools/overlay_check.py` | Ortho renders framed like the reference photos, overlaid for proportion checks |
-| `blender/export_game.py` | Writes `export/marionette.glb` and `export/marionette.fbx` |
-| `export/marionette_rig.json` | Engine metadata: bones, masses, capsule colliders, joint limits, strings, cloth info |
-| `tools/extract_textures.py` | Builds `assets/textures/*` from photo 3 (exposure from the colour chart, strings inpainted; face projected onto the head's 3D front surface from `head_front_depth.json`, TPS-corrected, hidden far cheek filled from the mirrored near side) |
+| Engine | Meta IWSDK (three.js, ECS) in browser mode; WebXR possible later |
+| Physics | Rapier: ragdoll, 9 rope-joint strings, grabbing, colliding stage objects |
+| Input | MediaPipe hand tracking with one or two hands, mouse as fallback; all sources write one `ControlInput` |
+| Stage light | A rig of five light groups on dimmers, designed with a theatre lighting expert, switched by lighting scenes; a follow spot per puppet |
+| Plays | One JSON file per play in `assets/plays/`, written from the app (Regie bar) |
+| Catalogue | `assets/catalogue.json`: label, scale and collection link for every stage object and backdrop |
+| Sound | Music and excerpts streamed from archive.org, CC0 sound effects, physics sounds |
+| Tooling | TypeScript, Vite; deployed to GitHub Pages |
 
-Rebuild: in Blender run `blender/build_marionette.py` (it only touches the `Marionette*` collections),
-then `blender/export_game.py`. The build also writes `assets/textures/head_front_depth.json`; after
-changing the head shape run `tools/extract_textures.py` again and rebuild.
+More in [docs/](docs/): [architecture and decisions](docs/architecture.md) · [stage lighting](docs/lighting.md) · [marionette model](docs/marionette-model.md) · [play-test report on the hand control](docs/puppets.md) · [software bill of materials](SBOM.md)
 
-### Construction
-Carved wooden head, hands, ivory-painted lower legs, and lead-weighted shoes (lead plate under the
-right sole, green paint under the left). Stuffed linen torso, upper arms and thighs (the thigh is
-visible through the skirt tear in photo 3). Soft black fabric hat with a ribbon rosette, ribbed
-turtleneck with a velvet ribbon. Every rigid part is skinned 100 % to one bone.
-The wooden arms are generated along X and turned down in two steps. First spread out a bit
-(`ARM_SPREAD_DEG`, 45°): in this pose the sleeves are lofted around the arms (`sleeve_rings`), with a
-fan of rings from the armhole over the sleeve cap, so armpit and shoulder come out clean. Then down
-to the rest pose (`ARM_HANG_DEG`, 87°), where the same sleeve rings are lofted again around the
-hanging arms, flattened where they lie against the bodice; the arms are never rotated into the dress
-by skinning. `settle_dress` then dents the skirt where sleeves and hands rest on it and removes any
-remaining intersection. `build(stage="spread")` stops at the spread pose for checking.
+## Team
 
-### Rig
-* `MarionetteRig` is the game skeleton. It has `root`, `pelvis`, `chest`, `neck`, `head`,
-  `upper_arm/forearm/hand.L/R` and `thigh/shin/foot.L/R`.
-* It also has 9 string sockets (`string_head.L/R`, `string_shoulder.L/R`, `string_back`,
-  `string_hand.L/R`, `string_knee.L/R`). A socket's head is the attach point; its tail points up.
-* Head strings sit on the sides of the head above the ears (under the hat flaps), in line with
-  the head's centre of mass.
-* `MarionetteControls` is the real SKKG 9-string control cross (`CROSS_*` in the build script,
-  sticks 9 mm square):
-  * `CTRL_bar`: the 16 cm main bar (front-back) carries the puppet. Back string at its rear end,
-    shoulder strings on the fixed 11 cm crossbar.
-  * `CTRL_headbar`: the head bar, hinged at its centre on a post below the shoulder crossbar;
-    rocking it (bone-local Y, up to ±45°) lifts one head string and lowers the other, so the head
-    tilts (in Blender a preview driver on the head bone).
-  * `CTRL_legbar`: 12 cm bar on a post under the middle; rocking it (bone-local Y) lifts one knee
-    and lowers the other (walking). Knee IK targets follow by drivers.
-  * `CTRL_handbar`: 15 cm bar on a pivot at the front tip; rocking it lifts one hand (IK). It only
-    clings to the tip (like a magnet): the second hand can take it off and move the puppet's hands
-    freely (`"detachable": true` in the rig JSON; the Blender rig only rocks it).
-  * In `marionette_rig.json` each rocking bar has `limit_deg` (head 45°, legs 50°, hands 34.4°).
-  * The `ATT_*` bones are the eyes (upper string ends). Head bar size/drop and the hand bar pivot
-    are estimates, the head bar hinge and the detachable hand bar are as specified for the project
-    (not measured on the object); the rest from the photos and hand sketches.
-* The visual strings use Stretch-To constraints. This armature is not exported.
-* `MAR_DemoPull` action (frames 1-120): hand bar rocks (left hand, then right), leg bar rocks
-  (steps), head bar rocks (head tilts) while the cross bobs.
+- **Katja Rempel:** stage, curtain, signs, backdrop and stage-object sliders, catalogue, IIIF workflow in the app, UI for sound and light
+- **Kai Jauslin:** rigged SKKG marionette model with control cross, follow spots, camera start on the sign click, fist gesture to let go
+- **Cahit Atilgan:** architecture, project setup, phase 0 spike, Rapier, MediaPipe, presentation mode, background music, debug mode
+- **Rita Gautschy:** 3D models of SKKG collection objects, fountain and praline box, IIIF 3D manifests, documentation
+- **Sonja Gasser:** selection of SKKG objects and of audio files
+- **Christiane Sibille:** expertise in hand puppet movements, testing movements of the marionette
+- **Sandra Becker:** animated GIFs of objects in the scene
 
-### Cloth (`Dress`)
-* One welded single-layer quad mesh: bodice + gathered skirt + puffed sleeves sewn into the armholes.
-  6520 verts, 0 non-manifold edges, 4 boundary loops (hem, neckline, 2 cuffs).
-* Edges in the simulated region are about 1.4–5.0 mm (5th–95th percentile), median 3.4 mm, longest
-  6.5 mm. In the rest pose (`validate_cloth.py`, last run): no folded face pairs, no faces cutting
-  through each other, no vertex inside a collider. Under the arms the sleeve rings bunch up (edges
-  down to 0.4 mm); that strip is pinned. The skirt dent under the arms is baked into the rest mesh,
-  so it stays when the arms lift.
-* Velvet trims (V-neck, belt, sleeve bands) are a second material on the same mesh, not extra geometry.
-* Pin weights:
-  * vertex group `pin`, and vertex colour `cloth_pin` (exported as `COLOR_0`): R = pin (1 = skinned,
-    0 = simulated), G = 1 − R (max-distance style);
-  * bodice, waist, armhole seams, elastic bands and cuffs are pinned, and the strip of each sleeve
-    that is trapped between arm and body; the skirt and the rest of the sleeve puffs are free;
-  * pinned vertices stay out of the colliders.
-* The dress is also skinned, so it works without simulation. Collider capsules and masses are in
-  `export/marionette_rig.json`.
-* The Blender cloth modifier is a preview only. Bake it from the Physics tab (about 30 s for 120 frames).
-  * Open artifact (preview only): once the knees lift (frame 60 on) the skirt crumples and rides
-    up, because the lifted lower leg goes straight through it (the preview rig has no gravity on
-    the shin). The dress stays on the body (x within about ±5.8 cm) through the whole demo.
-* Export contents:
-  * `export/marionette.glb` contains the render `Dress`. glTF splits it at UV seams and material
-    borders (about 9.8k vertices, 2 primitives).
-  * It also contains `Dress_Sim`: the same welded 6520-vertex cloth mesh with one primitive, no UVs,
-    skin weights and `COLOR_0` pins. Simulate `Dress_Sim` and drive `Dress` from it (or weld `Dress`
-    by position).
+## Licences
 
-### Engine metadata, conventions and assumptions
-* Bone extras in the GLB: `mass_kg`, `collider_radius`, `joint`.
-* Joints (`bones[*].joint`) are one of three types; angles are degrees about **bone-local** axes
-  (+Y along the bone), ± from the rest pose:
-  * `cone` (`swing`: leaning off the rest direction, `twist`: turning about the bone): waist 20/15,
-    head 45/70, shoulders 110/60, wrists 60/30;
-  * `hinge` (`axis`, `min`, `max`; signs verified in the rig):
-    * knee (`shin.*`): local X, 0…140°;
-    * hip (`thigh.*`): local X, −95…30° (− lifts the knee forwards); a hinge so the angled knee
-      strings don't twist the legs;
-    * elbow: local Z, −150…0° on `forearm.L` and 0…150° on `forearm.R` (mirrored rolls);
-  * `fixed` (rigid on the parent, no joint):
-    * the feet: a marionette's shoes are mounted on the shins at 90° (standing), without an ankle
-      joint. Their collider is a capsule lying along the sole, so the puppet stands flat;
-    * the neck (collar piece): part of the torso; the head has one joint on top of it.
-* Assumptions (not visible in the photos):
-  * the string-to-bar layout of the cross (from the photos and hand sketches);
-  * lead-weighted shoes (metal plates on the soles);
-  * satin of about 80 g/m²;
-  * the joint ranges.
+- **Code:** [MIT](LICENSE)
+- **SKKG photos:** CC0, [SKKG digital collection](https://digital.skkg.ch)
+- **Music and sound-art excerpts:** streamed from archive.org under their netlabel licences (CC BY-NC-SA / CC BY-NC-ND), credited in the app while they play
+- **Sound effects:** CC0 (Kenney, rubberduck, via OpenGameArt)
+- **Fonts:** Geist and Geist Serif, SIL Open Font License
+
+All dependencies and their licences: [SBOM.md](SBOM.md).

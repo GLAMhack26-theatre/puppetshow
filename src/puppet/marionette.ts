@@ -6,7 +6,7 @@ import rigData from "../../export/marionette_rig.json";
 import { MAX_ROCK, type RockId, type StringId } from "../input/control-input";
 import type { RigDescription, RigJoint } from "./rig";
 
-// The SKKG marionette (README, "Marionette model"): the skinned model from
+// The SKKG marionette (docs/marionette-model.md): the skinned model from
 // export/marionette.glb and its engine metadata from
 // export/marionette_rig.json (colliders, masses, joints, strings). Real size:
 // 0.35 m. Loaded straight from export/ until the converter exists.

@@ -48,6 +48,31 @@ sfx_breaking_and_falling.zip bfh1_wood_hit_02.ogg wood-2.ogg
 sfx_breaking_and_falling.zip bfh1_wood_hit_03.ogg wood-3.ogg
 sfx_breaking_and_falling.zip bfh1_wood_falling_01.ogg fall-1.ogg
 sfx_breaking_and_falling.zip bfh1_wood_falling_02.ogg fall-2.ogg
+sfx_breaking_and_falling.zip bfh1_metal_hit_01.ogg metal-hit-1.ogg
+sfx_breaking_and_falling.zip bfh1_metal_hit_02.ogg metal-hit-2.ogg
+sfx_breaking_and_falling.zip bfh1_metal_hit_03.ogg metal-hit-3.ogg
+sfx_breaking_and_falling.zip bfh1_metal_hit_04.ogg metal-hit-4.ogg
+sfx_breaking_and_falling.zip bfh1_metal_hit_05.ogg metal-hit-5.ogg
+sfx_breaking_and_falling.zip bfh1_metal_hit_06.ogg metal-hit-6.ogg
+sfx_breaking_and_falling.zip bfh1_metal_falling_01.ogg metal-fall-1.ogg
+sfx_breaking_and_falling.zip bfh1_metal_falling_02.ogg metal-fall-2.ogg
+sfx_breaking_and_falling.zip bfh1_metal_falling_03.ogg metal-fall-3.ogg
+sfx_breaking_and_falling.zip bfh1_metal_falling_04.ogg metal-fall-4.ogg
+sfx_breaking_and_falling.zip bfh1_metal_falling_05.ogg metal-fall-5.ogg
+sfx_breaking_and_falling.zip bfh1_rock_hit_01.ogg stone-hit-1.ogg
+sfx_breaking_and_falling.zip bfh1_rock_falling_01.ogg stone-fall-1.ogg
+sfx_breaking_and_falling.zip bfh1_rock_falling_02.ogg stone-fall-2.ogg
+sfx_breaking_and_falling.zip bfh1_rock_falling_03.ogg stone-fall-3.ogg
+sfx_breaking_and_falling.zip bfh1_rock_falling_04.ogg stone-fall-4.ogg
+sfx_breaking_and_falling.zip bfh1_glass_hit_01.ogg glass-hit-1.ogg
+sfx_breaking_and_falling.zip bfh1_glass_hit_02.ogg glass-hit-2.ogg
+sfx_breaking_and_falling.zip bfh1_glass_falling_01.ogg glass-fall-1.ogg
+sfx_breaking_and_falling.zip bfh1_glass_falling_02.ogg glass-fall-2.ogg
+sfx_breaking_and_falling.zip bfh1_glass_falling_03.ogg glass-fall-3.ogg
+sfx_breaking_and_falling.zip bfh1_glass_falling_04.ogg glass-fall-4.ogg
+RPGsounds_Kenney.zip OGG/dropLeather.ogg soft-1.ogg
+RPGsounds_Kenney.zip OGG/handleSmallLeather.ogg soft-2.ogg
+RPGsounds_Kenney.zip OGG/handleSmallLeather2.ogg soft-3.ogg
 "
 
 echo "$MAP" | while read -r zip path name; do

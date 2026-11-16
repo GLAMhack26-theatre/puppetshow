@@ -3,7 +3,7 @@
   "specVersion": "1.6",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-11-15T21:57:40.314Z",
+    "timestamp": "2026-11-16T20:28:26.155Z",
     "tools": {
       "components": [
         {
@@ -2617,6 +2617,31 @@
     },
     {
       "type": "library",
+      "bom-ref": "pkg:npm/gl-matrix@3.4.4",
+      "name": "gl-matrix",
+      "version": "3.4.4",
+      "purl": "pkg:npm/gl-matrix@3.4.4",
+      "scope": "excluded",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "properties": [
+        {
+          "name": "puppetshow:dependency",
+          "value": "transitive"
+        },
+        {
+          "name": "puppetshow:kind",
+          "value": "dev (build tools, not shipped)"
+        }
+      ]
+    },
+    {
+      "type": "library",
       "bom-ref": "pkg:npm/import-in-the-middle@3.6.0",
       "name": "import-in-the-middle",
       "version": "3.6.0",
@@ -2637,6 +2662,31 @@
         {
           "name": "puppetshow:kind",
           "value": "runtime"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/iwer@2.8.0",
+      "name": "iwer",
+      "version": "2.8.0",
+      "purl": "pkg:npm/iwer@2.8.0",
+      "scope": "excluded",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "properties": [
+        {
+          "name": "puppetshow:dependency",
+          "value": "direct"
+        },
+        {
+          "name": "puppetshow:kind",
+          "value": "dev (build tools, not shipped)"
         }
       ]
     },
@@ -3627,6 +3677,31 @@
         {
           "name": "puppetshow:dependency",
           "value": "direct"
+        },
+        {
+          "name": "puppetshow:kind",
+          "value": "dev (build tools, not shipped)"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/webxr-layers-polyfill@1.1.0",
+      "name": "webxr-layers-polyfill",
+      "version": "1.1.0",
+      "purl": "pkg:npm/webxr-layers-polyfill@1.1.0",
+      "scope": "excluded",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "properties": [
+        {
+          "name": "puppetshow:dependency",
+          "value": "transitive"
         },
         {
           "name": "puppetshow:kind",

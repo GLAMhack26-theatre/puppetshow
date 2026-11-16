@@ -364,6 +364,11 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
   let liftNow = 0;
   let liftSpeed = 0;
   let liftFollow = LIFT;
+  // Extra length on every string while the cross stays where it is: the puppet
+  // moves freely under it while the player's body drives it (body-drive.ts).
+  // Eased like a pull, so taking it away does not yank the puppet.
+  let slack = 0;
+  let slackWanted = 0;
   const rockQ = new Quaternion();
   const turnQ = new Quaternion();
   let turn = 0;
@@ -436,7 +441,8 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
     // ?? 0: a source that does not know the turn
     [turn, turnSpeed] = followNumber(turn, turnSpeed, clamp(input.turn ?? 0, -1, 1), TURN_FOLLOW);
     if (Math.abs(turn) < 1e-5 && Math.abs(turnSpeed) < 1e-4) turn = turnSpeed = 0;
-    head?.twistTo?.(turn * HEAD_TURN.angle, HEAD_TURN.stiffness, HEAD_TURN.damping);
+    // Not while a player's own head is the puppet's (WebXR): body-drive.ts has a motor on that axis then
+    if (!input.body.active) head?.twistTo?.(turn * HEAD_TURN.angle, HEAD_TURN.stiffness, HEAD_TURN.damping);
 
     // Rocking bars ride on the main bar: pivot follows its pose, and they turn
     // about their axis (in the main bar's frame) on top of its rotation
@@ -499,6 +505,7 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
     // A rope joint is a distance limit on the joint's first axis, so its length
     // is that limit: set it instead of recreating the joint (which pulled in
     // 5 mm steps and threw the solver's state away)
+    slack += clamp(slackWanted - slack, -MAX_PULL_SPEED * STEP, MAX_PULL_SPEED * STEP);
     const hook = input.hook;
     // ?? 0: a source that does not know the nod
     [nod, nodSpeed] = followNumber(nod, nodSpeed, clamp(input.nod ?? 0, 0, 1), NOD_FOLLOW);
@@ -507,7 +514,7 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
       const s = state.string;
       const pull = PULL_RANGE * input.pulls[s.id];
       state.pulled += clamp(pull - state.pulled, -MAX_PULL_SPEED * STEP, MAX_PULL_SPEED * STEP);
-      let length = Math.max(MIN_STRING, lengthAt(state, extra) - state.pulled);
+      let length = Math.max(MIN_STRING, lengthAt(state, extra) - state.pulled + slack);
       // A nod: the head strings are let out
       if (state.fromJoint && nod > 0) length += Math.max(0, nodSlack(state, NOD.rest + nod * (NOD.full - NOD.rest)));
       // Take-up (TAKE_UP): against the length it has without it, so a string
@@ -520,7 +527,8 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
         worldPoint(s.bar, s.eye, eyeNow);
         worldPoint(s.part.body, s.anchor, socketNow);
         const level = 1 - smoothstep(TAKE_UP.level[0], TAKE_UP.level[1], Math.abs(state.legBar.angle));
-        const wanted = clamp(length - eyeNow.distanceTo(socketNow) - TAKE_UP.slack, 0, TAKE_UP.max);
+        // No take-up of strings that are given slack (a player's body drives the puppet): it would draw that slack in again
+        const wanted = slackWanted > 0 ? 0 : clamp(length - eyeNow.distanceTo(socketNow) - TAKE_UP.slack, 0, TAKE_UP.max);
         if (wanted < s.taken) {
           // Taut: the string carries the knee (drawn in while the leg swung
           // up, or the cross has risen). Let out to slack and a bit more with
@@ -625,6 +633,10 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
       liftTarget = y;
       // omega: a lag of 2 / omega s behind an even climb; slow paces get a soft landing
       liftFollow = pace ? { omega: Math.min(24, 20 * pace.speed + 4), ...pace } : LIFT;
+    },
+    /** Lengthens every string by `length` metres (0: back to the rig's lengths). */
+    setSlack(length: number) {
+      slackWanted = length;
     },
     /** Whether the cross has arrived where input and lift want it (a replicated cross is not moved from here). */
     arrived: () => !(simulated && input) || (barPosition.distanceTo(barTarget) < 0.005 && Math.abs(liftNow - liftTarget) < 0.005),
