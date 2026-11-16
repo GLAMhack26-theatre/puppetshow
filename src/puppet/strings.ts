@@ -13,8 +13,8 @@ import {
   type Object3D,
   type World,
 } from "@iwsdk/core";
-import { STRING_IDS, controlInput, type RockId, type StringId } from "../input/control-input";
-import { STEP, addLinked, physics, renderPoint, setJointLimits, worldPoint } from "../systems/rapier-system";
+import { DEFAULT_STRING_EXTRA, STRING_IDS, type ControlInput, type RockId, type StringId } from "../input/control-input";
+import { STEP, addHook, addLinked, physics, renderPoint, setJointLimits, toQuat, toVec, worldPoint } from "../systems/rapier-system";
 import type { Rig, RigController, RigPart, RigString } from "./rig";
 
 // The control cross (Spielkreuz) and the strings, rebuilt from the real SKKG
@@ -32,6 +32,12 @@ import type { Rig, RigController, RigPart, RigString } from "./rig";
 // spring with a cap on speed and on acceleration (Follow): a tracker spike or a
 // hand found again somewhere else used to become a sweep at full speed from
 // one step to the next, which is what jerked the puppet about.
+//
+// A replicated puppet (simulated on another device, src/net/) has the same
+// bars and drawn strings, but no rope joints and no input: its bars are set
+// from the network like its other bodies. A caught string (hook) is drawn
+// straight there, and the drawn sag assumes the usual string length unless
+// the puppet is the local player's own.
 
 /**
  * How a bar follows its input. omega (rad/s): the spring; it trails a steady
@@ -126,7 +132,8 @@ interface PuppetString {
   length: number;
   /** m drawn in by the take-up (TAKE_UP; knee strings only) */
   taken: number;
-  joint: RAPIER.ImpulseJoint;
+  /** None on a replicated puppet */
+  joint?: RAPIER.ImpulseJoint;
   line: Line;
 }
 
@@ -238,8 +245,21 @@ function followNumber(x: number, v: number, target: number, f: Follow): [number,
   return [x + v * STEP, v];
 }
 
-export function createStrings(world: World, root: Object3D, rig: Rig, description: RigString[], controller: RigController) {
+export interface StringOptions {
+  /**
+   * Who leads the cross. Without it the puppet is replicated and led by
+   * nobody here; a replicated puppet with an input is the local player's own
+   * (the input is kept in step with the cross, see below).
+   */
+  input?: ControlInput;
+  mode?: "simulated" | "replicated";
+}
+
+export function createStrings(world: World, root: Object3D, rig: Rig, description: RigString[], controller: RigController, options: StringOptions = {}) {
   const pw = physics.world;
+  const simulated = options.mode !== "replicated";
+  const input = options.input;
+  const removers: Array<() => void> = [];
   root.updateMatrixWorld(true);
   const toWorld = (v: Vector3) => v.clone().applyMatrix4(root.matrixWorld);
   const dirToWorld = (v: Vector3) => v.clone().transformDirection(root.matrixWorld);
@@ -247,7 +267,7 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
   // ControlInput.stringExtra: the whole cross hangs this much higher than in
   // the rig and every string is as much longer as it takes to reach it, so the
   // puppet stands the same. It starts at the setting and follows it later.
-  let extra = clamp(controlInput.stringExtra, 0, MAX_EXTRA);
+  let extra = clamp(input?.stringExtra ?? DEFAULT_STRING_EXTRA, 0, MAX_EXTRA);
   const lift = new Vector3(0, extra, 0);
 
   // One kinematic body per bar, at its pivot; all start unrotated, so a point's
@@ -269,12 +289,15 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
     }
     objects.push(group);
     const position = pivot.clone().add(lift);
-    const { body } = addLinked(world, group, RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(position.x, position.y, position.z));
+    const { body, remove } = addLinked(world, group, RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(position.x, position.y, position.z));
     bodies.set(bar.name, { body, pivot, position, rotation: new Quaternion() });
+    removers.push(remove);
   }
   const mainBar = controller.bars.find((b) => !b.parent)!;
   const main = bodies.get(mainBar.name)!;
-  controlInput.bar.position.copy(main.pivot); // rig coordinates: without the lift
+  // The input starts where the cross hangs, so the puppet does not jump to a
+  // default place. Rig coordinates: without the lift
+  input?.bar.position.copy(main.pivot);
   const rocking: RockingBar[] = controller.bars
     .filter((b) => b.parent && b.axis && b.input)
     .map((b) => {
@@ -312,13 +335,17 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
     line.frustumCulled = false;
     world.scene.add(line);
     objects.push(line);
-    const string = { id: s.id, part, bar: bar.body, anchor, eye, barAnchor: { ...eye }, rest: s.restLength, length: s.restLength, taken: 0, joint: null as unknown as RAPIER.ImpulseJoint, line };
+    removers.push(() => {
+      line.removeFromParent();
+      geometry.dispose();
+    });
+    const string: PuppetString = { id: s.id, part, bar: bar.body, anchor, eye, barAnchor: { ...eye }, rest: s.restLength, length: s.restLength, taken: 0, line };
     const state: StringState = { string, bar, eyeAtRest, socketAtRest, pulled: 0, falling: 0, calm: 0, hooked: false, along: 0.5, push: new Vector3(), pushSpeed: new Vector3() };
     state.legBar = rocking.find((r) => r.pose === bar && r.input === "legs");
     // The bone's origin is its joint (rig.ts: restOffset is the bone seen from its body)
     if (s.bone === "head" && part.joint) state.fromJoint = socketAtRest.clone().sub(part.restOffset).sub(new Vector3().copy(part.body.translation()));
     string.length = lengthAt(state, extra);
-    string.joint = pw.createImpulseJoint(RAPIER.JointData.rope(string.length, eye, anchor), bar.body, part.body, true);
+    if (simulated) string.joint = pw.createImpulseJoint(RAPIER.JointData.rope(string.length, eye, anchor), bar.body, part.body, true);
     strings.push(string);
     states.push(state);
   }
@@ -372,12 +399,15 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
     const tipped = Math.hypot(eye.x - socket.x, eye.y + extra - socket.y - dy, eye.z - socket.z - dz);
     return tipped - Math.hypot(eye.x - socket.x, eye.y + extra - socket.y, eye.z - socket.z);
   };
-  const handBar = controlInput.handBar;
-  handBar.detached = false;
-  handBar.position.copy(rocking.find((r) => r.detachable)?.pose.position ?? main.position);
-  handBar.rotation.identity();
-  physics.beforeStep.push(() => {
-    const wanted = clamp(controlInput.stringExtra, 0, MAX_EXTRA);
+  const detachable = rocking.find((r) => r.detachable);
+  if (input) {
+    input.handBar.detached = false;
+    input.handBar.position.copy(detachable?.pose.position ?? main.position);
+    input.handBar.rotation.identity();
+  }
+  if (simulated && input) removers.push(addHook(physics.beforeStep, () => {
+    const handBar = input.handBar;
+    const wanted = clamp(input.stringExtra, 0, MAX_EXTRA);
     if (wanted !== extra) {
       // Cross and strings change together, at an even pace. The bars are set to
       // their new height at once rather than moved there during the step: a
@@ -397,9 +427,9 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
       }
     }
 
-    barTarget.copy(controlInput.bar.position);
+    barTarget.copy(input.bar.position);
     followVector(barPosition, barVelocity, barTarget, BAR_MOVE);
-    followRotation(barRotation, barSpin, controlInput.bar.rotation, BAR_TURN);
+    followRotation(barRotation, barSpin, input.bar.rotation, BAR_TURN);
     [liftNow, liftSpeed] = followNumber(liftNow, liftSpeed, liftTarget, liftFollow);
     main.position.copy(barPosition).add(lift);
     main.position.y += liftNow;
@@ -409,16 +439,16 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
 
     // The head turns: its bar about the cross's upright, its joint by the same angle
     // ?? 0: a source that does not know the turn
-    [turn, turnSpeed] = followNumber(turn, turnSpeed, clamp(controlInput.turn ?? 0, -1, 1), TURN_FOLLOW);
+    [turn, turnSpeed] = followNumber(turn, turnSpeed, clamp(input.turn ?? 0, -1, 1), TURN_FOLLOW);
     if (Math.abs(turn) < 1e-5 && Math.abs(turnSpeed) < 1e-4) turn = turnSpeed = 0;
     // Not while a player's own head is the puppet's (WebXR): body-drive.ts has a motor on that axis then
-    if (!controlInput.body.active) head?.twistTo?.(turn * HEAD_TURN.angle, HEAD_TURN.stiffness, HEAD_TURN.damping);
+    if (!input.body.active) head?.twistTo?.(turn * HEAD_TURN.angle, HEAD_TURN.stiffness, HEAD_TURN.damping);
 
     // Rocking bars ride on the main bar: pivot follows its pose, and they turn
     // about their axis (in the main bar's frame) on top of its rotation
     for (const r of rocking) {
       // ?? 0: a rig may name a rocker this build has no input for yet
-      [r.angle, r.angleSpeed] = followNumber(r.angle, r.angleSpeed, clamp(controlInput.rock[r.input] ?? 0, -r.limit, r.limit), ROCK);
+      [r.angle, r.angleSpeed] = followNumber(r.angle, r.angleSpeed, clamp(input.rock[r.input] ?? 0, -r.limit, r.limit), ROCK);
       p.copy(r.offset).applyQuaternion(barRotation).add(main.position);
       q.copy(barRotation);
       if (r.input === "head") q.multiply(turnQ.setFromAxisAngle(UPRIGHT, turn * HEAD_TURN.angle));
@@ -476,13 +506,13 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
     // is that limit: set it instead of recreating the joint (which pulled in
     // 5 mm steps and threw the solver's state away)
     slack += clamp(slackWanted - slack, -MAX_PULL_SPEED * STEP, MAX_PULL_SPEED * STEP);
-    const hook = controlInput.hook;
+    const hook = input.hook;
     // ?? 0: a source that does not know the nod
-    [nod, nodSpeed] = followNumber(nod, nodSpeed, clamp(controlInput.nod ?? 0, 0, 1), NOD_FOLLOW);
+    [nod, nodSpeed] = followNumber(nod, nodSpeed, clamp(input.nod ?? 0, 0, 1), NOD_FOLLOW);
     if (nod < 1e-5 && Math.abs(nodSpeed) < 1e-4) nod = nodSpeed = 0; // exactly the rig's strings again
     for (const state of states) {
       const s = state.string;
-      const pull = PULL_RANGE * controlInput.pulls[s.id];
+      const pull = PULL_RANGE * input.pulls[s.id];
       state.pulled += clamp(pull - state.pulled, -MAX_PULL_SPEED * STEP, MAX_PULL_SPEED * STEP);
       let length = Math.max(MIN_STRING, lengthAt(state, extra) - state.pulled + slack);
       // A nod: the head strings are let out
@@ -538,28 +568,39 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
         s.barAnchor.x = s.eye.x + hookNow.x;
         s.barAnchor.y = s.eye.y + hookNow.y;
         s.barAnchor.z = s.eye.z + hookNow.z;
-        s.joint.setAnchor1(s.barAnchor);
+        s.joint?.setAnchor1(s.barAnchor);
         s.part.body.wakeUp();
       } else if (state.hooked) {
         state.push.set(0, 0, 0);
         state.pushSpeed.set(0, 0, 0);
         Object.assign(s.barAnchor, s.eye);
-        s.joint.setAnchor1(s.barAnchor);
+        s.joint?.setAnchor1(s.barAnchor);
       }
       state.hooked = hooked;
-      if (length === s.length) continue;
+      if (length === s.length || !s.joint) continue;
       setJointLimits(s.joint, RAPIER.JointAxis.LinX, 0, length);
       s.part.body.wakeUp(); // a resting puppet sleeps, and a limit alone does not wake it
       s.length = length;
     }
-  });
+  }));
+
+  // The local player's own puppet, simulated elsewhere: the engine there keeps
+  // handBar at the bar's place while it is not taken off. Do the same here from
+  // the replicated bar, so that taking it off starts from where it is. The
+  // string length is the player's own setting, so the drawn sag can follow it.
+  if (!simulated && input) removers.push(addHook(physics.beforeStep, () => {
+    for (const state of states) state.string.length = lengthAt(state, clamp(input.stringExtra, 0, MAX_EXTRA));
+    if (!detachable || input.handBar.detached) return;
+    toVec(detachable.pose.body.translation(), input.handBar.position);
+    toQuat(detachable.pose.body.rotation(), input.handBar.rotation);
+  }));
 
   // Drawn eye → (hook →) socket, with a parabolic sag below the hook that grows
   // with the slack (rendering only)
   const a = new Vector3();
   const h = new Vector3();
   const b = new Vector3();
-  physics.afterSync.push(() => {
+  removers.push(addHook(physics.afterSync, () => {
     for (const s of strings) {
       renderPoint(s.bar, s.eye, a);
       renderPoint(s.bar, s.barAnchor, h); // the eye itself unless the string is caught
@@ -574,10 +615,12 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
       }
       position.needsUpdate = true;
     }
-  });
+  }));
 
   return {
     bar: main.body,
+    /** The bars' bodies in the rig's order: the same list on every device (src/net/) */
+    bars: controller.bars.map((b) => bodies.get(b.name)!.body),
     strings,
     /** The cross and the strings, for fading them with the puppet. */
     objects,
@@ -595,9 +638,14 @@ export function createStrings(world: World, root: Object3D, rig: Rig, descriptio
     setSlack(length: number) {
       slackWanted = length;
     },
-    /** Whether the cross has arrived where input and lift want it. */
-    arrived: () => barPosition.distanceTo(barTarget) < 0.005 && Math.abs(liftNow - liftTarget) < 0.005,
+    /** Whether the cross has arrived where input and lift want it (a replicated cross is not moved from here). */
+    arrived: () => !(simulated && input) || (barPosition.distanceTo(barTarget) < 0.005 && Math.abs(liftNow - liftTarget) < 0.005),
     /** Whether a bar that was let go is on its way back to its seat: it moves fast then, and nobody is throwing (grab.ts) */
     returning: () => rocking.some((r) => r.returning),
+    dispose() {
+      for (const remove of removers) remove();
+      wood.dispose();
+      material.dispose();
+    },
   };
 }

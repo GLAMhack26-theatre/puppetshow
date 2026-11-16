@@ -17,12 +17,15 @@
     "@dimforge/rapier3d-compat": "^0.21.0",
     "@iwsdk/core": "^1.1.0-rc.2",
     "@mediapipe/tasks-vision": "^1.2.3",
+    "@trystero-p2p/ws-relay": "0.27.0",
+    "trystero": "0.27.0",
     "zzfx": "^1.4.0"
   },
   "devDependencies": {
     "@vitejs/plugin-basic-ssl": "^2.3.0",
     "iwer": "^2.8.0",
     "typescript": "^7.0.2",
-    "vite": "^8.3.8"
+    "vite": "^8.3.8",
+    "ws": "^8.23.0"
   }
 }

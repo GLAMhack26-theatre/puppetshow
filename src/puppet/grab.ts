@@ -2,8 +2,8 @@ import RAPIER from "@dimforge/rapier3d-compat";
 import { AdditiveBlending, CanvasTexture, Quaternion, Sprite, SpriteMaterial, Vector3, type World } from "@iwsdk/core";
 import { cueGrab, cueLetGo } from "../audio/cues";
 import { catalogueEntry } from "../catalogue";
-import { controlInput, puppetState } from "../input/control-input";
-import { GROUP, STEP, physics, renderPose, toQuat, toVec, worldPoint } from "../systems/rapier-system";
+import { createPuppetState, type ControlInput, type PuppetState } from "../input/control-input";
+import { GROUP, STEP, addHook, physics, renderPose, toQuat, toVec, worldPoint } from "../systems/rapier-system";
 import type { Rig } from "./rig";
 import type { createStrings } from "./strings";
 
@@ -22,6 +22,11 @@ import type { createStrings } from "./strings";
 // A held prop is light and meets the stage only: at its real weight on a 12 g
 // hand at the end of a string it would be the prop that plays the puppet, and
 // colliding with the puppet's own body it would push what it hangs on.
+//
+// Every puppet on the stage has its own hands, led by its own ControlInput
+// (several players: src/net/). What is in whose hand, which props have just
+// come off and which are not yet full props again is kept for all of them
+// together: a prop is in one hand at a time, whoever's it is.
 
 /**
  * Everything that shapes the feel. An object (not constants) so that a
@@ -111,21 +116,26 @@ export const grabbables: Grabbable[] = [];
 const GRIPS: Record<string, { anchor: [number, number, number]; upright: boolean }> = {};
 
 /**
- * What a released prop must be clear of before it is a full prop again: props
- * that stand on the stage and the puppet's body (both would throw it out if it
- * came back to life inside them), but not the stage, not the puppet's arms
- * (they pass through props) and not a prop in the other hand.
- * (Collision groups: membership in the high 16 bits, filter in the low 16.)
+ * Props in a hand, any puppet's, with the mass their collider really has (a
+ * held prop is light, GRAB.heldMass)
  */
-const CLEAR_OF = (0x0004 << 16) | 0x0005;
+const inHand = new Map<Grabbable, number>();
+/** Props that came off a hand: the physics step (physics.ticks) from which they can be taken again */
+const locked = new Map<Grabbable, number>();
+/**
+ * Released props that still pass through props and puppets (GROUP.held) until
+ * they are clear of them: props that stand on the stage and the puppets'
+ * bodies would throw one out that came back to life inside them. Not the
+ * stage, not the puppets' arms (they pass through props) and not a prop in a
+ * hand (GROUP.clearance).
+ */
+const ghosts = new Set<Grabbable>();
 
 type Side = "left" | "right";
 
 interface Held {
   item: Grabbable;
   joint: RAPIER.ImpulseJoint;
-  /** The collider's own mass, to give back */
-  mass: number;
   /** The prop's rotation against the hand, and where the hand's tip holds it (prop-local): as it was caught … in the grip pose */
   fromRotation: Quaternion;
   toRotation: Quaternion;
@@ -167,18 +177,35 @@ interface Hand {
   halo: Sprite;
 }
 
-/** Every puppet's hands, for dropAllHeld() */
-const allHands: Array<{ drop(): void }> = [];
 let suspended = false;
-
-/** Every puppet lets go of what it holds, without a throw (before it is pulled up out of a scene, or out of the picture). */
-export function dropAllHeld() {
-  for (const hands of allHands) hands.drop();
-}
+/** Puppets with hands on the stage: the last one to leave clears up after all */
+let puppets = 0;
 
 /** While on, no hand takes anything (the puppets are hidden and hang above the stage during a scene change). */
 export function suspendGrab(on: boolean) {
   suspended = on;
+}
+
+const alive = (item: Grabbable) => item.body.isValid() && item.collider.isValid();
+
+/** A prop comes out of a hand: its own mass again, and `group` (a full prop, unless it has to get clear of the others first) */
+function restore(item: Grabbable, group = GROUP.prop) {
+  const mass = inHand.get(item);
+  inHand.delete(item);
+  if (!alive(item)) return;
+  if (mass !== undefined) item.collider.setMass(mass);
+  item.collider.setCollisionGroups(group);
+}
+
+/** Once the released props are clear of the others and of the puppets, they are full props again */
+function sweepGhosts() {
+  for (const item of ghosts) {
+    if (!alive(item)) ghosts.delete(item);
+    else if (!item.body.isDynamic() || !physics.world.intersectionWithShape(item.collider.translation(), item.collider.rotation(), item.collider.shape, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, GROUP.clearance, item.collider)) {
+      item.collider.setCollisionGroups(GROUP.prop);
+      ghosts.delete(item);
+    }
+  }
 }
 
 const IDENTITY = new Quaternion();
@@ -204,8 +231,14 @@ function haloMap() {
   return (haloTexture = new CanvasTexture(canvas));
 }
 
-export function createGrab(world: World, rig: Rig, strings: ReturnType<typeof createStrings>) {
+/**
+ * @param input Leads these hands: grip and release of the puppet's player.
+ * @param state Where the hands report what they hold and could take: the
+ * local player's puppetState, or an object of this puppet's own.
+ */
+export function createGrab(world: World, rig: Rig, strings: ReturnType<typeof createStrings>, input: ControlInput, state: PuppetState = createPuppetState()) {
   const pw = physics.world;
+  puppets++;
   const chest = (rig.byName.get("chest") ?? rig.parts[0]).body;
   const hands: Hand[] = (["left", "right"] as const).flatMap((side) => {
     const name = side === "left" ? "hand.L" : "hand.R";
@@ -222,23 +255,16 @@ export function createGrab(world: World, rig: Rig, strings: ReturnType<typeof cr
       // The hand has a body of its own, whose origin is the middle of its capsule (rig.ts)
       direction: part.tail.clone().normalize(),
       eye: string && { bar: string.bar, local: string.eye },
-      held: null, spent: false, lastRelease: controlInput.release[side], near: null, nearDistance: Infinity,
+      held: null, spent: false, lastRelease: input.release[side], near: null, nearDistance: Infinity,
       eyeBefore: null, pulls: [], pull: 0, tipSpeed: 0, tipSpeedBefore: 0, separation: 0, max: { pull: 0, tipSpeed: 0, separation: 0 }, halo,
     }];
   });
-  /** Props that came off: steps until they can be taken again */
-  const locked = new Map<Grabbable, number>();
-  /** Released props that still pass through props and puppet (GROUP.held) until they are clear of them */
-  const ghosts = new Set<Grabbable>();
-
   const projection = new RAPIER.PointProjection({ x: 0, y: 0, z: 0 }, false);
   const tipNow = new Vector3();
   const v = new Vector3();
   const w = new Vector3();
   const q = new Quaternion();
-  const alive = (item: Grabbable) => item.body.isValid() && item.collider.isValid();
-  const holder = (item: Grabbable) => hands.find((h) => h.held?.item === item);
-
+  
   const arm = new Vector3();
   const spin = new Vector3();
   const moving = new Vector3();
@@ -285,12 +311,14 @@ export function createGrab(world: World, rig: Rig, strings: ReturnType<typeof cr
     const seconds = clamp(Math.max(fromAnchor.distanceTo(toAnchor) / ease.speed, fromRotation.angleTo(toRotation) / ease.turn), ease.min, ease.max);
     const joint = pw.createImpulseJoint(RAPIER.JointData.fixed(hand.tip, fromRotation, fromAnchor, IDENTITY), hand.body, item.body, true);
     const mass = item.collider.mass();
+    inHand.set(item, mass);
     item.collider.setMass(Math.min(mass, GRAB.heldMass));
     item.collider.setCollisionGroups(GROUP.held);
     ghosts.delete(item);
-    hand.held = { item, joint, mass, fromRotation, toRotation, fromAnchor, toAnchor, steps: 0, easeSteps: Math.round(seconds / STEP), apart: 0 };
+    hand.held = { item, joint, fromRotation, toRotation, fromAnchor, toAnchor, steps: 0, easeSteps: Math.round(seconds / STEP), apart: 0 };
     hand.separation = 0;
-    // Held now, so in nobody's reach any more
+    // Held now, so not in reach of this puppet's other hand any more (another
+    // puppet's hand finds out in its next step)
     for (const h of hands) if (h.near === item) h.near = null;
     cueGrab(tipNow.x);
   }
@@ -302,14 +330,15 @@ export function createGrab(world: World, rig: Rig, strings: ReturnType<typeof cr
   function letGo(hand: Hand, boost: boolean, speed = hand.tipSpeed) {
     const held = hand.held;
     if (!held) return;
-    const { item, joint, mass } = held;
+    const { item, joint } = held;
     hand.held = null;
     hand.spent = true;
     hand.separation = 0;
     // A removed body takes its joints with it
     if (joint.isValid()) pw.removeImpulseJoint(joint, true);
+    // Its own mass again; until it is clear of the others it stays a ghost
+    restore(item, GROUP.held);
     if (!alive(item)) return;
-    item.collider.setMass(mass);
     if (!item.body.isDynamic() || !grabbables.includes(item)) {
       // Somebody else has it (lifted off the stage, dragged with the mouse): a full prop again at once
       item.collider.setCollisionGroups(GROUP.prop);
@@ -318,14 +347,12 @@ export function createGrab(world: World, rig: Rig, strings: ReturnType<typeof cr
     const factor = boost ? 1 + (GRAB.throwBoost - 1) * clamp((speed - GRAB.dropSpeed) / (GRAB.throwSpeed - GRAB.dropSpeed), 0, 1) : 1;
     item.body.setLinvel(toVec(item.body.linvel(), v).multiplyScalar(factor).clampLength(0, GRAB.maxThrow), true);
     item.body.setAngvel(toVec(item.body.angvel(), w).clampLength(0, GRAB.maxSpin), true);
-    locked.set(item, GRAB.regrabLock);
+    locked.set(item, physics.ticks + GRAB.regrabLock);
     ghosts.add(item);
     cueLetGo(item.body.translation().x);
   }
 
-  allHands.push({ drop: () => hands.forEach((hand) => letGo(hand, false)) });
-
-  physics.beforeStep.push(() => {
+  const removeStep = addHook(physics.beforeStep, () => {
     // What the hands are doing, from the step that has just been made
     const pivot = strings.bar.translation();
     for (const hand of hands) {
@@ -358,10 +385,7 @@ export function createGrab(world: World, rig: Rig, strings: ReturnType<typeof cr
       const item = hand.held?.item;
       if (item && (!alive(item) || !item.body.isDynamic() || !grabbables.includes(item))) letGo(hand, false);
     }
-    for (const [item, steps] of locked) {
-      if (steps <= 1 || !alive(item)) locked.delete(item);
-      else locked.set(item, steps - 1);
-    }
+    for (const [item, until] of locked) if (physics.ticks >= until || !alive(item)) locked.delete(item);
 
     // 2. What each free hand could take
     for (const hand of hands) {
@@ -370,7 +394,7 @@ export function createGrab(world: World, rig: Rig, strings: ReturnType<typeof cr
       if (hand.held || suspended) continue;
       worldPoint(hand.body, hand.tip, tipNow);
       for (const item of grabbables) {
-        if (!alive(item) || !item.body.isDynamic() || locked.has(item) || holder(item)) continue;
+        if (!alive(item) || !item.body.isDynamic() || locked.has(item) || inHand.has(item)) continue;
         const nearest = item.collider.projectPoint(tipNow, true, projection);
         if (!nearest) continue;
         const distance = nearest.isInside ? 0 : tipNow.distanceTo(nearest.point as Vector3);
@@ -383,19 +407,20 @@ export function createGrab(world: World, rig: Rig, strings: ReturnType<typeof cr
 
     // 3. Let go: the player's release
     for (const hand of hands) {
-      const release = controlInput.release[hand.side];
+      const release = input.release[hand.side];
       if (release !== hand.lastRelease) letGo(hand, true);
       hand.lastRelease = release;
     }
 
     // 4. Catch: a free hand whose magnet is on takes the nearest prop in reach;
-    // if both hands are at the same prop, the nearer one has it
+    // if both hands are at the same prop, the nearer one has it (between two
+    // puppets: the one whose turn comes first in this step)
     const catching = hands.filter((hand) => {
-      if (!controlInput.grip[hand.side]) hand.spent = false;
-      return controlInput.grip[hand.side] && !hand.spent && !hand.held && hand.near;
+      if (!input.grip[hand.side]) hand.spent = false;
+      return input.grip[hand.side] && !hand.spent && !hand.held && hand.near;
     });
     catching.sort((a, b) => a.nearDistance - b.nearDistance);
-    for (const hand of catching) if (hand.near && !holder(hand.near)) take(hand, hand.near);
+    for (const hand of catching) if (hand.near && !inHand.has(hand.near)) take(hand, hand.near);
 
     // 5. What is held: eased into the grip pose; thrown off; the fuse
     const returning = strings.returning();
@@ -427,18 +452,11 @@ export function createGrab(world: World, rig: Rig, strings: ReturnType<typeof cr
       }
     }
 
-    // A released prop is a full prop again once it is clear of the others and of the puppet
-    for (const item of ghosts) {
-      if (!alive(item)) ghosts.delete(item);
-      else if (!item.body.isDynamic() || !pw.intersectionWithShape(item.collider.translation(), item.collider.rotation(), item.collider.shape, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, CLEAR_OF, item.collider)) {
-        item.collider.setCollisionGroups(GROUP.prop);
-        ghosts.delete(item);
-      }
-    }
+    sweepGhosts();
 
     for (const hand of hands) {
-      puppetState.holding[hand.side] = hand.held ? labelOf(hand.held.item) : null;
-      puppetState.inReach[hand.side] = hand.near ? labelOf(hand.near) : null;
+      state.holding[hand.side] = hand.held ? labelOf(hand.held.item) : null;
+      state.inReach[hand.side] = hand.near ? labelOf(hand.near) : null;
     }
   });
 
@@ -446,7 +464,7 @@ export function createGrab(world: World, rig: Rig, strings: ReturnType<typeof cr
   // (rendering only). Faint: the renderer has no tone mapping, so additive
   // light on a pale costume is white at once
   const at = new Vector3();
-  physics.afterSync.push(() => {
+  const removeSync = addHook(physics.afterSync, () => {
     for (const hand of hands) {
       const item = hand.near;
       // One halo per prop: with both hands at the same one, the second would double it
@@ -458,12 +476,37 @@ export function createGrab(world: World, rig: Rig, strings: ReturnType<typeof cr
       const half = item.collider.halfExtents();
       const size = half ? Math.hypot(half.x, half.y, half.z) : item.collider.radius();
       hand.halo.scale.setScalar(2.6 * size);
-      const magnet = hands.some((h) => h.near === item && controlInput.grip[h.side] && !h.spent);
+      const magnet = hands.some((h) => h.near === item && input.grip[h.side] && !h.spent);
       hand.halo.material.opacity = magnet ? 0.8 : 0.4;
     }
   });
 
   return {
+    /** What the hands hold and could take, written in every physics step */
+    state,
+    /** The hands let go of what they hold, without a throw (before the puppet is pulled up out of a scene, or out of the picture) */
+    drop: () => hands.forEach((hand) => letGo(hand, false)),
+    /**
+     * The puppet leaves: what it holds stays on the stage, as a full prop at
+     * once (nothing sweeps for this puppet any more, and its body is gone).
+     */
+    dispose() {
+      removeStep();
+      removeSync();
+      for (const hand of hands) {
+        const item = hand.held?.item;
+        // The joint goes with the hand's body (rig.dispose)
+        hand.held = null;
+        if (item) restore(item);
+        hand.halo.removeFromParent();
+        hand.halo.material.dispose();
+        state.holding[hand.side] = state.inReach[hand.side] = null;
+      }
+      // The ghosts are looked after in the hands' steps: without any, nobody would
+      if (--puppets > 0) return;
+      for (const item of ghosts) if (alive(item)) item.collider.setCollisionGroups(GROUP.prop);
+      ghosts.clear();
+    },
     /** For the headless measurements: per hand, the signals behind a throw, how far the joint is apart, and their largest values since resetMax() */
     probe: () => hands.map((h) => ({ side: h.side, pull: h.pull, tipSpeed: h.tipSpeed, separation: h.separation, easing: !!h.held && h.held.steps < h.held.easeSteps, max: { ...h.max } })),
     resetMax: () => hands.forEach((h) => (h.max = { pull: 0, tipSpeed: 0, separation: 0 })),

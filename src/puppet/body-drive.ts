@@ -1,7 +1,7 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import { Quaternion, Vector3, type Object3D } from "@iwsdk/core";
-import { controlInput } from "../input/control-input";
-import { STEP, physics, renderPose, setJointFriction, setJointMotor, toQuat, toVec, worldPoint } from "../systems/rapier-system";
+import type { ControlInput } from "../input/control-input";
+import { STEP, addHook, physics, renderPose, setJointFriction, setJointMotor, toQuat, toVec, worldPoint } from "../systems/rapier-system";
 import { createWalk } from "./body-walk";
 import type { Rig, RigPart } from "./rig";
 import type { createStrings } from "./strings";
@@ -58,6 +58,8 @@ export interface BodyDrive {
   stepping(): number;
   /** Called when a player's body takes the puppet over. */
   onStart(listener: () => void): void;
+  /** The puppet leaves the stage (its player left the room, src/net/). */
+  dispose(): void;
 }
 
 /** Every puppet that can be driven by a body (the XR player takes the first). */
@@ -87,7 +89,11 @@ const yawOf = (q: Quaternion, sideways = new Vector3()) => {
   return Math.atan2(-sideways.z, sideways.x);
 };
 
-export function createBodyDrive(root: Object3D, rig: Rig, strings: ReturnType<typeof createStrings>): BodyDrive | undefined {
+/**
+ * `input`: the ControlInput of the player who leads this puppet; its `body`
+ * drives the puppet, and the cross is written back to its `bar`.
+ */
+export function createBodyDrive(root: Object3D, rig: Rig, strings: ReturnType<typeof createStrings>, input: ControlInput): BodyDrive | undefined {
   const head = rig.byName.get("head");
   if (!head) return undefined; // a rig without a head has no eyes to look out of
   const chest = rig.byName.get("chest");
@@ -114,7 +120,7 @@ export function createBodyDrive(root: Object3D, rig: Rig, strings: ReturnType<ty
   // Steps when the player walks (their legs are not tracked)
   const walk = createWalk(rig, head.body.translation().y - root.getWorldPosition(new Vector3()).y);
   // Where the cross rests: its place above the eyes is kept while the body drives
-  const barRest = controlInput.bar.position.clone();
+  const barRest = input.bar.position.clone();
   const crossOffset = barRest.clone().sub(restEye);
 
   let driving = false;
@@ -172,31 +178,31 @@ export function createBodyDrive(root: Object3D, rig: Rig, strings: ReturnType<ty
     wristFriction();
     strings.setSlack(0);
     // Back on the strings alone: the cross returns to where it rests
-    controlInput.bar.position.copy(barRest);
-    controlInput.bar.rotation.identity();
+    input.bar.position.copy(barRest);
+    input.bar.rotation.identity();
   }
 
-  physics.beforeStep.push(() => {
-    const input = controlInput.body;
-    if (input.active !== driving) {
-      driving = input.active;
+  const removeStep = addHook(physics.beforeStep, () => {
+    const wanted = input.body;
+    if (wanted.active !== driving) {
+      driving = wanted.active;
       if (driving) start();
       else stop();
     }
     if (!driving) return;
 
     // Head: towards the target with capped speeds; the eyes land on the target
-    headQ.rotateTowards(input.head.rotation, MAX_HEAD_TURN * STEP);
-    a.copy(EYE).applyQuaternion(headQ).negate().add(input.head.position);
+    headQ.rotateTowards(wanted.head.rotation, MAX_HEAD_TURN * STEP);
+    a.copy(EYE).applyQuaternion(headQ).negate().add(wanted.head.position);
     headP.add(a.sub(headP).clampLength(0, MAX_HEAD_SPEED * STEP));
     head.body.setNextKinematicTranslation(headP);
     head.body.setNextKinematicRotation(headQ);
 
     // Cross: above the eyes as at rest, turned with the head but kept level
-    const headYaw = yawOf(input.head.rotation, sideways);
+    const headYaw = yawOf(wanted.head.rotation, sideways);
     yawQ.setFromAxisAngle(UP, headYaw);
-    controlInput.bar.position.copy(crossOffset).applyQuaternion(yawQ).add(input.head.position);
-    controlInput.bar.rotation.copy(yawQ);
+    input.bar.position.copy(crossOffset).applyQuaternion(yawQ).add(wanted.head.position);
+    input.bar.rotation.copy(yawQ);
 
     // Body: only the head is tracked, so the chest turns after it once the
     // head is turned further than a glance, and then all the way: the player
@@ -223,7 +229,7 @@ export function createBodyDrive(root: Object3D, rig: Rig, strings: ReturnType<ty
 
     // Hands: velocities towards the targets; the arm's joints do the rest
     for (const arm of arms) {
-      const target = input.hands[arm.side];
+      const target = wanted.hands[arm.side];
       if (!target.tracked) continue;
       const body = arm.hand.body;
       worldPoint(arm.upper.body, arm.shoulder, a);
@@ -256,6 +262,12 @@ export function createBodyDrive(root: Object3D, rig: Rig, strings: ReturnType<ty
     driving: () => driving,
     stepping: () => walk?.level() ?? 0,
     onStart: (listener) => void starting.push(listener),
+    dispose() {
+      // Bodies and joints go with the rig: only the hook and the list are ours
+      removeStep();
+      const index = bodyDrives.indexOf(drive);
+      if (index >= 0) bodyDrives.splice(index, 1);
+    },
     setFirstPerson(on) {
       for (const name of FIRST_PERSON_HIDDEN) {
         const mesh = root.getObjectByName(name);

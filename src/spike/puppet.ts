@@ -3,8 +3,9 @@ import RAPIER from "@dimforge/rapier3d-compat";
 import { STRING_IDS, controlInput, puppetState } from "../input/control-input";
 import { loadMarionette } from "../puppet/marionette";
 import { GRAB, grabbables } from "../puppet/grab";
-import { createPuppet, flyIn, hidePuppets, showPuppets } from "../puppet/puppet";
+import { flyIn, hidePuppets, showPuppets, spawnPuppet, type Puppet } from "../puppet/puppet";
 import type { RigController } from "../puppet/rig";
+import type { SessionOptions } from "../net/session";
 import { physics, stepPhysics } from "../systems/rapier-system";
 import { hudLines } from "./world";
 
@@ -34,10 +35,22 @@ const STRING_KEY = "string-extra";
 /** F / G or a button held for less than this, s, is a tap: the hand lets go */
 const TAP = 0.3;
 
+/** With a room, the puppets come from the session: one per player (src/net/) */
+export type RoomOptions = Omit<SessionOptions, "hud">;
+
 /** Returns the puppet's cross (for input sources that need its geometry) */
-export async function setupPuppet(world: World) {
-  const { root, description } = await loadMarionette();
-  const puppet = createPuppet(world, root, description);
+export async function setupPuppet(world: World, room?: RoomOptions) {
+  const { description } = await loadMarionette();
+  // The local player's puppet: there from the start alone, later in a room
+  // (on a client it comes when the host is there, and has no hands of its own)
+  let puppet: () => Puppet | undefined;
+  if (room) {
+    const session = await (await import("../net/session")).startSession(world, { ...room, hud: hudLines });
+    puppet = session.puppet;
+  } else {
+    const single = await spawnPuppet(world);
+    puppet = () => single;
+  }
 
   physics.afterSync.push(() => {
     // Per hand: the prop in reach / the prop it holds
@@ -46,7 +59,8 @@ export async function setupPuppet(world: World) {
   });
   // ?debug: handles for headless tests (scripted shakes, string stretch, joint angles, grabbing)
   if (new URLSearchParams(location.search).has("debug")) {
-    Object.assign(globalThis, { world, controlInput, puppet, description, physics, stepPhysics, flyIn, hidePuppets, showPuppets, puppetState, grabbables, GRAB, RAPIER });
+    Object.assign(globalThis, { controlInput, description, physics, stepPhysics, world, flyIn, hidePuppets, showPuppets, puppetState, grabbables, GRAB, RAPIER });
+    Object.defineProperty(globalThis, "puppet", { get: puppet, configurable: true });
   }
   setupPointerAndPanel(world, description.controller);
   return { controller: description.controller };

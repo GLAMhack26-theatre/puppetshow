@@ -15,7 +15,7 @@ import {
   Vector3,
   type World,
 } from "@iwsdk/core";
-import { GROUP, addLinked, physics, renderPose } from "../systems/rapier-system";
+import { GROUP, addLinked, physics, puppetGroups, renderPose } from "../systems/rapier-system";
 import { hudLines } from "./world";
 
 // T4: plain three.js next to the ECS.
@@ -74,7 +74,7 @@ function addSkinnedChain(world: World) {
         .setAngularDamping(1.5),
     ),
   );
-  bodies.forEach((b) => pw.createCollider(RAPIER.ColliderDesc.capsule(SEGMENT / 2 - 0.05, 0.05).setCollisionGroups(GROUP.puppet), b));
+  bodies.forEach((b) => pw.createCollider(RAPIER.ColliderDesc.capsule(SEGMENT / 2 - 0.05, 0.05).setCollisionGroups(puppetGroups(0, false).body), b));
   const half = SEGMENT / 2;
   pw.createImpulseJoint(RAPIER.JointData.spherical({ x: 0, y: 0, z: 0 }, { x: 0, y: half, z: 0 }), anchor, bodies[0], true);
   for (let i = 1; i < bodies.length; i++) {

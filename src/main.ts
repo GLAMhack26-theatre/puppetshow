@@ -52,7 +52,8 @@ import { XrEmbodimentSystem, onXrSession } from "./xr/xr-embodiment";
 // spike is done): ?test=world (orbit camera, no puppet), ?test=puppet (mouse
 // only, no camera), ?test=interop.
 
-const test = new URLSearchParams(location.search).get("test") ?? "play";
+const params = new URLSearchParams(location.search);
+const test = params.get("test") ?? "play";
 /** These tests have no camera control; everything else is the play */
 const handControl = !["world", "puppet", "interop"].includes(test);
 /** Hand control keeps the puppet's body and skirt on the floor, m from its front and back edge */
@@ -68,6 +69,30 @@ setupExcerpts();
 setupSfx();
 setupImpacts();
 setupSoundToggle();
+
+// Several players on one stage (src/net/, docs/architecture.md §3.3): every
+// device opens the same ?room=<secret>; the one that simulates the stage adds
+// &host (and gets a new room if none is given). &contact=0: puppets pass
+// through each other; &lossy=0: no lossy channel for the poses; &ice=relay:
+// only through the TURN server (docs/multiplayer.md).
+const isHost = params.has("host");
+if (isHost && !params.get("room")) {
+  params.set("room", crypto.randomUUID().slice(0, 8));
+  history.replaceState(null, "", `?${params}`);
+}
+const roomId = params.get("room");
+const room = roomId
+  ? { room: roomId, host: isHost, contact: params.get("contact") !== "0", lossy: params.get("lossy") !== "0", relayOnly: params.get("ice") === "relay" }
+  : undefined;
+// The test links keep the room: a link without it would leave the others behind
+if (roomId) {
+  for (const link of document.querySelectorAll<HTMLAnchorElement>("#tests a")) {
+    const target = new URLSearchParams(link.search);
+    target.set("room", roomId);
+    if (isHost) target.set("host", "");
+    link.search = target.toString();
+  }
+}
 
 await initPhysics();
 await installEmulator();
@@ -176,7 +201,7 @@ switch (test) {
     (await import("./spike/interop")).setupInterop(world);
     break;
   default: {
-    const { controller } = await (await import("./spike/puppet")).setupPuppet(world);
+    const { controller } = await (await import("./spike/puppet")).setupPuppet(world, room);
     if (handControl)
       setupHandTracking({
         controller,

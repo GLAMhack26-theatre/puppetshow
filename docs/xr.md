@@ -1,6 +1,6 @@
 # WebXR: the player is the puppet (implementation notes)
 
-How the WebXR mode is built: the code paths, the math, the conventions, what was measured, and what is still open. The decisions and their reasons are in [`architecture.md`](architecture.md), section 3.3 and the decision log.
+How the WebXR mode is built: the code paths, the math, the conventions, what was measured, and what is still open. The decisions and their reasons are in [`architecture.md`](architecture.md), section 3.4 and the decision log.
 
 **Status:** everything here was run in IWER's emulated Quest 3, in headless Chrome at 60 fps. **Nothing has been run on a headset yet.** Numbers marked *measured* come from those runs. (Earlier runs in a throttled browser tab gave wrong numbers for anything timed; all figures here were taken again at 60 fps.)
 

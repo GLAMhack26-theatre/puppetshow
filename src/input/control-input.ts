@@ -18,7 +18,10 @@ export type RockId = "hands" | "legs" | "head";
 /** Default rocking range, rad (a bar's own limit_deg in the rig JSON overrides it): further would flip strings over the bar */
 export const MAX_ROCK = 0.6;
 
-export const controlInput = {
+/** m: how much longer than in the rig the strings are unless set otherwise (ControlInput.stringExtra) */
+export const DEFAULT_STRING_EXTRA = 0.15;
+
+export const createControlInput = () => ({
   // The main bar of the cross; set to its rest position when the puppet is created (strings.ts)
   // Rig coordinates: the cross at the height it was modelled at. The engine lifts
   // it by stringExtra on top, so no source has to know how long the strings are
@@ -29,7 +32,7 @@ export const controlInput = {
    * value (cross and strings change together): it sets how far above the
    * puppet the cross is, not whether the feet reach the floor.
    */
-  stringExtra: 0.15,
+  stringExtra: DEFAULT_STRING_EXTRA,
   /**
    * Rocking angle of the hand bar, the leg bar and the head bar, rad (clamped
    * to each bar's limit), about the main bar's long axis; + lifts the puppet's
@@ -99,15 +102,26 @@ export const controlInput = {
       right: { tracked: false, position: new Vector3(), rotation: new Quaternion() },
     },
   },
-};
+});
+export type ControlInput = ReturnType<typeof createControlInput>;
 
 /**
- * What the engine tells the sources and the UI about the puppet's hands,
- * written in every physics step (puppet/grab.ts): the name of the prop each
- * hand holds, and of the prop its magnet would take now (in reach of the free
- * hand); null for none.
+ * The local player's input: what mouse, keys and hand tracking write to. With
+ * several players (src/net/), every other puppet has its own ControlInput,
+ * filled from the network.
  */
-export const puppetState = {
+export const controlInput = createControlInput();
+
+/** What the engine tells about a puppet's hands (puppet/grab.ts): the name of the prop each hand holds, and of the prop its magnet would take now (in reach of the free hand); null for none */
+export const createPuppetState = () => ({
   holding: { left: null as string | null, right: null as string | null },
   inReach: { left: null as string | null, right: null as string | null },
-};
+});
+export type PuppetState = ReturnType<typeof createPuppetState>;
+
+/**
+ * The hands of the local player's puppet, for the sources and the UI: written
+ * in every physics step by that puppet's grab, or, where another device
+ * simulates it, from what that device sends (src/net/).
+ */
+export const puppetState = createPuppetState();

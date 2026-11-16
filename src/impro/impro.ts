@@ -8,7 +8,7 @@ import {
   type Requisit,
   toggleRequisit,
 } from "../props/requisits";
-import { type Backdrop, currentBackdrop, loadBackdrops, setBackdrop } from "../stage/backdrops";
+import { type Backdrop, currentBackdrop, loadBackdrops, onBackdropChange, setBackdrop } from "../stage/backdrops";
 import { scaleCaption } from "../catalogue";
 import { curtainLift } from "../stage/main-curtain";
 import { onSceneApplied } from "../plays/plays";
@@ -261,8 +261,9 @@ function fillBackdrops(world: World, slider: Slider, backdrops: Backdrop[]) {
     // A second click on the chosen one takes it off the stage again
     const backdrop = backdrops[index];
     setBackdrop(world, currentBackdrop() === backdrop ? null : backdrop);
-    markSelected();
   });
+  // Also when another player chose it (src/net/)
+  onBackdropChange(markSelected);
   markSelected();
   onSceneApplied(markSelected); // a scene preset from the director bar
 }

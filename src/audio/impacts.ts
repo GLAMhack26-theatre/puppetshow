@@ -1,19 +1,17 @@
 import { impactVelocity } from "../props/contacts";
 import { MATERIALS, colliderSounds } from "../props/materials";
-import { physics } from "../systems/rapier-system";
+import { MEMBER, physics } from "../systems/rapier-system";
 import { playSfx, type Zzfx } from "./sfx";
 
 // Physics sounds: when two colliders start touching (Rapier collision
 // events, switched on for the puppet parts and the props), the speed at which
 // they meet sets the sound and its loudness. What is hit comes from the
-// collision group membership (rapier-system.ts GROUP), so no per-collider
+// collision group membership (rapier-system.ts MEMBER), so no per-collider
 // registry is needed: puppet parts are wood (a wooden marionette clatters),
 // props thud or fall. A prop sounds as its material (props/materials.ts:
 // metal, stone, glass … by collider); of two props the one that is not wood. Contact force events were the plan, but they also
 // fire every step for a puppet standing still on the floor; a contact start
 // only fires on the impact itself.
-
-const MEMBER = { puppet: 0x0001, stage: 0x0002, prop: 0x0004 };
 
 /** Below this relative speed (m/s) a contact is silent: settling, sliding, standing */
 const MIN_SPEED = 0.12;

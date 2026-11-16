@@ -63,6 +63,12 @@ export interface Backdrop {
 
 let catalogue: Promise<Backdrop[]> | null = null;
 let current: Backdrop | null = null;
+const changeListeners: ((backdrop: Backdrop | null) => void)[] = [];
+
+/** Called whenever another backdrop (or none) is put on the stage: the picker's mark, the other players (src/net/). */
+export function onBackdropChange(listener: (backdrop: Backdrop | null) => void) {
+  changeListeners.push(listener);
+}
 
 // The sheets are unlit (painted light and shade), so the stage lights do not
 // reach them: the lighting scene (lighting.ts) puts its mood on them as a
@@ -172,6 +178,7 @@ export function setBackdrop(world: World, backdrop: Backdrop | null) {
     current.rest.z -= OUTGOING_STEP;
   }
   current = backdrop;
+  for (const listener of changeListeners) listener(backdrop);
   if (!backdrop) return;
 
   const object = backdrop.object;
