@@ -2,6 +2,7 @@ import type { HandLandmarker } from "@mediapipe/tasks-vision";
 import { Quaternion, Vector3 } from "@iwsdk/core";
 import type { RigController } from "../puppet/rig";
 import { addHandSettings } from "../ui/hand-settings";
+import { isMainCurtainDown } from "../stage/main-curtain";
 import { createReleaseTimer } from "../ui/release-timer";
 import { MAX_ROCK, controlInput, puppetState, type RockId } from "./control-input";
 import { createHandOverlay } from "./hand-overlay";
@@ -189,7 +190,7 @@ function startReleaseLoop() {
       flights++;
       void Promise.resolve(onNewPlayer?.()).catch(() => undefined).then(() => flights--);
     }
-    timer.show(state);
+    timer.show(state, !isMainCurtainDown());
     requestAnimationFrame(tick);
   };
   tick();
