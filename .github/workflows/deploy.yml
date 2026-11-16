@@ -44,10 +44,13 @@ jobs:
       # TURN server and our own meeting point, from the repository's Actions
       # variables. Unset, they are empty and the build uses the public relays
       # and no TURN server. Variables, not secrets: everything here ends up
-      # readable in the page's JavaScript anyway.
+      # readable in the page's JavaScript anyway. For a TURN server that
+      # stays on, set only VITE_TURN_CREDENTIALS_URL (the address the page
+      # fetches expiring credentials from) and leave the other three empty.
       - name: Build
         run: npm run build
         env:
+          VITE_TURN_CREDENTIALS_URL: ${{ vars.VITE_TURN_CREDENTIALS_URL }}
           VITE_TURN_URLS: ${{ vars.VITE_TURN_URLS }}
           VITE_TURN_USERNAME: ${{ vars.VITE_TURN_USERNAME }}
           VITE_TURN_CREDENTIAL: ${{ vars.VITE_TURN_CREDENTIAL }}

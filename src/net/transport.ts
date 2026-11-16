@@ -10,7 +10,10 @@ import { getRelaySockets as ownSockets, joinRoom as joinOverOwnRelay } from "@tr
 //    (scripts/signal-relay.mjs; the Vite server runs one under /relay), for
 //    a network without internet or one that blocks the public relays.
 // 2. A path between two devices (ICE): directly where the network lets them;
-//    otherwise through a TURN server (VITE_TURN_*, scripts/setup-turn.sh).
+//    otherwise through a TURN server (scripts/setup-turn.sh). Its credentials
+//    are fetched when the room is joined and expire
+//    (VITE_TURN_CREDENTIALS_URL, scripts/turn-credentials.mjs), or are fixed
+//    ones built into the page (VITE_TURN_URLS, _USERNAME, _CREDENTIAL).
 // 3. The data: WebRTC data channels on that path, never through a relay of
 //    the first kind.
 //
@@ -28,6 +31,10 @@ const PROBE_INTERVAL = 0.5;
 const MAX_QUEUED_BYTES = 16_384;
 /** First byte of a probe; pose packets start at 1 (protocol.ts) */
 const PROBE = 0;
+/** s to wait for the TURN credentials before joining without them: a dead service must not keep a LAN room from starting */
+const CREDENTIALS_TIMEOUT = 3;
+/** s between two looks at the credentials: renewed at half their lifetime, asked for again after a failure */
+const CREDENTIALS_CHECK = 30;
 
 export interface TransportStats {
   /** Peers whose pose traffic runs over the lossy channel, of all peers */
@@ -78,6 +85,12 @@ export interface Transport {
   signaling: Signaling;
   /** One entry per peer, in the order of peers() */
   paths(): Promise<PeerPath[]>;
+  /**
+   * The TURN server's credentials, for the HUD: "-" (none configured),
+   * "fixed" (built into the page), "fresh, 42 min left" (fetched), or
+   * "no credentials (…)" when the service did not answer.
+   */
+  turn(): string;
 }
 
 export interface TransportOptions {
@@ -91,11 +104,37 @@ export interface TransportOptions {
   relayOnly?: boolean;
 }
 
-/** TURN relay for networks that block direct connections: VITE_TURN_URLS (comma separated), VITE_TURN_USERNAME, VITE_TURN_CREDENTIAL */
-function turnConfig(): TurnServerConfig[] | undefined {
+/**
+ * A TURN server with fixed credentials, built into the page where anyone can
+ * read them: VITE_TURN_URLS (comma separated), VITE_TURN_USERNAME,
+ * VITE_TURN_CREDENTIAL. For a server that runs for one event, or a hosted
+ * one whose credentials expire by themselves.
+ */
+function fixedTurn(): TurnServerConfig[] {
   const urls = import.meta.env.VITE_TURN_URLS as string | undefined;
-  if (!urls) return undefined;
+  if (!urls) return [];
   return [{ urls: urls.split(","), username: import.meta.env.VITE_TURN_USERNAME, credential: import.meta.env.VITE_TURN_CREDENTIAL }];
+}
+
+interface FetchedTurn {
+  servers: TurnServerConfig[];
+  /** Date.now() of the answer (the wall clock: it also runs while the device sleeps), and how long the pair is valid from then, ms */
+  at: number;
+  lifetime: number;
+}
+
+/**
+ * Credentials that expire, from our own service (VITE_TURN_CREDENTIALS_URL:
+ * scripts/turn-credentials.mjs; a path is taken on the server the page came
+ * from). Nothing lasting is in the page that way, so the TURN server can stay
+ * on. The answer is an RTCIceServer plus `ttl` in seconds.
+ */
+async function fetchTurn(url: string): Promise<FetchedTurn> {
+  const response = await fetch(new URL(url, location.href), { cache: "no-store", signal: AbortSignal.timeout(CREDENTIALS_TIMEOUT * 1000) });
+  if (!response.ok) throw new Error(`${response.status}`);
+  const { urls, username, credential, ttl } = (await response.json()) as { urls?: string[]; username?: string; credential?: string; ttl?: number };
+  if (!Array.isArray(urls) || !username || !credential || !ttl) throw new Error("unexpected answer");
+  return { servers: [{ urls, username, credential }], at: Date.now(), lifetime: ttl * 1000 };
 }
 
 /**
@@ -149,16 +188,47 @@ interface LossyChannel {
   probe?: ReturnType<typeof setInterval>;
 }
 
-export function createTransport(roomId: string, { lossy = true, relayOnly = false }: TransportOptions = {}): Transport {
-  const turn = turnConfig();
+export async function createTransport(roomId: string, { lossy = true, relayOnly = false }: TransportOptions = {}): Promise<Transport> {
   const own = signalUrls();
   // The room id is also the password: it encrypts the handshake on the relays
   const config = {
     appId: APP_ID,
     password: roomId,
-    ...(turn ? { turnConfig: turn } : {}),
+    turnConfig: fixedTurn(),
     ...(relayOnly ? { rtcConfig: { iceTransportPolicy: "relay" as const } } : {}),
   };
+
+  // Fetched credentials: before the room is joined, because the first
+  // connections are prepared right then; and again at half their lifetime.
+  // Trystero reads `config.turnConfig` for every connection it prepares (at
+  // most 3 minutes ahead), so replacing the list is enough for the later
+  // ones. Connections that stand keep running: coturn only checks the
+  // expiry when a connection first asks (tested, docs/multiplayer.md §9).
+  const fixed = config.turnConfig;
+  const credentialsUrl = (import.meta.env.VITE_TURN_CREDENTIALS_URL as string | undefined)?.trim();
+  let fetched: FetchedTurn | undefined;
+  let credentialsError = "";
+  const valid = () => !!fetched && Date.now() < fetched.at + fetched.lifetime;
+  const renew = async () => {
+    try {
+      fetched = await fetchTurn(credentialsUrl!);
+      credentialsError = "";
+    } catch (error) {
+      credentialsError = error instanceof Error ? error.message : String(error);
+      console.warn("[net] TURN credentials:", credentialsError);
+    }
+    config.turnConfig = [...fixed, ...(valid() ? fetched!.servers : [])];
+  };
+  if (credentialsUrl) {
+    await renew();
+    const check = () => {
+      if (!fetched || Date.now() > fetched.at + fetched.lifetime / 2) void renew();
+    };
+    setInterval(check, CREDENTIALS_CHECK * 1000);
+    // A device that slept with the page open: its timers stood still
+    document.addEventListener("visibilitychange", () => document.hidden || check());
+  }
+
   const room = own ? joinOverOwnRelay({ ...config, relayConfig: { urls: own } }, roomId) : joinOverNostr(config, roomId);
   const sockets = own ? ownSockets : nostrSockets;
   const signaling: Signaling = {
@@ -270,5 +340,11 @@ export function createTransport(roomId: string, { lossy = true, relayOnly = fals
     }),
     signaling,
     paths: () => Promise.all(Object.values(room.getPeers()).map((peer) => (peer.connection ? pathOf(peer.connection) : "?"))),
+    turn: () => {
+      if (!credentialsUrl) return fixed.length ? "fixed" : "-";
+      if (!valid()) return `no credentials (${credentialsError || "expired"})`;
+      const left = Math.round((fetched!.at + fetched!.lifetime - Date.now()) / 60_000);
+      return `fresh, ${left} min left${credentialsError ? ` (renewal failed: ${credentialsError})` : ""}`;
+    },
   };
 }

@@ -209,11 +209,13 @@ function createStatus() {
  * room is joined (its puppet comes when the host is there).
  */
 export async function startSession(world: World, options: SessionOptions) {
-  const transport = createTransport(options.room, { lossy: options.lossy, relayOnly: options.relayOnly });
   const status = createStatus();
   const { hud } = options;
   hud.net = "verbinde …";
-  status(options.host ? `Raum ${options.room} …` : waiting(transport));
+  status(options.host ? `Raum ${options.room} …` : "Warte auf die Bühne …");
+  // Waits for the TURN server's credentials where they are fetched (3 s at most)
+  const transport = await createTransport(options.room, { lossy: options.lossy, relayOnly: options.relayOnly });
+  if (!options.host) status(waiting(transport));
   transport.onError((message) => {
     console.warn("[net]", message);
     hud.neterr = message.slice(0, 60);
@@ -226,7 +228,8 @@ export async function startSession(world: World, options: SessionOptions) {
   const session = options.host ? await runHost(world, transport, selfId, options, status) : await runClient(world, transport, selfId, status);
 
   // HUD: role, peers, how many of them over the lossy channel, where the
-  // devices meet, how the traffic to each peer travels, round trip, packets
+  // devices meet, how the traffic to each peer travels, the TURN server's
+  // credentials, round trip, packets
   // per second (what each line tells about a network: docs/multiplayer.md)
   let last = transport.stats();
   const { signaling } = transport;
@@ -235,6 +238,7 @@ export async function startSession(world: World, options: SessionOptions) {
     hud.net = `${options.host ? "host" : "client"} ${options.room} · ${stats.peers} peers · ${stats.lossy} lossy`;
     hud.signal = `${signaling.label} ${signaling.open()}/${signaling.total()}`;
     transport.paths().then((paths) => (hud.path = `${paths.join(" ") || "-"}${options.relayOnly ? " (ice=relay)" : ""}`));
+    hud.turn = transport.turn();
     hud.rate = `in ${stats.received - last.received}/s out ${stats.sent - last.sent}/s lost ${session.lost()}`;
     last = stats;
     const target = session.pingTarget();

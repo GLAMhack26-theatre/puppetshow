@@ -65,13 +65,19 @@ Build-time settings, in `.env.local` next to `package.json` (git-ignored; read b
 # A path means: on the server this page came from. Or a full wss:// address.
 VITE_SIGNAL_URLS=/relay
 
-# A TURN server (section 6.1). Several addresses, comma separated.
+# A TURN server (section 6.1), in one of two ways.
+# a) For a server that stays on: where the page fetches credentials that
+#    expire. An address, not a secret. A path means: on the server this page
+#    came from.
+VITE_TURN_CREDENTIALS_URL=https://turn.example.org/turn-credentials
+# b) For one event, or a laptop: one fixed pair. It is readable in the page.
+#    Several addresses, comma separated.
 VITE_TURN_URLS=turn:turn.example.org:3478,turn:turn.example.org:3478?transport=tcp
 VITE_TURN_USERNAME=puppet
-VITE_TURN_CREDENTIAL=<secret>
+VITE_TURN_CREDENTIAL=<password>
 ```
 
-Without any of them the app behaves as before. For the GitHub Pages build the same four names are read from the repository's Actions **variables** (Settings → Secrets and variables → Actions → Variables), then re-run the deploy workflow.
+Without any of them the app behaves as before. For the GitHub Pages build the same five names are read from the repository's Actions **variables** (Settings → Secrets and variables → Actions → Variables), then re-run the deploy workflow.
 
 **Every device of a room must use the same meeting point.** A device on the public relays and one on our own relay never see each other, and nothing fails visibly (tested). With our own relay the client's waiting line names it: `Warte auf die Bühne … (Treffpunkt 192.168.1.20:5173)`.
 
@@ -144,7 +150,7 @@ Which servers exist, and which set-up needs which:
 | Set-up | Page | Meeting | Path | Servers of ours |
 |---|---|---|---|---|
 | **A. Serverless** (default) | GitHub Pages | Public relays | Direct | None |
-| **B. Difficult networks with internet** | GitHub Pages | Public relays | Direct, TURN where needed | TURN (hosted, or `setup-turn.sh` on a rented server) |
+| **B. Difficult networks with internet** | GitHub Pages | Public relays | Direct, TURN where needed | TURN (hosted, or `setup-turn.sh` on a rented server; with `--auth secret` it can stay on) |
 | **C. One laptop, no internet** | The laptop (`dev:https` or `preview`) | The laptop (`/relay`) | Direct on the LAN | None beyond the laptop; TURN on it only if devices cannot be given camera permission |
 | **D. All our own** | Any static web server | Our relay (`signal-relay.mjs`) | Direct, TURN where needed | A rented server with relay and TURN |
 
@@ -152,39 +158,77 @@ Which servers exist, and which set-up needs which:
 
 **Hosted** (no machine to look after; none of these was tried here):
 
-- Cloudflare Realtime TURN: credentials are made with an API call and expire after the time asked for. Make them shortly before the event with a lifetime longer than the event, and copy `urls`, `username` and `credential` from the answer into `VITE_TURN_*` (leave out any address on port 53, which browsers block). Docs: <https://developers.cloudflare.com/realtime/turn/generate-credentials/>. It offers UDP and TCP on 3478 and TLS on 443 and 5349 (from those docs).
+- Cloudflare Realtime TURN: credentials are made with an API call and expire after the time asked for. Make them shortly before the event with a lifetime longer than the event, and copy `urls`, `username` and `credential` from the answer into `VITE_TURN_URLS`, `_USERNAME` and `_CREDENTIAL` (leave out any address on port 53, which browsers block). Docs: <https://developers.cloudflare.com/realtime/turn/generate-credentials/>. It offers UDP and TCP on 3478 and TLS on 443 and 5349 (from those docs). For use all the time, the API call has to be made for every visitor by a small service that keeps the API token (the token must not be in the page); the app would fetch from it through `VITE_TURN_CREDENTIALS_URL`, whose answer has the same shape. That service is not built.
 - Others of the same kind: Metered, Twilio Network Traversal, Xirsys. Prices and free allowances: see each provider.
 
-**Our own**, with coturn on a rented Linux server (Debian or Ubuntu, a public address, the smallest size is enough):
+**Our own**, with coturn on a rented Linux server (Debian or Ubuntu, a public address, the smallest size is enough).
+
+**How the page gets its credentials.** A TURN server asks every browser for a user name and a password, so something always reaches the page. The script sets up one of two ways (`--auth`):
+
+| | `--auth secret`: pairs that expire | `--auth password`: one fixed pair (the script's default) |
+|---|---|---|
+| In the page | The address to fetch a pair from | User name and password, for anyone to read |
+| On the server | coturn, and a small service that hands out pairs (`scripts/turn-credentials.mjs`) | coturn |
+| A pair is valid for | One hour; an open page fetches a new one every half hour | As long as the password stays |
+| Changing it | Nothing to change | New password, and a rebuild of the app |
+| For | A server that stays on | A laptop at an event; a server that is switched off afterwards |
+
+How the expiring pairs work (coturn's `use-auth-secret`): the user name is the time until which it is valid, plus a random part. The password is an HMAC of that name, made with a secret that only coturn and the service know. coturn recomputes it, and refuses a name whose time has passed. The secret never leaves the server.
+
+What neither way does: tell our page from a copy of it. The app has no logins, so whoever can open the page can ask the service too. What a stranger gets is bounded:
+
+- In both ways: a rate cap per allocation, a total number of allocations, and no relaying into private address ranges.
+- With expiring pairs also: nothing lasting to copy out of the page; 100 allocations per pair (a device makes one per peer and TURN address: measured 8 with four peers and two addresses, which gives 15 in a full room of six with three); 60 pairs a minute per address; `--origin`, which keeps other websites from using the service in their visitors' browsers (a script can claim any origin); and stopping the service ends new use within the hour (the pairs already handed out run out), without a rebuild.
+- Not built: a key per event in the room link, which the service checks before it hands out a pair. That would be the next step if the server is misused.
 
 ```sh
-# on the server, as root, from a checkout of this repo (or just copy the one file)
+# on the server, as root, from a checkout of this repo (or copy scripts/setup-turn.sh and scripts/turn-credentials.mjs)
+
+# A server that stays on. Needs a DNS name pointing at the server.
+sudo bash scripts/setup-turn.sh --auth secret --domain turn.example.org --email you@example.org \
+     --origin https://<user>.github.io
+
+# For one event: a fixed password.
 sudo bash scripts/setup-turn.sh
-# with a DNS name pointing at the server: also TLS (turns:), for networks that only let TLS out
+# with a DNS name: also TLS (turns:), for networks that only let TLS out
 sudo bash scripts/setup-turn.sh --domain turn.example.org --email you@example.org
 # TLS on 443 instead of 5349, for networks that only let web traffic out (the port must be free: no web server on this machine)
 sudo bash scripts/setup-turn.sh --domain turn.example.org --email you@example.org --tls-port 443
 ```
 
-It installs coturn, writes `/etc/turnserver.conf`, opens the ports in `ufw` if that is on, starts the service, runs coturn's own test with two relayed clients, and prints the three `VITE_TURN_*` lines. `--help` lists the options.
+It installs coturn, writes `/etc/turnserver.conf`, opens the ports in `ufw` if that is on, starts the service, runs coturn's own test with two relayed clients, and prints the lines for the app. `--help` lists the options.
+
+With `--auth secret` it also installs Node and the credentials service (`puppetshow-turn-credentials`, a systemd unit; its settings with the secret are in `/etc/puppetshow/turn-credentials.env`):
+
+- With `--domain` the service answers over HTTPS on port 443 with the same certificate as `turns:`, and the script prints the one line for the app: `VITE_TURN_CREDENTIALS_URL=https://turn.example.org/turn-credentials`.
+- Without `--domain` it only listens on `127.0.0.1:8788`, for a proxy that does the TLS (section 6.2 has the Caddy line). A page served over HTTPS may only fetch from `https://`.
+- `--origin` takes the page's origin: scheme and host, without a path (`https://<user>.github.io` for GitHub Pages).
+- The service needs only the one file and Node 18 or newer, no `npm install`.
+- The credentials and `turns:` cannot share port 443 on one address. The default puts the credentials on 443 and `turns:` on 5349. A network that lets only port 443 out then gets its credentials but cannot reach the TURN server. For that case the two need two addresses: `turns:` on 443 on the TURN server (`--tls-port 443 --credentials-port 8443`), and the credentials from a second machine on 443, for instance inside the relay behind Caddy (section 6.2), with the same secret (`--secret`). Not tested.
+
+In the app: the pair is fetched before the room is joined and again at half its lifetime. A connection that stands keeps running when its pair expires: coturn only looks at the expiry when a connection first asks (tested on coturn 4.19 and 4.6.1 with pairs valid for 40 seconds, rows 23 and 33 in section 9), so the hour is not a limit on how long a show can run. If the service does not answer within 3 seconds, the room is joined without a TURN server, so a dead service does not stop a room on a good network; the HUD's `turn` line says so (section 7).
 
 What it does and does not cover:
 
 - **Tested here, with browsers:** the config it writes with `--config-only --lan`, run with coturn 4.19 in Docker on this Mac: two and three browser tabs with `&ice=relay` connect through it over UDP and over TCP, lossy channel included, none of 60 packets a second lost.
 - **Tested here, without browsers:** the whole script in a Debian 12 container (apt's coturn 4.6.1, a made-up public address, a stand-in for systemd): it installs, writes the config, coturn accepts every line, its self-test passes (two relayed clients reach each other through the public/private address pair, as on a cloud server behind 1:1 NAT), and a second run keeps the password. The rules against private addresses work: a peer on another private address is refused (`403 Forbidden IP`).
-- **Not tested:** a real server with a public address, systemd, ufw, the certificate from Let's Encrypt and `turns:`. Expect to fix something on the first real run, and read `journalctl -u coturn`.
+- **Tested here, `--auth secret`:** the script in the same Debian 12 container (coturn 4.6.1, Node 18), without `--domain`: it installs coturn and the service, the self-test fetches a pair from the service and two relayed clients connect with it, and a second run keeps the secret. coturn refuses a pair whose time has passed and a pair made with another secret. The service answers a page of the allowed origin, refuses another origin (403) and the 61st request within a minute from one address (429). With browsers, the Vite server handing out the pairs: rows 22 to 33 in section 9, on coturn 4.19 and on Debian's 4.6.1 with the config the script writes.
+- **Not tested:** a real server with a public address, systemd (both units), ufw, the certificate from Let's Encrypt, `turns:`, and the credentials service over HTTPS with that certificate (on its own it was tried with a self-signed one). Expect to fix something on the first real run, and read `journalctl -u coturn` and `journalctl -u puppetshow-turn-credentials`.
 - **The cloud provider's own firewall** (security group) is outside the script's reach. Open there too: UDP 3478, TCP 3478, UDP 49160 to 49399, and the TLS port if used.
-- **The credentials are public.** They are in the page's JavaScript; anyone who opens the page can read them and use the server as a relay. Hence: a cap on bandwidth per allocation, no relaying into private address ranges, and the advice to switch the server off after the event (`systemctl disable --now coturn`). Running the script again with `--password <new>` changes the password (and needs a rebuild of the app).
+- **With a fixed password, switch the server off after the event** (`systemctl disable --now coturn`): the password is in the page's JavaScript, and anyone who opened the page can keep using the server as a relay. Running the script again with `--password <new>` changes the password (and needs a rebuild of the app). A server set up with `--auth secret` can stay on.
+- **Changing the way**: run the script again with the other `--auth`. Going back to a fixed password stops the credentials service. The secret is kept from run to run; `--secret <new>` changes it, and pairs handed out before stop working for new connections.
 - **About the limits**, learnt the hard way in the tests: a browser reserves a place on the TURN server (an allocation) for every connection and every TURN address, whether it ends up using it or not, and a page that is closed leaves its allocations behind for 10 minutes. With coturn's `bps-capacity` set, every allocation takes its full `max-bps` out of that total, and the server was "full" after 8 allocations (`486 Allocation Bandwidth Quota Reached` in its log, `peer-connect-failed` in the browser). The script therefore sets a generous number of allocations (1000), a rate cap per allocation, and no total.
 
 **Checking a TURN server**, in this order:
 
-1. Outside the app: <https://webrtc.github.io/samples/src/content/peerconnection/trickle-ice/> with the address and credentials. A line of type `relay` must appear.
+1. Outside the app: <https://webrtc.github.io/samples/src/content/peerconnection/trickle-ice/> with the address and credentials. A line of type `relay` must appear. With expiring pairs, take `username` and `credential` from the service's answer (open its address in a browser, or `curl https://turn.example.org/turn-credentials`).
 2. In the app: open the room on two devices with `&ice=relay&debug` added on both. They must connect, and `path` must read `turn/udp` (or `turn/tcp`, `turn/tls`). Without a working TURN server this link does not connect at all (tested), so it cannot pass by accident.
 3. Without `&ice=relay`: the same devices should show `lan` or `nat` again where the network allows it.
 4. Headless, from the repo: `node scripts/test-room.mjs <app address> --relay-only --stay 10`.
 
-To check TCP or TLS alone, put only that address into `VITE_TURN_URLS` for the test.
+To check TCP or TLS alone, put only that address into `VITE_TURN_URLS` for the test (with expiring pairs: into `TURN_URLS` in the service's settings, then restart it).
+
+With expiring pairs, the HUD's `turn` line tells where a failure is: `no credentials (…)` means the service did not answer (wrong address, not running, the page's origin not allowed); `fresh, … min left` with `peer-connect-failed` means the service is fine and coturn is not reachable or does not share its secret.
 
 **On a laptop in the players' own network** (set-up C, or choice 3 of section 5.1), with Docker:
 
@@ -198,6 +242,8 @@ docker run -d --name puppet-turn -p 3478:3478/udp -p 3478:3478/tcp -p 49160-4920
 ```
 
 The image has to be pulled while there is still internet.
+
+This uses a fixed password, which is fine on a laptop that goes home after the event. To try the expiring pairs on a laptop: add `--auth secret` to the first line and put the three lines it prints into `.env.local` (`TURN_SECRET`, `TURN_URLS`, `VITE_TURN_CREDENTIALS_URL=/turn-credentials`). The Vite server then hands out the pairs itself. `TURN_SECRET` has no `VITE_` prefix on purpose: Vite puts every `VITE_` variable into the page.
 
 ### 6.2 Our own meeting point
 
@@ -270,6 +316,10 @@ puppet.example.org {
 ```
 
 - A TURN server with TLS on port 443 and Caddy cannot share one address. Use 5349 for `turns:`, or a second small server for TURN.
+- **The TURN server's expiring credentials through the same proxy.** Two ways, both answering on `https://signal.example.org/turn-credentials`:
+  - coturn on this machine, set up with `setup-turn.sh --auth secret` and no `--domain` (Caddy holds ports 80 and 443, so the script cannot fetch a certificate, and there is no `turns:`): its credentials service listens on `127.0.0.1:8788`. Add `reverse_proxy /turn-credentials 127.0.0.1:8788` to the site in the Caddyfile, above the other `reverse_proxy` line.
+  - coturn on another machine: start the relay with `TURN_SECRET` (that server's secret, `static-auth-secret` in its `/etc/turnserver.conf`) and `TURN_URLS` (its addresses, comma separated) in its environment, and it hands out the pairs itself (`Environment=` lines in the unit, or an `EnvironmentFile=` that only root and the service's user can read). `ALLOWED_ORIGINS` and `TURN_TTL` work as for the service on its own.
+  - Tested: the relay answers on `/turn-credentials` with those two variables, and with 404 without them. Not tested: either form behind Caddy.
 
 ## 7. Tools
 
@@ -280,6 +330,7 @@ puppet.example.org {
 | `net` | `client abc · 2 peers · 2 lossy` | Role, room, connected devices, how many of them use the lossy channel for poses |
 | `signal` | `nostr 5/5`, `192.168.1.20:5173 1/1` | Where this device meets the others, and how many of those relays are connected. `0/…`: layer 2 is down |
 | `path` | `lan`, `nat`, `turn/udp`, `turn` | How the traffic to each peer travels (section 4). `turn` without a protocol: through the other side's TURN server |
+| `turn` | `-`, `fixed`, `fresh, 42 min left`, `no credentials (…)` | The TURN server's credentials: none configured; a fixed pair built into the page; a fetched pair and how long it is still valid; or the service did not answer (the reason in brackets: an HTTP status, a timeout, `Failed to fetch` for an unreachable address or an origin that is not allowed) |
 | `rtt` | `23 ms` | Round trip to the host (on the host: to the first peer) |
 | `rate` | `in 60/s out 60/s lost 0` | Pose and input packets per second, and how many never arrived |
 | `neterr` | `peer-connect-failed: …` | The last error from Trystero |
@@ -302,6 +353,7 @@ puppet.example.org {
 | `relay-failed: … failed to connect to relay wss://…` | A meeting point is unreachable. Harmless while others are connected |
 | `peer-connect-failed: could not connect to peer … configure TURN …` | The devices met but found no path, and no TURN server is configured: layer 3 |
 | `peer-connect-failed: … verify TURN server URLs and credentials` | The same with a TURN server configured: it is unreachable, refuses the credentials, or is full |
+| `TURN credentials: …` | The credentials service did not answer; the room is joined without a TURN server and the page asks again every 30 seconds |
 
 **Scripts:**
 
@@ -309,9 +361,10 @@ puppet.example.org {
 |---|---|
 | `node scripts/test-room.mjs [app address] [--players n] [--relay-only] [--client-relay-only] [--offline] [--no-camera] [--stay s]` | A room in headless Chrome on this machine: do the tabs meet, over which path, with how much traffic. Exit code 0 when every tab shows every puppet |
 | `bash scripts/setup-turn.sh` | A TURN server (6.1) |
+| `node scripts/turn-credentials.mjs` | Hands out the TURN server's expiring credentials (6.1); `setup-turn.sh --auth secret` installs it |
 | `node scripts/signal-relay.mjs` | Our own meeting point (6.2) |
 
-**Outside the project:** the Trickle ICE page (above) shows which kinds of addresses a device gets on a network: only `host` lines means no STUN reaches out; a `relay` line means the TURN server works. `chrome://webrtc-internals` (Chrome) and `about:webrtc` (Firefox) show every connection attempt in detail. On the TURN server: `journalctl -u coturn -f`.
+**Outside the project:** the Trickle ICE page (above) shows which kinds of addresses a device gets on a network: only `host` lines means no STUN reaches out; a `relay` line means the TURN server works. `chrome://webrtc-internals` (Chrome) and `about:webrtc` (Firefox) show every connection attempt in detail. On the TURN server: `journalctl -u coturn -f`, and for the credentials service `journalctl -u puppetshow-turn-credentials -f`.
 
 ## 8. Traffic
 
@@ -328,7 +381,7 @@ Delay: a client shows the stage 73 ms in the past, plus the way to the host and 
 
 ## 9. What was run
 
-All on 2026-11-15, headless Chrome on one Mac, with `scripts/test-room.mjs` or its predecessors. "Offline" means Chrome was started so that no name resolves except the server's own: no public relay, no STUN server.
+Rows 1 to 21 on 2026-11-15, rows 22 to 33 (the expiring TURN credentials) on 2026-11-16, headless Chrome on one Mac, with `scripts/test-room.mjs` or its predecessors. "Offline" means Chrome was started so that no name resolves except the server's own: no public relay, no STUN server.
 
 | # | Set-up | Result |
 |---|---|---|
@@ -353,12 +406,25 @@ All on 2026-11-15, headless Chrome on one Mac, with `scripts/test-room.mjs` or i
 | 19 | `setup-turn.sh` from start to end in a Debian 12 container (coturn 4.6.1), run twice | Installs, self-test passes, password kept; a peer on a private address is refused, two relayed clients are not |
 | 20 | The documented route: the four settings in `.env.local`, `npm run dev:https`, at the LAN address, offline, `&ice=relay` | Connect, `signal 192.168.1.143:… 1/1`, `path turn/udp` |
 | 21 | `npm run build`, `tsc`, `test-hand-tracking.ts`, `test-body-frame.ts` | Pass |
+| 22 | Expiring pairs: coturn 4.19 with `use-auth-secret`, the dev server hands out the pairs, `&ice=relay` | Connect, `path turn/udp`, `turn fresh, 60 min left`, 0 lost over 8 s |
+| 23 | As 22 with pairs valid for 40 s, two tabs connected for 12 minutes | Stay connected through the TURN server, 57 to 60 packets/s, 0 lost. coturn's log: it accepts what the standing connections ask for (permissions, channels, the refresh of the allocation after 9 minutes) long after their pair has expired, also after the nonce went stale (set to 45 s). The expiry only counts when a connection first asks (the same on coturn 4.6.1: row 33) |
+| 24 | As 23 for 4 minutes, then a third tab joins | Three puppets everywhere, every tab two peers over `turn/udp`: the tabs that were open made their new connections with pairs fetched seconds before (coturn's log shows the names), so the renewal reaches later connections |
+| 25 | The credentials address unreachable (nothing listens), and one that accepts and never answers | Rooms still connect directly (`path lan`), at once and after the 3 s wait; `turn no credentials (Failed to fetch)` and `(signal timed out)`. With `&ice=relay` no connection (expected) |
+| 26 | Fixed password again: coturn with `lt-cred-mech`, `VITE_TURN_URLS` and so on, with `&ice=relay` and without | `path turn/udp` and `path lan`, `turn fixed` |
+| 27 | `setup-turn.sh --auth secret` in a Debian 12 container (coturn 4.6.1, Node 18), run twice, then once with `--auth password` | Installs coturn and the service; the self-test connects two relayed clients with a pair fetched from the service; secret kept; an expired pair and a pair from another secret are refused; allowed origin 200, another origin 403, too many requests 429; back to a password the service is stopped |
+| 28 | The limit per pair: coturn 4.19 with `user-quota=8`, coturn's own test client | Two different pairs at once are both served; the same pair twice at once gets `486` |
+| 29 | The credentials service on its own over HTTPS (self-signed certificate), and inside the relay script | Answers with a pair, answers a preflight, refuses another origin; the relay without `TURN_SECRET` answers 404 there |
+| 30 | Production build with `VITE_TURN_CREDENTIALS_URL`, in `vite preview`; the credentials service on another origin, `&ice=relay` | Connect, `path turn/udp`, when the service allows the page's origin; `turn no credentials (Failed to fetch)` and `path lan` when it allows only another. The secret is not in `dist/`, also with `TURN_SECRET` set while building |
+| 31 | Default build again, two and three tabs; `npm run build`, `tsc`, `test-hand-tracking.ts`, `test-body-frame.ts` | `path lan`, `turn -`; pass |
+| 32 | The config the script writes (`--config-only --auth secret`: limit of 100 per pair, default ports) under Debian's coturn 4.6.1 in Docker, five tabs with `&ice=relay`, two TURN addresses | Five puppets everywhere, all `turn/udp`, 0 lost, nothing refused. Each device made 8 allocations: one per peer and address, nothing on top |
+| 33 | As 32 with pairs valid for 40 s, three tabs for 13 minutes, then a fourth joins | Stay connected, 0 lost, nothing refused; the fourth tab connects to all three over `turn/udp`. coturn 4.6.1's log for the first pair: permissions renewed after 240 s and 481 s, the allocation refreshed after 540 s, and a channel bound again after the nonce went stale (600 s): all accepted, long after the pair had expired |
 
 Not run, and the first things to do with real hardware:
 
 - Two real devices on a home Wi-Fi; then iPhone, Quest 2 and laptop on the venue's Wi-Fi (the hard pair is Quest and laptop: neither has camera permission).
 - A phone on mobile data against a host on Wi-Fi, with and without TURN.
-- `setup-turn.sh` on a real server, and `turns:` from a network that blocks UDP.
+- `setup-turn.sh` on a real server, and `turns:` from a network that blocks UDP. With `--auth secret`: the systemd unit of the credentials service, its HTTPS with the Let's Encrypt certificate, and the fetch from the GitHub Pages build.
+- A device that slept for more than an hour with the page open, with expiring pairs: it should fetch a new pair when the page is shown again.
 - iPhone against the laptop's self-signed `dev:https` with `VITE_SIGNAL_URLS=/relay`.
 - Whether the data channel survives entering VR on the Quest.
 
@@ -368,7 +434,7 @@ Not run, and the first things to do with real hardware:
 - **A hidden host tab pauses everyone.**
 - **A failed link between two clients loses that pair's backdrop changes.** The backdrop is sent by whoever changed it to all its peers; the host does not pass it on. If two clients cannot reach each other (both behind strict networks, no TURN), one misses the other's change. Until the host forwards it: change the backdrop on the host, or configure TURN.
 - **Props and scene presets are per device** (architecture §3.3): in a room, use props on the host only.
-- **The TURN credentials and the relay address are public** once built into the page.
+- **Anyone who can open the page can use our servers.** The app has no logins. The relay's address is in the page, and so is either the TURN server's fixed password or the address that hands out expiring pairs. Limits bound what a stranger gets (section 6.1); they do not keep strangers out.
 - **Many watching devices do not scale.** Every device connects to every other; that is fine for six, not for an audience of dozens (architecture §3.3, "Later").
 - **Clients on a second lossy channel only where it opens**; otherwise poses share Trystero's ordered channel, which stutters on a congested Wi-Fi (`net … 0 lossy`).
 
@@ -405,7 +471,11 @@ Not run, and the first things to do with real hardware:
 
 **A phone warns about the certificate.** `dev:https` uses a self-signed one: accept it once per device. For an event, a real certificate (a server with a domain, or the GitHub Pages build) spares everyone the step.
 
-**The TURN server refuses connections after a while.** Look for `486` in `journalctl -u coturn`: a quota is used up, usually by allocations that closed pages left behind (they expire after 10 minutes). The script's limits are meant to be far above that; raise `total-quota` and `user-quota` in `/etc/turnserver.conf` if a large event gets there.
+**The TURN server refuses connections after a while.** Look for `486` in `journalctl -u coturn`: a quota is used up, usually by allocations that closed pages left behind (they expire after 10 minutes). The script's limits are meant to be far above that; raise `total-quota` and `user-quota` in `/etc/turnserver.conf` if a large event gets there. With expiring pairs `user-quota` counts per fetched pair, so per device (100).
+
+**Can the TURN server stay on all the time?** Yes, when it is set up with `--auth secret`: the page then holds no password, only the address of a service that hands out pairs valid for an hour (section 6.1). With a fixed password it should be switched off after the event.
+
+**Why is anything about the TURN server in the page at all? Can the app not prove to the server that it is our app?** The TURN protocol has the browser send a user name and a password, so the page must hold a pair or be able to fetch one. And a page cannot keep a secret: everything it holds or computes, a copy of it can too, so a signature or checksum made in the page proves nothing. What can be checked is something the server itself made (the expiring pair), or something only the right people know (a key per event in the link: not built).
 
 **What does a TURN server cost in traffic?** Section 8: at most about 1.3 GB per hour for a full room in which every device is relayed.
 
@@ -418,18 +488,19 @@ Not run, and the first things to do with real hardware:
 3. On the venue's network, with two real devices: allow the camera on both, reload, open the room with `&debug`, read `signal` and `path`.
 4. If a TURN server is configured: once with `&ice=relay` on both devices.
 5. Keep the host's tab in front, the laptop on power, its screen from sleeping.
-6. Afterwards: switch the TURN server off, remove `VITE_SIGNAL_URLS` from `.env.local`.
+6. Afterwards: switch off a TURN server that runs with a fixed password (one set up with `--auth secret` can stay on); remove `VITE_SIGNAL_URLS` from `.env.local`.
 
 ## 13. Files
 
 | File | What |
 |---|---|
-| `src/net/transport.ts` | Trystero room (public relays or our own), TURN, the lossy channel, `signaling` and `paths()` for the HUD |
+| `src/net/transport.ts` | Trystero room (public relays or our own), TURN and fetching its credentials, the lossy channel, `signaling`, `paths()` and `turn()` for the HUD |
 | `src/net/session.ts`, `protocol.ts` | Host and client logic, messages (architecture §3.3) |
 | `scripts/signal-relay.mjs` | Our own meeting point; also attached to the Vite server under `/relay` (`vite.config.ts`) |
-| `scripts/setup-turn.sh` | coturn on a Debian or Ubuntu server, or just its config |
+| `scripts/setup-turn.sh` | coturn on a Debian or Ubuntu server, or just its config; with `--auth secret` also the credentials service |
+| `scripts/turn-credentials.mjs` | Hands out expiring credentials for the TURN server: on its own, inside `signal-relay.mjs`, or inside the Vite server under `/turn-credentials` (`vite.config.ts`) |
 | `scripts/test-room.mjs` | A room in headless Chrome |
-| `.github/workflows/deploy.yml` | Passes the four `VITE_*` settings from the repository's Actions variables into the Pages build |
+| `.github/workflows/deploy.yml` | Passes the five `VITE_*` settings from the repository's Actions variables into the Pages build |
 | `.env.local` | The same settings for local runs and builds (git-ignored) |
 
 Ports, for whoever configures a firewall:
@@ -440,4 +511,5 @@ Ports, for whoever configures a firewall:
 | Every device | `stun*.l.google.com`, `stun.cloudflare.com` | UDP 19302, 3478 | Finding the router's outside address |
 | Device ↔ device | each other | UDP, any high port | The direct path |
 | Every device | TURN server | UDP 3478, TCP 3478, TCP 5349 or 443 (TLS) | The detour |
+| Every device | Credentials service (`--auth secret`) | TCP 443 (`https://`) | Fetching a pair for the TURN server |
 | TURN server | the internet | UDP 49160 to 49399 | Relayed traffic |

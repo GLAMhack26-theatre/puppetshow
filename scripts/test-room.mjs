@@ -78,6 +78,7 @@ const report = (page) =>
       peers: stats.peers,
       lossy: stats.lossy,
       path: (await transport.paths()).join(" ") || "-",
+      turn: transport.turn(),
     };
   });
 

@@ -17,9 +17,13 @@
 //     PORT=9000 HOST=0.0.0.0 node scripts/signal-relay.mjs
 //
 //   and the app built with VITE_SIGNAL_URLS=wss://signal.example.org/relay.
+//   With TURN_SECRET and TURN_URLS set it also hands out the TURN server's
+//   short-lived credentials under /turn-credentials (turn-credentials.mjs),
+//   so one process behind one proxy does both.
 import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
 import { createWsRelayServer } from "@trystero-p2p/ws-relay/server";
+import { CREDENTIALS_PATH, turnCredentialsHandler, turnCredentialsOptions } from "./turn-credentials.mjs";
 
 export const RELAY_PATH = "/relay";
 
@@ -42,12 +46,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const port = Number(process.env.PORT ?? 8787);
   // Behind a proxy on the same machine by default; HOST=0.0.0.0 opens it to the network
   const host = process.env.HOST ?? "127.0.0.1";
-  const server = createServer((request, response) => {
+  const turn = turnCredentialsOptions();
+  const credentials = turn && turnCredentialsHandler(turn);
+  const rest = (request, response) => {
     // For the proxy's or a monitor's health check
     const ok = request.url === "/health";
     response.writeHead(ok ? 200 : 404, { "Content-Type": "text/plain" });
     response.end(ok ? `ok ${relay.getSubscriberCount()} subscriptions\n` : "Puppetshow signal relay: WebSocket on /relay\n");
-  });
+  };
+  const server = createServer((request, response) => (credentials ? credentials(request, response, () => rest(request, response)) : rest(request, response)));
   const relay = attachSignalRelay(server);
-  server.listen(port, host, () => console.log(`signal relay on ws://${host}:${port}${RELAY_PATH} (put TLS in front: docs/multiplayer.md)`));
+  server.listen(port, host, () => {
+    console.log(`signal relay on ws://${host}:${port}${RELAY_PATH} (put TLS in front: docs/multiplayer.md)`);
+    if (turn) console.log(`TURN credentials on http://${host}:${port}${CREDENTIALS_PATH}, valid ${turn.ttl} s, for ${turn.origins.join(", ") || "any page"}`);
+  });
 }
