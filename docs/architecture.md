@@ -13,13 +13,13 @@ The repo is empty apart from the README; this doc defines the setup and architec
 | Rendering | three.js (the version bundled by IWSDK), `GLTFLoader`; no R3F |
 | Game engine | **Meta IWSDK** (`@iwsdk/core`, MIT) starting in browser mode. The world is created XR-capable (`xr: { offer: "none", sessionMode: ImmersiveVR, … }`; a world created with `xr: false` can never start a session) and the **WebXR** button (top right, shown where a headset is found) starts the session with `world.launchXR()` |
 | Physics | **Rapier** (`@dimforge/rapier3d-compat`) as our own system; IWSDK physics stays off (`features.physics: false`) |
-| Gestures | MediaPipe (`@mediapipe/tasks-vision`: HandLandmarker + GestureRecognizer) |
+| Gestures | MediaPipe (`@mediapipe/tasks-vision`): the HandLandmarker in play; face detector, face landmarker and pose landmarker only while a session is recorded (`?record`) |
 | Targets | Phone and desktop with a webcam first, the phone running everything itself. WebRTC remote and VR later |
 | Audio | Web Audio; background music and excerpts **streamed from archive.org** (netlabel releases, `assets/sounds/archive.json`); effects as CC0 samples + **ZzFX**; physics sounds from collision starts, stereo-panned. Music and effects each have a button, both off at every load |
 | Tooling | TypeScript + Vite + HTTPS, run with npm (`npm run dev`, `npm run dev:https` for phones on the LAN); the app is served directly by Vite (no proxy). Docker Compose is set aside for now (later) |
 | Assets | Sources committed in `/assets`, grouped by source, imported directly by Vite (`?url`, `import.meta.glob`); large files on external storage, downloaded by hand into `assets/external/` (git-ignored). A `convert` service that optimizes them into `/public` is planned for later |
 | Fonts | Geist Sans + Geist Serif (OFL), self-hosted in `assets/fonts/`; used by the presentation so far |
-| Exit | Back to the title screen |
+| Exit | Back to the play choice: the **Stücke** button lowers the curtain and the signs drop in again |
 | WebXR | Quest 2/3: the visitor **is** the marionette, seen from its eyes at its size; head and hands (6DoF) are the puppet's (section 3.3) |
 | Later | WebRTC remote (display + phone via QR), WebXR 3DoF, LiteRT-LM |
 
@@ -44,14 +44,12 @@ Background: other engines and physics libraries were also evaluated.
 - the stage camera (fixed or orbit; IWSDK leaves the camera to the app)
 - all control input
 - physics: `RapierSystem` (fixed 60 Hz step, poses synced to entities through `PhysicsLink`)
-- the puppet rig, strings and grab: we write our own `GrabSystem`, because IWSDK's near-field grab is XR-only and grabbing here is done by the puppet's hands, not the user's
+- the puppet rig, strings and grab (`src/puppet/`): our own, because IWSDK's near-field grab is XR-only and grabbing here is done by the puppet's hands, not the user's
 
-**Systems:**
-- **Input:** `MediaPipeInputSystem`, `PhoneInputSystem` and `MouseInputSystem` all write `ControlInput`. `XrEmbodimentSystem` (`src/xr/`) writes `ControlInput.body` in a WebXR session. `RemoteInputSystem` comes later.
-- **Puppet:** `PuppetRigSystem` (physics pose → `SkinnedMesh` bones), `StringSystem` (constraint lengths + rendering the strings), `GrabSystem`.
-- **Stage and scenes:** `SpotlightSystem`, `LightingSystem`, `AudioSystem`, `SceneFlowSystem` (Title ↔ Main).
-
-**Components:** `Puppet`, `StringAttachment`, `Prop` (grabbable/throwable), `HangingLetter`, `Spotlight`.
+**Systems (as built):** `RapierSystem`, `StageSystem`, `MainCurtainSystem`, `SignSystem`, `BackdropSystem`, `RequisitSystem`, `SpotlightSystem`, `LightingSystem`, `FrameSystem` (scene changes wait on the world's loop, `systems/frames.ts`), `XrEmbodimentSystem` (`src/xr/`) and `FpsSystem` (HUD), registered in `src/main.ts`. The only component is `PhysicsLink` (entity ↔ Rapier body).
+- **Input** is not an ECS system: `src/input/mediapipe.ts` writes `ControlInput` from the camera frames (`requestVideoFrameCallback`), the mouse and keyboard handlers in `src/spike/puppet.ts` write it without a camera. In a WebXR session `XrEmbodimentSystem` writes `ControlInput.body` (section 3.3).
+- **Puppet:** rig, strings and grab (`src/puppet/`) run as hooks of the Rapier step (`physics.beforeStep`, `afterSync`) rather than as systems of their own.
+- The flow between curtain, signs and plays is in `src/main.ts`; there is no scene system and no title scene.
 
 ### Phase 0 spike (½ day)
 1. `xr: false` on a real phone (iOS Safari, Android Chrome): frame rate, bundle size, touch input, and the camera running together with MediaPipe.
@@ -65,10 +63,9 @@ If items 1 or 2 fail, the fallback is our own thin engine with the same split in
 
 ## 2. Scenes & gameplay
 
-**Title screen**
-- "SKKG Marionetten Theater": each letter is a `TextGeometry` mesh in Geist Serif. The font is converted to typeface JSON (by the converter, once it exists).
-- Each letter hangs on strings (Rapier rope joints) and sways. Pointer or hand movement pushes the letters.
-- The **Play** button opens the main scene. It also unlocks audio and asks for the camera and motion-sensor permissions, because iOS only grants these after a user gesture.
+**Title screen (planned, not built)**
+- The page opens with the main curtain and the play signs instead (below); the click on a sign is the user gesture that camera and audio need on iOS.
+- The idea, kept for later: "SKKG Marionetten Theater" as `TextGeometry` letters in Geist Serif, each hanging on Rapier rope joints and swaying, pushed by pointer or hand.
 
 **Main scene**
 - At start the main curtain (`assets/stage_parts/Main_Curtain.glb`, `src/stage/main-curtain.ts`) hangs right in front of the camera and covers the whole screen at any aspect ratio, with a light cloth wobble (shader). Two seconds after start three signs (`src/stage/signs.ts`, the plays to choose from: `Sign_Haensel`, `Sign_Froschkoenig`, `Sign_Impro` in `assets/stage_parts/`) drop in one after another in a loose, slightly tilted row in front of it, overshoot and settle, and cast soft fake shadows on it (blurred silhouette quads, no shadow map). Hover enlarges a sign; a click on a sign raises the curtain, and the signs go up with it. Every further play in `assets/plays/` (made with the director bar) gets a sign painted at runtime (canvas texture: cardboard with a wooden lath, its name in hand-painted capitals, "in N Szenen"); they hang three to a row behind the three painted ones, and a golden **mehr** arrow under the signs pulls the next row down (**zurück** the previous one). The list is read anew each time the choice is shown. The same click starts the camera and MediaPipe hand control (`src/input/mediapipe.ts`): it is the user gesture camera access needs. Without a camera (or permission) the mouse keeps control; a **Kamera starten** button in the debug panel starts it by hand.
@@ -103,8 +100,8 @@ If items 1 or 2 fail, the fallback is our own thin engine with the same split in
   - They hang on a lighting bar out in front of the stage (1.6 m in front, 1.2 m up, above the camera's view), as front-of-house spots do in a real theatre, each as a small fixture that turns with its beam.
   - They add a pool of focus light around the puppet to the stage already lit by the other groups; the beam is also drawn as faint haze (an additive cone, rendering only). Their look comes from the lighting scene.
   - They are the only lights casting shadows; on phones only the first spot does.
-- The marionette and props it can interact with: hold, throw, drop.
-- **Exit** goes back to the title.
+- The marionette and props it can interact with: the puppet's hands hold props like magnets, a whipped hand throws, a quick fist/open of the second hand lets go (§3.1, §3.2).
+- **Exit:** the **Stücke** button goes back to the play choice.
 
 **UI/UX, "game theatre" character**
 - Curtain transitions, ticket- or programme-style buttons, Geist Sans for the UI, Geist Serif for titles.
@@ -263,7 +260,7 @@ Checked in headless Chrome with a fake camera playing a photo of a person (face,
 
 ### 3.2 Puppet rig
 
-1. **The model defines the rig (decided):** the SKKG marionette (README, "Marionette model") comes as `export/marionette.glb` plus `export/marionette_rig.json`. The JSON holds per bone the capsule collider, `mass_kg` and the joint (cone, or hinge with a bone-local axis and limits in degrees), and the 9 strings (socket, carrying bone, position, controller point, rest length). `src/puppet/marionette.ts` turns it into a rig description; nothing about the puppet is hard-coded.
+1. **The model defines the rig (decided):** the SKKG marionette ([marionette-model.md](marionette-model.md)) comes as `export/marionette.glb` plus `export/marionette_rig.json`. The JSON holds per bone the capsule collider, `mass_kg` and the joint (cone, or hinge with a bone-local axis and limits in degrees), and the 9 strings (socket, carrying bone, position, controller point, rest length). `src/puppet/marionette.ts` turns it into a rig description; nothing about the puppet is hard-coded.
    - **Bones:** `root`, `pelvis`, `chest`, `neck`, `head`, `upper_arm/forearm/hand.L/R`, `thigh/shin/foot.L/R`.
    - **Rest pose:** arms hanging down (no T-pose), as a marionette rests on its strings.
    - **Strings:** `head.L/R`, `shoulder.L/R`, `back`, `hand.L/R`, `knee.L/R`.
@@ -356,12 +353,12 @@ scripts/test-body-frame.ts      # the hand's height on synthetic scenes: cameras
 scripts/replay-recording.mjs    # a recorded hand session through the tracker → CSV (node, no browser)
 src/
   main.ts               # IWSDK World (browser first, XR on request), register systems
-  components/  systems/  scenes/{title,main}.ts
+  components/physics-link.ts  systems/{rapier-system,frames}.ts
   stage/{stage,lighting,spotlights,backdrops}.ts
   plays/{plays,director,scene-buttons,play-menu}.ts   # scene presets; data in assets/plays/*.json
   props/{requisits,materials,squish,contacts,iiif}.ts   # impro props: placing, materials, squash, impact speed; settings in assets/catalogue.json
   # lighting scenes (the library all plays share): assets/lights/*.json
-  input/{control-input,mediapipe,hand-tracking,hand-overlay,hand-synthetic,hand-release,body-source,body-frame,scene-synthetic,phone,mouse}.ts
+  input/{control-input,mediapipe,hand-tracking,hand-overlay,hand-synthetic,hand-release,body-source,body-frame,scene-synthetic}.ts   # mouse and keys: spike/puppet.ts; phone sensors planned
   audio/{audio,ambient,excerpts,sfx,cues,impacts}.ts   # graph + on/off, archive.org playlists and excerpts, effects
   ui/                   # overlay, release timer, hand settings, light desk, sound button, debug mode, styles, Geist fonts
   xr/{xr-button,xr-embodiment,emulator}.ts   # WebXR: the player as the puppet (section 3.3, docs/xr.md); puppet side in puppet/body-drive.ts and body-walk.ts
@@ -385,7 +382,7 @@ Later, with Docker: `converter/` (Dockerfile with Blender LTS, node and ffmpeg; 
 0. IWSDK spike (section 1): go or fallback.
 1. Scaffold: IWSDK browser-mode project, Vite/TS/HTTPS, scene flow, CLAUDE.md.
 2. Converter + asset sync (later, with Docker Compose).
-3. Title scene: hanging letters, Play → main, Exit → title.
+3. Title scene: hanging letters, Play → main, Exit → title (not built: the main curtain with the play signs took its place).
 4. Main stage: 3-point lights, spotlight, backdrops, audio (music + ZzFX).
 5. Puppet: placeholder rigged `.glb` until the real `.blend` arrives; strings; mouse control.
 6. MediaPipe → `ControlInput` (desktop + phone camera).
@@ -400,7 +397,7 @@ Later, with Docker: `converter/` (Dockerfile with Blender LTS, node and ffmpeg; 
 - **MediaPipe and rendering together on a mid-range phone:** performance needs to be measured in phase 0. Possible measures: lower camera resolution, inference at 15–30 Hz.
 - **Blender in Docker on Apple Silicon** (once the converter exists) runs under x86 emulation and is slow. A local `BLENDER_BIN` is the fallback.
 - **A second model for the hand's height (a face or a body), later:** in play only the hand landmarker runs. The height model can already read a face or a body ("Height in metres"), but running one costs frame rate on the page's one thread (while recording, the hand landmarker fell from 29 Hz to 16 … 22 Hz with three body models; a face detector alone, on a stride of frames, is the candidate) and a WebGL context per task. And what it would add rests on assumptions (the hand plays 42 cm below the eyes; the eyes' distance as a ruler, which a face 14 px wide with 2 px of noise no longer is) until recordings with a face or a body in them exist. Until then a pitched camera needs the installer's step ("Kamera einmessen"), and without it the height drifts with the hand's distance.
-- **iOS permissions:** camera, DeviceOrientation and audio all need a user gesture, which the Play button provides.
+- **iOS permissions:** camera, DeviceOrientation and audio all need a user gesture, which the click on a play sign provides.
 - **Self-signed certificates:** phones warn once. For the demo, use a real certificate on the server.
 - **WebXR is verified in the emulator only:** hand orientation, the eye point, drive speeds, string slack and the frame rate with the lighting rig are not judged on a Quest yet.
 - **Remote hosts:** by design the app only streams music and excerpts from archive.org (after a sound button or a sign click) and fetches what a dropped IIIF manifest points to. Named in bundled libraries but not requested by the app: `unpkg.com` (IWSDK's Draco/Basis decoder paths, used only if IWSDK's own asset manager loads a compressed model, which the app never asks it to), `api.dicebear.com` (default picture of a uikit avatar component, not used), `odml.pa.googleapis.com/v1/log` (a logging call inside MediaPipe tasks-vision; not checked whether it is sent while hand tracking runs).
@@ -416,9 +413,9 @@ Results of the third play-test round (what was measured, shortfalls, open questi
 - Grabbing by hand: `?test=nocurtain&debug` without a camera (the mouse leads, F / G only act then), a small prop from the Requisiten panel, the cross lowered with the pointer until a hand is within 6 cm of it: F held takes it, F tapped lets it go; the HUD lines `left` / `right` show prop in reach / prop held. Grabbing by script, which is how the numbers in §3.2 were measured: `?test=puppet&debug` has no props, so a stand-in body is pushed into the `grabbables` global and the page is stepped with `stepPhysics()`; `puppet`, `puppetState`, `GRAB`, `RAPIER`, `hidePuppets`, `showPuppets` and `flyIn` are globals there too.
 - `node scripts/replay-recording.mjs --self-test` passes: the re-projection behind `--pitch` (no pitch changes nothing, a point on the optical axis moves by f · tan(pitch) rows, points off the axis land where a pitched camera sees them, there and back) and the units of the body columns.
 - `npm run dev:https`, opened at `https://<LAN-IP>:5173`:
-  - the title letters sway and Play/Exit work
+  - curtain and signs come in, a sign click raises the curtain, and **Stücke** goes back to the choice
   - the puppet follows the mouse, then MediaPipe on desktop and phone
-  - a prop can be grabbed, thrown and dropped
+  - a prop can be grabbed (the second hand's fist), thrown and let go
   - on a phone the camera and sensors work
 - `?emu` on the dev server (see `xr.md`, section 10): the WebXR button appears; in a session `world.player.scale` is about 0.2, the puppet's head and hands follow `xrDevice`, a pinch closes the hand, a quarter turn of the headset turns chest, pelvis and legs, moving the headset across the room gives steps (`puppet.body.stepping()`), a number key switches the scene inside the session, and no request leaves localhost; leaving restores scale 1, the camera and the mouse.
 - On a Quest: `adb reverse tcp:5173 tcp:5173`, then `http://localhost:5173` (a secure context without a certificate warning), or `npm run dev:https` over the LAN.
@@ -432,6 +429,7 @@ Add one line per change to a decision in this doc: date, what changed, why.
 
 | Date | Change | Reason |
 |---|---|---|
+| 2026-11-16 | Doc brought in line with the code: no title screen (the curtain and signs are the start, **Stücke** the exit), systems and components as registered, input and puppet as hooks rather than ECS systems, HandLandmarker only in play (no GestureRecognizer), layout without `scenes/`, `phone.ts` and `mouse.ts` | The plan's names and the title screen were never built; the doc described them as present |
 | 2026-11-15 | WebXR on the reworked engine (merge of `main`): opening the hand bumps `ControlInput.release`; while a player is inside, the head-turn spring and the knee strings' take-up stand by and fly-in leaves the puppet alone; motors give the joints back each part's own friction (`RigPart.friction`) | The magnet going off no longer drops a prop; the head-turn spring sits on the axis of the body-turn motor; take-up drew in the slack the strings are given; the body drive and the walk restored one global friction where parts now have their own |
 | 2026-11-15 | WebXR: the legs take steps when the player walks (`puppet/body-walk.ts`); scene changes wait on the world's loop (`systems/frames.ts`) instead of the page's animation frames and timers, and a puppet with a player inside stays on stage during a change; implementation notes moved to `docs/xr.md` | The legs dragged behind a walking player. A headset stops the page's frames during a session, so a scene change started there hung, and it would have pulled the cross up against the pinned head |
 | 2026-11-15 | WebXR: tracked hands first (pinch grips), no controller or hand models (IWSDK's visual adapters get a loader without models); the body turns all the way with the head and is held there, pelvis and legs follow; the WebXR button waits for a scene change, the main curtain or the way back to the play choice | No downloads from a CDN (IWSDK fetched four models from jsDelivr on every session start) and no controllers at the venue; turning to walk left or right across the stage left the body up to 25° behind; a session started during a scene change left the puppet faded out |
